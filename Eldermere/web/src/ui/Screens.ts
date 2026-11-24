@@ -215,6 +215,7 @@ function renderConfettiHtml(heraldryColor: string): string {
 
 export class TitleScreen {
   private readonly root: HTMLElement;
+  private readonly railEl: HTMLElement;
   private readonly callbacks: TitleScreenCallbacks;
   private selectedFaction: FactionId = 'humans';
   private difficulty: Difficulty = 'normal';
@@ -225,6 +226,10 @@ export class TitleScreen {
     this.root = document.createElement('div');
     this.root.className = 'title-screen';
     this.root.setAttribute('data-faction', this.selectedFaction);
+    this.railEl = document.createElement('aside');
+    this.railEl.className = 'campaign-rail';
+    this.railEl.setAttribute('aria-label', 'Campaign Setup');
+    this.root.appendChild(this.railEl);
     container.appendChild(this.root);
     this.render();
   }
@@ -235,7 +240,7 @@ export class TitleScreen {
 
   public show(): void {
     this.root.classList.remove('hidden');
-    this.render();
+    this.syncSelectionState();
   }
 
   public hide(): void {
@@ -248,10 +253,6 @@ export class TitleScreen {
 
   private render(): void {
     this.root.setAttribute('data-faction', this.selectedFaction);
-    const activeDef = FACTION_DEFINITIONS[this.selectedFaction];
-    const uniqueUnit = UNIT_DEFINITIONS[activeDef.uniqueUnit];
-    const heraldry = FACTION_HERALDRY[this.selectedFaction];
-    const bullets = FACTION_STRENGTH_BULLETS[this.selectedFaction];
 
     const emblemTabsHtml = ALL_FACTIONS.map((factionId) => {
       const def = FACTION_DEFINITIONS[factionId];
@@ -274,30 +275,72 @@ export class TitleScreen {
       `;
     }).join('');
 
-    const bulletsHtml = bullets
-      .map(
-        (item) => `
-          <li class="rail-strength-item">
-            <span class="rail-strength-pip" style="background: ${heraldry};" aria-hidden="true"></span>
-            <span class="rail-strength-copy">
-              <strong class="rail-strength-lead">${esc(item.lead)}</strong>
-              <span class="rail-strength-dash">&mdash;</span>
-              <span class="rail-strength-detail">${formatStars(item.detail)}</span>
-            </span>
-          </li>
-        `,
-      )
-      .join('');
+    const dossiersHtml = ALL_FACTIONS.map((factionId) => {
+      const activeDef = FACTION_DEFINITIONS[factionId];
+      const uniqueUnit = UNIT_DEFINITIONS[activeDef.uniqueUnit];
+      const heraldry = FACTION_HERALDRY[factionId];
+      const bullets = FACTION_STRENGTH_BULLETS[factionId];
+      const isSelected = this.selectedFaction === factionId;
 
-    const unitVisualHtml = renderUnitThumbOrIcon(
-      uniqueUnit.type,
-      this.selectedFaction,
-      renderUnitIcon(uniqueUnit.type, 'icon icon-lg'),
-      'thumb-3d thumb-rail-unit',
-    );
+      const bulletsHtml = bullets
+        .map(
+          (item) => `
+            <li class="rail-strength-item">
+              <span class="rail-strength-pip" style="background: ${heraldry};" aria-hidden="true"></span>
+              <span class="rail-strength-copy">
+                <strong class="rail-strength-lead">${esc(item.lead)}</strong>
+                <span class="rail-strength-dash">&mdash;</span>
+                <span class="rail-strength-detail">${formatStars(item.detail)}</span>
+              </span>
+            </li>
+          `,
+        )
+        .join('');
 
-    this.root.innerHTML = `
-      <aside class="campaign-rail" aria-label="Campaign Setup">
+      const unitVisualHtml = renderUnitThumbOrIcon(
+        uniqueUnit.type,
+        factionId,
+        renderUnitIcon(uniqueUnit.type, 'icon icon-lg'),
+        'thumb-3d thumb-rail-unit',
+      );
+
+      return `
+        <section
+          class="rail-dossier ${isSelected ? '' : 'hidden'}"
+          data-faction-panel="${factionId}"
+          aria-live="polite"
+        >
+          <div class="rail-dossier-compact-head">
+            <span class="rail-dossier-realm">${esc(activeDef.name)}</span>
+            <span class="rail-dossier-dot" style="background: ${heraldry};"></span>
+            <span class="rail-craft-name">${esc(activeDef.realm)}</span>
+          </div>
+
+          <ul class="rail-strengths-list" aria-label="${esc(activeDef.name)} strengths and unique advantages">
+            ${bulletsHtml}
+          </ul>
+
+          <div class="rail-unit-row">
+            <div class="rail-unit-thumb">${unitVisualHtml}</div>
+            <div class="rail-unit-meta">
+              <div class="rail-unit-title">
+                <span>${esc(uniqueUnit.name)}</span>
+                <span class="cost-tag">${uniqueUnit.cost}${renderIcon('star', 'icon icon-sm icon-star')}</span>
+              </div>
+              <div class="rail-unit-stats">
+                <span>HP ${uniqueUnit.maxHp}</span>
+                <span>ATK ${uniqueUnit.attack}</span>
+                <span>DEF ${uniqueUnit.defense}</span>
+                <span>MOV ${uniqueUnit.movement}</span>
+                ${uniqueUnit.range > 1 ? `<span>RNG ${uniqueUnit.range}</span>` : ''}
+              </div>
+            </div>
+          </div>
+        </section>
+      `;
+    }).join('');
+
+    this.railEl.innerHTML = `
         <div class="rail-inner">
           <header class="rail-wordmark">
             <h1 class="rail-title">Chronicles of Eldermere</h1>
@@ -307,34 +350,7 @@ export class TitleScreen {
             ${emblemTabsHtml}
           </div>
 
-          <section class="rail-dossier" aria-live="polite">
-            <div class="rail-dossier-compact-head">
-              <span class="rail-dossier-realm">${esc(activeDef.name)}</span>
-              <span class="rail-dossier-dot" style="background: ${heraldry};"></span>
-              <span class="rail-craft-name">${esc(activeDef.realm)}</span>
-            </div>
-
-            <ul class="rail-strengths-list" aria-label="${esc(activeDef.name)} strengths and unique advantages">
-              ${bulletsHtml}
-            </ul>
-
-            <div class="rail-unit-row">
-              <div class="rail-unit-thumb">${unitVisualHtml}</div>
-              <div class="rail-unit-meta">
-                <div class="rail-unit-title">
-                  <span>${esc(uniqueUnit.name)}</span>
-                  <span class="cost-tag">${uniqueUnit.cost}${renderIcon('star', 'icon icon-sm icon-star')}</span>
-                </div>
-                <div class="rail-unit-stats">
-                  <span>HP ${uniqueUnit.maxHp}</span>
-                  <span>ATK ${uniqueUnit.attack}</span>
-                  <span>DEF ${uniqueUnit.defense}</span>
-                  <span>MOV ${uniqueUnit.movement}</span>
-                  ${uniqueUnit.range > 1 ? `<span>RNG ${uniqueUnit.range}</span>` : ''}
-                </div>
-              </div>
-            </div>
-          </section>
+          ${dossiersHtml}
 
           <div class="rail-toggles">
             <div class="rail-toggle-row">
@@ -367,7 +383,6 @@ export class TitleScreen {
             ${renderIcon('chevronRight', 'icon')}
           </button>
         </div>
-      </aside>
     `;
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-faction-pick]').forEach((btn) => {
@@ -376,7 +391,7 @@ export class TitleScreen {
         if (faction && faction !== this.selectedFaction) {
           this.selectedFaction = faction;
           this.callbacks.onSelectFaction?.(faction);
-          this.render();
+          this.syncSelectionState();
         }
       });
     });
@@ -386,7 +401,7 @@ export class TitleScreen {
         const diff = btn.dataset.difficulty as Difficulty;
         if (diff && diff !== this.difficulty) {
           this.difficulty = diff;
-          this.render();
+          this.syncSelectionState();
         }
       });
     });
@@ -396,7 +411,7 @@ export class TitleScreen {
         const size = Number(btn.dataset.mapsize) as MapSize;
         if ((size === 16 || size === 18) && size !== this.mapSize) {
           this.mapSize = size;
-          this.render();
+          this.syncSelectionState();
         }
       });
     });
@@ -408,6 +423,24 @@ export class TitleScreen {
         difficulty: this.difficulty,
         mapSize: this.mapSize,
       });
+    });
+  }
+
+  private syncSelectionState(): void {
+    this.root.setAttribute('data-faction', this.selectedFaction);
+    this.root.querySelectorAll<HTMLButtonElement>('[data-faction-pick]').forEach((btn) => {
+      const active = btn.dataset.factionPick === this.selectedFaction;
+      btn.classList.toggle('selected', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
+    this.root.querySelectorAll<HTMLElement>('[data-faction-panel]').forEach((panel) => {
+      panel.classList.toggle('hidden', panel.dataset.factionPanel !== this.selectedFaction);
+    });
+    this.root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.difficulty === this.difficulty);
+    });
+    this.root.querySelectorAll<HTMLButtonElement>('[data-mapsize]').forEach((btn) => {
+      btn.classList.toggle('active', Number(btn.dataset.mapsize) === this.mapSize);
     });
   }
 }

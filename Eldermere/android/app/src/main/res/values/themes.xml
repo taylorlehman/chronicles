@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Eldermere.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/eldermere_splash_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_emblem</item>
+        <item name="postSplashScreenTheme">@style/Theme.Eldermere</item>
+    </style>
+
+    <style name="Theme.Eldermere" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/eldermere_bg_dark</item>
+        <item name="colorPrimary">@color/eldermere_gold</item>
+        <item name="colorOnPrimary">@color/eldermere_bg_dark</item>
+        <item name="colorSurface">@color/eldermere_surface_dark</item>
+        <item name="colorOnSurface">@color/eldermere_ink_light</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Eldermere.AlertDialog</item>
+    </style>
+
+    <style name="ThemeOverlay.Eldermere.AlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurfaceContainerHigh">@color/eldermere_surface_dark</item>
+        <item name="colorPrimary">@color/eldermere_gold</item>
+        <item name="colorOnSurface">@color/eldermere_ink_light</item>
+        <item name="colorOnSurfaceVariant">@color/eldermere_ink_soft</item>
+    </style>
+</resources>

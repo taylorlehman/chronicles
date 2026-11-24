@@ -6,3 +6,13 @@ firebase-debug*.log
 .firebase/
 .env
 .env.local
+
+# Android build artifacts & local config
+Eldermere/android/.gradle/
+Eldermere/android/.kotlin/
+Eldermere/android/build/
+Eldermere/android/app/build/
+Eldermere/android/local.properties
+Eldermere/android/art-staging/
+*.iml
+.idea/

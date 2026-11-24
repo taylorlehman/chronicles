@@ -80,9 +80,14 @@ export class SceneManager {
     );
     this.camera.zoom = this.currentZoom;
 
+    const isAndroidWebView =
+      typeof window !== 'undefined' &&
+      Boolean((window as Window & { EldermereAndroid?: unknown }).EldermereAndroid);
+
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
       powerPreference: 'high-performance',
+      preserveDrawingBuffer: isAndroidWebView,
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(width, height);
@@ -200,6 +205,14 @@ export class SceneManager {
     }
   }
 
+  public renderOnce(): void {
+    this.stepCamera(0);
+    for (const cb of this.callbacks) {
+      cb(0, this.elapsed);
+    }
+    this.renderer.render(this.scene, this.camera);
+  }
+
   public resize(): void {
     const width = Math.max(this.container.clientWidth, 1);
     const height = Math.max(this.container.clientHeight, 1);
@@ -210,6 +223,9 @@ export class SceneManager {
     this.camera.bottom = -BASE_FRUSTUM_HALF_HEIGHT;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
+    if (this.rafId === null) {
+      this.renderer.render(this.scene, this.camera);
+    }
   }
 
   public panByScreenDelta(dxPx: number, dyPx: number): void {

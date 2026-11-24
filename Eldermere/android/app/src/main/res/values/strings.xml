@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Chronicles of Eldermere</string>
+    <string name="loading_kicker">CHRONICLES OF</string>
+    <string name="loading_title">ELDERMERE</string>
+    <string name="loading_tagline">Four Realms. One Crown.</string>
+    <string name="loading_tip_default">Charting forests, plains &amp; peaks…</string>
+
+    <string-array name="loading_tips">
+        <item>Charting forests, plains &amp; peaks…</item>
+        <item>Awakening the four realms…</item>
+        <item>Forging battle banners…</item>
+        <item>Summoning faction champions…</item>
+    </string-array>
+
+    <string name="exit_dialog_title">Leave Eldermere?</string>
+    <string name="exit_dialog_message">Step away from the realm for now?</string>
+    <string name="exit_dialog_stay">Stay</string>
+    <string name="exit_dialog_leave">Leave</string>
+</resources>

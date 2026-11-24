@@ -66,6 +66,7 @@ import { LeaderboardModal, type LeaderboardModalViewModel } from './LeaderboardM
 import { GameOverOverlay, TitleScreen, type StartGameOptions } from './Screens';
 import { TechModal, type TechModalViewModel } from './TechModal';
 import { TopBar } from './TopBar';
+import { notifyAndroidGameReady, triggerAndroidHaptic } from './androidBridge';
 import { renderIcon } from './icons';
 
 const TERRAIN_NAMES: Record<TerrainType, string> = {
@@ -122,10 +123,14 @@ export class AppController {
   private readonly onCanvasPointerDownBound: (e: PointerEvent) => void;
   private readonly onWindowPointerUpBound: (e: PointerEvent) => void;
   private readonly onWindowPointerCancelBound: () => void;
+  private readonly onAndroidBackBound: () => boolean;
+  private readonly onAndroidSetPausedBound: (paused: boolean) => void;
 
   private isBusy = false;
   private isAITurnRunning = false;
   private sessionToken = 0;
+  private titleSettleTimer: number | null = null;
+  private isTitleDioramaActive = false;
 
   constructor(
     canvasContainer: HTMLElement,
@@ -142,10 +147,15 @@ export class AppController {
       this.activeCanvasPointerId = null;
       this.canvasMultiTouch = false;
     };
+    this.onAndroidBackBound = () => this.handleAndroidBack();
+    this.onAndroidSetPausedBound = (paused: boolean) => this.setPaused(paused);
 
     this.titleScreen = new TitleScreen(this.hudRoot, {
       onStartGame: (options) => this.startGame(options),
-      onSelectFaction: (faction) => this.applyFactionTheme(faction),
+      onSelectFaction: (faction) => {
+        triggerAndroidHaptic('tap');
+        this.applyFactionTheme(faction);
+      },
     });
 
     this.gameOverOverlay = new GameOverOverlay(this.hudRoot, {
@@ -174,7 +184,7 @@ export class AppController {
         void this.handleHumanAction({ type: 'RESEARCH_TECH', techId });
       },
       onClose: () => {
-        // Closed cleanly
+        this.resumeSceneAfterOpaqueSheet();
       },
     });
 
@@ -216,6 +226,66 @@ export class AppController {
     this.applyFactionTheme(this.titleScreen.getSelectedFaction());
     this.mountTitleDiorama();
     this.titleScreen.show();
+
+    window.__eldermereHandleBack = this.onAndroidBackBound;
+    window.__eldermereSetPaused = this.onAndroidSetPausedBound;
+
+    // Notify Android WebView after the Three.js scene has rendered its first frame
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        notifyAndroidGameReady();
+      });
+    });
+  }
+
+  private handleAndroidBack(): boolean {
+    if (this.defeatNoticeModal.isOpen()) {
+      this.defeatNoticeModal.close();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
+    if (this.factionDossierModal.isOpen()) {
+      this.factionDossierModal.close();
+      this.openLeaderboardModal();
+      return true;
+    }
+    if (this.leaderboardModal.isOpen()) {
+      this.leaderboardModal.close();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
+    if (this.techModal.isOpen()) {
+      this.techModal.close();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
+    if (this.cityRewardModal.isOpen()) {
+      this.cityRewardModal.close();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
+    if (this.selectedCoord !== null) {
+      this.clearSelection();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
+    return false;
+  }
+
+  private shouldKeepScenePausedForAndroid(): boolean {
+    if (!window.EldermereAndroid) return false;
+    return this.isTitleDioramaActive || this.techModal.isOpen();
+  }
+
+  private setPaused(paused: boolean): void {
+    if (!this.sceneManager) return;
+    if (paused) {
+      this.sceneManager.stop();
+    } else if (this.shouldKeepScenePausedForAndroid()) {
+      this.sceneManager.renderOnce();
+    } else {
+      this.sceneManager.start();
+    }
   }
 
   private applyFactionTheme(faction: FactionId): void {
@@ -284,6 +354,8 @@ export class AppController {
    */
   private mountTitleDiorama(): void {
     this.disposeSession();
+    this.isTitleDioramaActive = true;
+    const token = this.sessionToken;
 
     const showcaseSeed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
     const showcaseState = createGame({
@@ -297,9 +369,10 @@ export class AppController {
     const viewer = showcaseState.players.find((p) => p.isHuman) ?? showcaseState.players[0];
     viewer.revealedTiles.fill(true);
 
+    const isAndroidWebView = Boolean(window.EldermereAndroid);
     const sceneManager = new SceneManager(this.canvasContainer);
     sceneManager.setBoardBounds(showcaseState.mapSize);
-    sceneManager.setIdleOrbit(true);
+    sceneManager.setIdleOrbit(!isAndroidWebView);
 
     const board = new BoardRenderer(sceneManager.scene);
     board.syncState(showcaseState, viewer.id);
@@ -315,9 +388,22 @@ export class AppController {
 
     this.sceneManager = sceneManager;
     this.board = board;
+
+    // On Android WebView, let initial textures & SVG sprites finish uploading behind the
+    // launch loading screen, then render a crisp sunlit frame and stop the 60fps RAF loop
+    // so Chromium's compositor stays completely idle behind the Title Screen.
+    if (isAndroidWebView) {
+      this.titleSettleTimer = window.setTimeout(() => {
+        this.titleSettleTimer = null;
+        if (token !== this.sessionToken || !this.isTitleDioramaActive) return;
+        sceneManager.renderOnce();
+        sceneManager.stop();
+      }, 850);
+    }
   }
 
   public startGame(options: StartGameOptions): void {
+    triggerAndroidHaptic('select');
     this.disposeSession();
     this.sessionToken += 1;
 
@@ -426,6 +512,12 @@ export class AppController {
   }
 
   public destroy(): void {
+    if (window.__eldermereHandleBack === this.onAndroidBackBound) {
+      delete window.__eldermereHandleBack;
+    }
+    if (window.__eldermereSetPaused === this.onAndroidSetPausedBound) {
+      delete window.__eldermereSetPaused;
+    }
     this.disposeSession();
     this.hideRewardToast();
     this.rewardToastEl.remove();
@@ -442,6 +534,11 @@ export class AppController {
 
   private disposeSession(): void {
     this.sessionToken += 1;
+    this.isTitleDioramaActive = false;
+    if (this.titleSettleTimer !== null) {
+      window.clearTimeout(this.titleSettleTimer);
+      this.titleSettleTimer = null;
+    }
     this.defeatNoticeModal.close();
     this.isBusy = false;
     this.isAITurnRunning = false;
@@ -689,6 +786,7 @@ export class AppController {
     this.badges?.setSelectedCoord(badgeSelectedCoord);
     this.badges?.setLethalTargets(lethalCoords);
 
+    triggerAndroidHaptic('select');
     this.refreshActionBar();
   }
 
@@ -733,6 +831,20 @@ export class AppController {
     try {
       const { state: nextState, events } = applyAction(this.state, action);
       this.state = nextState;
+
+      let hapticStyle: 'tap' | 'combat' | 'capture' | 'victory' = 'tap';
+      for (const ev of events) {
+        if (ev.type === 'GAME_OVER' && ev.winnerId === this.humanPlayerId) {
+          hapticStyle = 'victory';
+          break;
+        }
+        if (ev.type === 'CITY_CAPTURED' || ev.type === 'CITY_LEVELED' || ev.type === 'RUINS_CLAIMED') {
+          hapticStyle = 'capture';
+        } else if (ev.type === 'UNIT_ATTACKED' && hapticStyle === 'tap') {
+          hapticStyle = 'combat';
+        }
+      }
+      triggerAndroidHaptic(hapticStyle);
 
       for (const ev of events) {
         if (ev.type === 'RUINS_CLAIMED' && ev.playerId === this.humanPlayerId) {
@@ -788,6 +900,8 @@ export class AppController {
     if (this.openNextPendingCityReward()) {
       return;
     }
+
+    triggerAndroidHaptic('tap');
 
     const token = this.sessionToken;
     this.techModal.close();
@@ -1012,16 +1126,34 @@ export class AppController {
 
   private openTechModal(): void {
     if (!this.state) return;
+    triggerAndroidHaptic('tap');
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     const vm = this.buildTechModalViewModel();
     if (vm) {
       this.techModal.open(vm);
+      this.pauseSceneBehindOpaqueSheet();
     }
+  }
+
+  /**
+   * Android WebView: the Codex sheet is a full opaque scrollable layer. Stop the WebGL RAF loop
+   * behind it so Chromium's compositor is not invalidating tiles under a scrolling layer
+   * (also saves battery). No-op in desktop/mobile browsers.
+   */
+  private pauseSceneBehindOpaqueSheet(): void {
+    if (!window.EldermereAndroid) return;
+    this.sceneManager?.stop();
+  }
+
+  private resumeSceneAfterOpaqueSheet(): void {
+    if (!window.EldermereAndroid) return;
+    this.sceneManager?.start();
   }
 
   private openFactionDossier(focusFaction?: FactionId): void {
     if (!this.state) return;
+    triggerAndroidHaptic('tap');
     this.techModal.close();
     this.leaderboardModal.close();
     const vm = this.buildFactionDossierViewModel();
@@ -1032,6 +1164,7 @@ export class AppController {
 
   private openLeaderboardModal(): void {
     if (!this.state) return;
+    triggerAndroidHaptic('tap');
     this.techModal.close();
     this.factionDossierModal.close();
     const vm = this.buildLeaderboardViewModel();

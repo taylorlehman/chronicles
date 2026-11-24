@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="eldermere_splash_bg">#07112B</color>
+    <color name="eldermere_bg_dark">#0B1221</color>
+    <color name="eldermere_surface_dark">#131D33</color>
+    <color name="eldermere_gold">#E8C168</color>
+    <color name="eldermere_gold_bright">#FBE8A6</color>
+    <color name="eldermere_gold_deep">#A8792A</color>
+    <color name="eldermere_gold_muted">#D8C28B</color>
+    <color name="eldermere_ink_light">#EEF3FA</color>
+    <color name="eldermere_tip_text">#F6ECD2</color>
+    <color name="eldermere_ink_soft">#CAD7EB</color>
+    <color name="eldermere_progress_track">#8A09101E</color>
+    <color name="eldermere_progress_stroke">#66E8C168</color>
+</resources>

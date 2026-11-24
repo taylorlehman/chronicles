@@ -369,7 +369,7 @@ export class TechModal {
       : '';
 
     return `
-      <section class="tech-pillar" data-pillar-index="${pillar.index}" aria-label="${esc(pillar.name)} Pillar">
+      <section class="tech-pillar${pillar.index === this.activePillarIndex ? ' pillar-active' : ''}" data-pillar-index="${pillar.index}" aria-label="${esc(pillar.name)} Pillar">
         <header class="tech-pillar-header">
           <span class="tech-branch-header">${esc(pillar.name)}</span>
           <span class="tech-pillar-progress ${isPillarComplete ? 'complete' : ''}">
@@ -639,6 +639,10 @@ export class TechModal {
       if (counterEl && pills.length > 0) {
         counterEl.textContent = `${idx + 1}/${pills.length}`;
       }
+      // Tab-switched single-pillar view (used by html.android-webview mobile CSS instead of a scroll carousel)
+      this.root.querySelectorAll<HTMLElement>('.tech-pillar').forEach((el) => {
+        el.classList.toggle('pillar-active', Number(el.dataset.pillarIndex) === idx);
+      });
     };
 
     pills.forEach((pill) => {
