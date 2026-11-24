@@ -66,8 +66,16 @@ import { LeaderboardModal, type LeaderboardModalViewModel } from './LeaderboardM
 import { GameOverOverlay, TitleScreen, type StartGameOptions } from './Screens';
 import { TechModal, type TechModalViewModel } from './TechModal';
 import { TopBar } from './TopBar';
+import { TutorialController } from './TutorialController';
 import { notifyAndroidGameReady, triggerAndroidHaptic } from './androidBridge';
 import { renderIcon } from './icons';
+import {
+  clearSavedCampaign,
+  getSavedCampaignSummary,
+  isTutorialCompleted,
+  loadSavedCampaign,
+  saveCampaign,
+} from './persistence';
 
 const TERRAIN_NAMES: Record<TerrainType, string> = {
   plains: 'Plains',
@@ -96,8 +104,11 @@ export class AppController {
   private readonly defeatNoticeModal: DefeatNoticeModal;
   private readonly factionDossierModal: FactionDossierModal;
   private readonly leaderboardModal: LeaderboardModal;
+  private readonly tutorial: TutorialController;
   private readonly rewardToastEl: HTMLDivElement;
   private rewardToastTimer: number | null = null;
+  private readonly onPagePersistBound: () => void;
+  private readonly onVisibilityPersistBound: () => void;
 
   private sceneManager: SceneManager | null = null;
   private board: BoardRenderer | null = null;
@@ -150,9 +161,16 @@ export class AppController {
     };
     this.onAndroidBackBound = () => this.handleAndroidBack();
     this.onAndroidSetPausedBound = (paused: boolean) => this.setPaused(paused);
+    this.onPagePersistBound = () => this.persistActiveCampaign();
+    this.onVisibilityPersistBound = () => {
+      if (document.visibilityState === 'hidden') {
+        this.persistActiveCampaign();
+      }
+    };
 
     this.titleScreen = new TitleScreen(this.hudRoot, {
       onStartGame: (options) => this.startGame(options),
+      onResumeGame: () => this.resumeSavedCampaign(),
       onSelectFaction: (faction) => {
         triggerAndroidHaptic('tap');
         this.applyFactionTheme(faction);
@@ -213,9 +231,25 @@ export class AppController {
         this.leaderboardModal.close();
         this.openFactionDossier(faction);
       },
+      onEndTutorial: () => {
+        triggerAndroidHaptic('tap');
+        this.tutorial.endTutorial(true);
+        this.persistActiveCampaign();
+        const vm = this.buildLeaderboardViewModel();
+        if (vm) this.leaderboardModal.update(vm);
+      },
       onResign: () => this.returnToTitle(),
       onClose: () => {
         this.resumeSceneAfterOpaqueSheet();
+      },
+    });
+
+    this.tutorial = new TutorialController(this.hudRoot, {
+      onStepChange: () => {
+        this.persistActiveCampaign();
+      },
+      onComplete: () => {
+        this.persistActiveCampaign();
       },
     });
 
@@ -225,12 +259,15 @@ export class AppController {
     this.rewardToastEl.setAttribute('aria-live', 'polite');
     this.hudRoot.appendChild(this.rewardToastEl);
 
+    this.titleScreen.setSavedCampaign(getSavedCampaignSummary());
     this.applyFactionTheme(this.titleScreen.getSelectedFaction());
     this.mountTitleDiorama();
     this.titleScreen.show();
 
     window.__eldermereHandleBack = this.onAndroidBackBound;
     window.__eldermereSetPaused = this.onAndroidSetPausedBound;
+    window.addEventListener('pagehide', this.onPagePersistBound);
+    document.addEventListener('visibilitychange', this.onVisibilityPersistBound);
 
     // Notify Android WebView after the Three.js scene has rendered its first frame
     requestAnimationFrame(() => {
@@ -287,6 +324,9 @@ export class AppController {
   }
 
   private setPaused(paused: boolean): void {
+    if (paused) {
+      this.persistActiveCampaign();
+    }
     if (!this.sceneManager) return;
     if (paused) {
       this.sceneManager.stop();
@@ -295,6 +335,15 @@ export class AppController {
     } else {
       this.sceneManager.start();
     }
+  }
+
+  private persistActiveCampaign(): void {
+    if (!this.state || !this.humanPlayerId) return;
+    if (this.state.phase !== 'playing') {
+      clearSavedCampaign();
+      return;
+    }
+    saveCampaign(this.state, this.humanPlayerId, this.tutorial.getStepIndex());
   }
 
   private applyFactionTheme(faction: FactionId): void {
@@ -444,9 +493,6 @@ export class AppController {
 
   public startGame(options: StartGameOptions): void {
     triggerAndroidHaptic('select');
-    this.disposeSession();
-    this.sessionToken += 1;
-
     const seed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
     const state = createGame({
       humanFaction: options.humanFaction,
@@ -455,9 +501,33 @@ export class AppController {
       maxTurns: 0,
       seed,
     });
+    const humanPlayer = state.players.find((p) => p.isHuman) ?? state.players[0];
+    const startTutorialStep = isTutorialCompleted() ? null : 0;
+    this.mountActiveGame(state, humanPlayer.id, startTutorialStep);
+  }
+
+  public resumeSavedCampaign(): void {
+    const saved = loadSavedCampaign();
+    if (!saved) {
+      this.titleScreen.setSavedCampaign(null);
+      return;
+    }
+    triggerAndroidHaptic('select');
+    const tutorialStep =
+      !isTutorialCompleted() && saved.tutorialStep !== null ? saved.tutorialStep : null;
+    this.mountActiveGame(saved.state, saved.humanPlayerId, tutorialStep);
+  }
+
+  private mountActiveGame(
+    state: GameState,
+    humanPlayerId: PlayerId,
+    tutorialStep: number | null,
+  ): void {
+    this.disposeSession();
+    this.sessionToken += 1;
 
     this.state = state;
-    const humanPlayer = state.players.find((p) => p.isHuman) ?? state.players[0];
+    const humanPlayer = getPlayer(state, humanPlayerId) ?? state.players[0];
     this.humanPlayerId = humanPlayer.id;
     this.readyUnitCycleIndex = 0;
 
@@ -533,10 +603,18 @@ export class AppController {
     this.gameOverOverlay.hide();
     this.topBar.show();
     this.actionBar.show();
+    if (tutorialStep !== null) {
+      this.tutorial.start(tutorialStep);
+    } else {
+      this.tutorial.hide();
+    }
     this.refreshHUD();
+    this.persistActiveCampaign();
   }
 
   public returnToTitle(): void {
+    clearSavedCampaign();
+    this.tutorial.hide();
     this.topBar.hide();
     this.actionBar.hide();
     this.techModal.close();
@@ -546,12 +624,16 @@ export class AppController {
     this.leaderboardModal.close();
     this.hideRewardToast();
     this.gameOverOverlay.hide();
+    this.titleScreen.setSavedCampaign(getSavedCampaignSummary());
     this.applyFactionTheme(this.titleScreen.getSelectedFaction());
     this.mountTitleDiorama();
     this.titleScreen.show();
   }
 
   public destroy(): void {
+    this.persistActiveCampaign();
+    window.removeEventListener('pagehide', this.onPagePersistBound);
+    document.removeEventListener('visibilitychange', this.onVisibilityPersistBound);
     if (window.__eldermereHandleBack === this.onAndroidBackBound) {
       delete window.__eldermereHandleBack;
     }
@@ -561,6 +643,7 @@ export class AppController {
     this.disposeSession();
     this.hideRewardToast();
     this.rewardToastEl.remove();
+    this.tutorial.destroy();
     this.titleScreen.destroy();
     this.gameOverOverlay.destroy();
     this.topBar.destroy();
@@ -912,6 +995,21 @@ export class AppController {
       }
 
       this.refreshHUD();
+      if (action.type === 'MOVE_UNIT') {
+        this.tutorial.notifyAction('move');
+      } else if (
+        action.type === 'HARVEST_TILE' ||
+        action.type === 'BUILD_IMPROVEMENT' ||
+        action.type === 'CHOOSE_CITY_REWARD'
+      ) {
+        this.tutorial.notifyAction('upgrade');
+      } else if (action.type === 'RESEARCH_TECH') {
+        this.tutorial.notifyAction('codex');
+      } else if (action.type === 'CAPTURE_CITY') {
+        this.tutorial.notifyAction('capture');
+      } else if (action.type === 'ATTACK_UNIT') {
+        this.tutorial.notifyAction('combat');
+      }
       await this.showEliminationNotices(events, nextState, token);
       if (token !== this.sessionToken) return;
       this.checkPostActionState();
@@ -942,6 +1040,7 @@ export class AppController {
     }
 
     triggerAndroidHaptic('tap');
+    this.tutorial.notifyAction('end_turn');
 
     const token = this.sessionToken;
     this.techModal.close();
@@ -1126,7 +1225,9 @@ export class AppController {
   private checkPostActionState(): void {
     if (!this.state) return;
     if (this.state.phase === 'game_over') {
-        this.techModal.close();
+      clearSavedCampaign();
+      this.tutorial.hide();
+      this.techModal.close();
       this.cityRewardModal.close();
       this.factionDossierModal.close();
       this.leaderboardModal.close();
@@ -1140,6 +1241,8 @@ export class AppController {
       });
       return;
     }
+
+    this.persistActiveCampaign();
 
     if (this.isHumanTurn()) {
       this.openNextPendingCityReward();
@@ -1168,6 +1271,7 @@ export class AppController {
   private openTechModal(): void {
     if (!this.state) return;
     triggerAndroidHaptic('tap');
+    this.tutorial.notifyAction('codex');
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     const vm = this.buildTechModalViewModel();
@@ -1223,6 +1327,7 @@ export class AppController {
       entries: getLeaderboard(this.state),
       turn: this.state.turn,
       maxTurns: this.state.config.maxTurns,
+      tutorialActive: this.tutorial.isActive(),
     };
   }
 

@@ -7,10 +7,12 @@ export interface LeaderboardModalViewModel {
   entries: LeaderboardEntry[];
   turn: number;
   maxTurns: number;
+  tutorialActive?: boolean;
 }
 
 export interface LeaderboardModalCallbacks {
   onSelectFaction?: (faction: FactionId) => void;
+  onEndTutorial?: () => void;
   onResign?: () => void;
   onClose: () => void;
 }
@@ -183,23 +185,34 @@ export class LeaderboardModal {
             ${renderIcon('crown', 'icon icon-sm icon-star')}
             <span>${footerHint}</span>
           </div>
-          ${
-            this.callbacks.onResign
-              ? this.confirmingResign
+          <div class="lb-footer-actions">
+            ${
+              vm.tutorialActive && this.callbacks.onEndTutorial
                 ? `
-                  <div class="lb-resign-confirm">
-                    <span class="lb-resign-prompt">Resign campaign?</span>
-                    <button type="button" class="btn btn-secondary lb-resign-cancel" data-action="resign-cancel">Cancel</button>
-                    <button type="button" class="btn lb-resign-yes" data-action="resign-confirm">Resign</button>
-                  </div>
-                `
-                : `
-                  <button type="button" class="btn lb-resign-btn" data-action="resign">
-                    <span>Resign</span>
+                  <button type="button" class="btn lb-end-tutorial-btn" data-action="end-tutorial">
+                    <span>End Tutorial</span>
                   </button>
                 `
-              : ''
-          }
+                : ''
+            }
+            ${
+              this.callbacks.onResign
+                ? this.confirmingResign
+                  ? `
+                    <div class="lb-resign-confirm">
+                      <span class="lb-resign-prompt">Resign campaign?</span>
+                      <button type="button" class="btn btn-secondary lb-resign-cancel" data-action="resign-cancel">Cancel</button>
+                      <button type="button" class="btn lb-resign-yes" data-action="resign-confirm">Resign</button>
+                    </div>
+                  `
+                  : `
+                    <button type="button" class="btn lb-resign-btn" data-action="resign">
+                      <span>Resign</span>
+                    </button>
+                  `
+                : ''
+            }
+          </div>
         </div>
       </div>
     `;
@@ -208,6 +221,12 @@ export class LeaderboardModal {
       .querySelector<HTMLButtonElement>('[data-action="close"]')
       ?.addEventListener('click', () => {
         this.close();
+      });
+
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="end-tutorial"]')
+      ?.addEventListener('click', () => {
+        this.callbacks.onEndTutorial?.();
       });
 
     this.root

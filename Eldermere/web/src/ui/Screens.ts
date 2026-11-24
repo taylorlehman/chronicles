@@ -1,6 +1,7 @@
 import { ALL_FACTIONS, FACTION_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
 import type { Difficulty, FactionId, GameState, MapSize, PlayerId } from '../game/types';
 import { renderFactionCrest, renderIcon, renderUnitIcon, type IconName } from './icons';
+import type { SavedCampaignSummary } from './persistence';
 import { renderUnitThumbOrIcon } from './thumbs';
 
 export interface StartGameOptions {
@@ -11,6 +12,7 @@ export interface StartGameOptions {
 
 export interface TitleScreenCallbacks {
   onStartGame: (options: StartGameOptions) => void;
+  onResumeGame?: () => void;
   onSelectFaction?: (faction: FactionId) => void;
 }
 
@@ -168,6 +170,7 @@ export class TitleScreen {
   private selectedFaction: FactionId = 'humans';
   private difficulty: Difficulty = 'normal';
   private mapSize: MapSize = 16;
+  private savedCampaign: SavedCampaignSummary | null = null;
 
   constructor(container: HTMLElement, callbacks: TitleScreenCallbacks) {
     this.callbacks = callbacks;
@@ -184,6 +187,11 @@ export class TitleScreen {
 
   public getSelectedFaction(): FactionId {
     return this.selectedFaction;
+  }
+
+  public setSavedCampaign(summary: SavedCampaignSummary | null): void {
+    this.savedCampaign = summary;
+    this.syncResumeBanner();
   }
 
   public show(): void {
@@ -276,6 +284,8 @@ export class TitleScreen {
           ${renderShowcaseInner(this.selectedFaction)}
         </section>
 
+        <div class="tt-resume-slot hidden" data-resume-slot="true"></div>
+
         <div class="tt-start-actions">
           <button
             type="button"
@@ -301,7 +311,7 @@ export class TitleScreen {
 
           <button type="button" class="tt-play-btn" data-action="begin">
             ${renderIcon('playSword', 'icon')}
-            <span>Play</span>
+            <span data-begin-label="true">Play</span>
           </button>
         </div>
       </div>
@@ -393,6 +403,48 @@ export class TitleScreen {
     if (mapEl) mapEl.textContent = mapLabel;
     const mapBtn = this.root.querySelector<HTMLButtonElement>('[data-cycle-mapsize]');
     mapBtn?.setAttribute('aria-label', `Map Size: ${mapLabel}`);
+    this.syncResumeBanner();
+  }
+
+  private syncResumeBanner(): void {
+    const slot = this.root.querySelector<HTMLElement>('[data-resume-slot]');
+    const beginLabel = this.root.querySelector<HTMLElement>('[data-begin-label]');
+    if (!slot) return;
+
+    if (!this.savedCampaign || !this.callbacks.onResumeGame) {
+      slot.classList.add('hidden');
+      slot.innerHTML = '';
+      if (beginLabel) beginLabel.textContent = 'Play';
+      return;
+    }
+
+    const saved = this.savedCampaign;
+    const def = FACTION_DEFINITIONS[saved.faction];
+    const heraldry = FACTION_HERALDRY[saved.faction];
+    const citiesLabel = saved.citiesCount === 1 ? '1 City' : `${saved.citiesCount} Cities`;
+
+    slot.classList.remove('hidden');
+    slot.innerHTML = `
+      <div class="tt-resume-card">
+        <div class="tt-resume-meta">
+          <span class="tt-resume-crest" style="background: ${heraldry};" aria-hidden="true">
+            ${renderFactionCrest(saved.faction, 'icon icon-crest-sm')}
+          </span>
+          <div class="tt-resume-text">
+            <span class="tt-resume-title">${esc(def.name)} · Turn ${saved.turn}</span>
+            <span class="tt-resume-sub">${esc(citiesLabel)} · ${saved.score.toLocaleString()} Glory</span>
+          </div>
+        </div>
+        <button type="button" class="tt-resume-btn" data-action="resume">
+          <span>Resume</span>
+          ${renderIcon('chevronRight', 'icon icon-xs')}
+        </button>
+      </div>
+    `;
+    slot.querySelector<HTMLButtonElement>('[data-action="resume"]')?.addEventListener('click', () => {
+      this.callbacks.onResumeGame?.();
+    });
+    if (beginLabel) beginLabel.textContent = 'New Game';
   }
 }
 
