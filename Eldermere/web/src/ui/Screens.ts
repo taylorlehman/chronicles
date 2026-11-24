@@ -223,12 +223,10 @@ export class TitleScreen {
       `;
     }).join('');
 
-    const dossiersHtml = ALL_FACTIONS.map((factionId) => {
+    const renderShowcaseInner = (factionId: FactionId): string => {
       const activeDef = FACTION_DEFINITIONS[factionId];
       const uniqueUnit = UNIT_DEFINITIONS[activeDef.uniqueUnit];
       const perks = FACTION_PERKS[factionId];
-      const isSelected = this.selectedFaction === factionId;
-
       const perksHtml = perks
         .map(
           (perk) => `
@@ -239,32 +237,24 @@ export class TitleScreen {
           `,
         )
         .join('');
-
       const unitVisualHtml = renderUnitThumbOrIcon(
         uniqueUnit.type,
         factionId,
         renderUnitIcon(uniqueUnit.type, 'icon icon-lg'),
         'thumb-3d thumb-rail-unit',
       );
-
       return `
-        <section
-          class="tt-faction-showcase ${isSelected ? '' : 'hidden'}"
-          data-faction-panel="${factionId}"
-          aria-live="polite"
-        >
-          <div class="tt-champion-frame" title="${esc(uniqueUnit.name)} (HP ${uniqueUnit.maxHp} · ATK ${uniqueUnit.attack} · DEF ${uniqueUnit.defense} · MOV ${uniqueUnit.movement})">
-            ${unitVisualHtml}
-          </div>
-          <div class="tt-showcase-copy">
-            <div class="tt-showcase-realm">${esc(activeDef.realm)}</div>
-            <ul class="tt-perk-list" aria-label="${esc(activeDef.name)} advantages">
-              ${perksHtml}
-            </ul>
-          </div>
-        </section>
+        <div class="tt-champion-frame" title="${esc(uniqueUnit.name)} (HP ${uniqueUnit.maxHp} · ATK ${uniqueUnit.attack} · DEF ${uniqueUnit.defense} · MOV ${uniqueUnit.movement})">
+          ${unitVisualHtml}
+        </div>
+        <div class="tt-showcase-copy">
+          <div class="tt-showcase-realm">${esc(activeDef.realm)}</div>
+          <ul class="tt-perk-list" aria-label="${esc(activeDef.name)} advantages">
+            ${perksHtml}
+          </ul>
+        </div>
       `;
-    }).join('');
+    };
 
     const diffLabel = this.difficulty === 'easy' ? 'Squire' : 'Captain';
     const mapLabel = `${this.mapSize}×${this.mapSize}`;
@@ -278,7 +268,13 @@ export class TitleScreen {
           ${emblemTabsHtml}
         </div>
 
-        ${dossiersHtml}
+        <section
+          class="tt-faction-showcase"
+          data-showcase-active="true"
+          aria-live="polite"
+        >
+          ${renderShowcaseInner(this.selectedFaction)}
+        </section>
 
         <div class="tt-start-actions">
           <button
@@ -353,9 +349,39 @@ export class TitleScreen {
       btn.classList.toggle('selected', active);
       btn.setAttribute('aria-pressed', String(active));
     });
-    this.root.querySelectorAll<HTMLElement>('[data-faction-panel]').forEach((panel) => {
-      panel.classList.toggle('hidden', panel.dataset.factionPanel !== this.selectedFaction);
-    });
+    const showcaseEl = this.root.querySelector<HTMLElement>('[data-showcase-active]');
+    if (showcaseEl) {
+      const activeDef = FACTION_DEFINITIONS[this.selectedFaction];
+      const uniqueUnit = UNIT_DEFINITIONS[activeDef.uniqueUnit];
+      const perks = FACTION_PERKS[this.selectedFaction];
+      const perksHtml = perks
+        .map(
+          (perk) => `
+            <li class="tt-perk-item">
+              <span class="tt-perk-icon" aria-hidden="true">${renderIcon(perk.icon, 'icon')}</span>
+              <span>${formatStars(perk.text)}</span>
+            </li>
+          `,
+        )
+        .join('');
+      const unitVisualHtml = renderUnitThumbOrIcon(
+        uniqueUnit.type,
+        this.selectedFaction,
+        renderUnitIcon(uniqueUnit.type, 'icon icon-lg'),
+        'thumb-3d thumb-rail-unit',
+      );
+      showcaseEl.innerHTML = `
+        <div class="tt-champion-frame" title="${esc(uniqueUnit.name)} (HP ${uniqueUnit.maxHp} · ATK ${uniqueUnit.attack} · DEF ${uniqueUnit.defense} · MOV ${uniqueUnit.movement})">
+          ${unitVisualHtml}
+        </div>
+        <div class="tt-showcase-copy">
+          <div class="tt-showcase-realm">${esc(activeDef.realm)}</div>
+          <ul class="tt-perk-list" aria-label="${esc(activeDef.name)} advantages">
+            ${perksHtml}
+          </ul>
+        </div>
+      `;
+    }
     const diffLabel = this.difficulty === 'easy' ? 'Squire' : 'Captain';
     const diffEl = this.root.querySelector<HTMLElement>('[data-difficulty-label]');
     if (diffEl) diffEl.textContent = diffLabel;

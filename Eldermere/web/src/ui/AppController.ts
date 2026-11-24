@@ -204,7 +204,7 @@ export class AppController {
         this.openLeaderboardModal();
       },
       onClose: () => {
-        // Closed cleanly
+        this.resumeSceneAfterOpaqueSheet();
       },
     });
 
@@ -215,7 +215,7 @@ export class AppController {
       },
       onResign: () => this.returnToTitle(),
       onClose: () => {
-        // Closed cleanly
+        this.resumeSceneAfterOpaqueSheet();
       },
     });
 
@@ -276,7 +276,14 @@ export class AppController {
 
   private shouldKeepScenePausedForAndroid(): boolean {
     if (!window.EldermereAndroid) return false;
-    return this.isTitleDioramaActive || this.techModal.isOpen();
+    return (
+      this.isTitleDioramaActive ||
+      this.techModal.isOpen() ||
+      this.leaderboardModal.isOpen() ||
+      this.factionDossierModal.isOpen() ||
+      this.cityRewardModal.isOpen() ||
+      this.defeatNoticeModal.isOpen()
+    );
   }
 
   private setPaused(paused: boolean): void {
@@ -1154,6 +1161,7 @@ export class AppController {
       levelReached: cityWithReward.pendingLevelRewards[0],
       faction: human.faction,
     });
+    this.pauseSceneBehindOpaqueSheet();
     return true;
   }
 
@@ -1164,15 +1172,15 @@ export class AppController {
     this.leaderboardModal.close();
     const vm = this.buildTechModalViewModel();
     if (vm) {
-      this.techModal.open(vm);
       this.pauseSceneBehindOpaqueSheet();
+      this.techModal.open(vm);
     }
   }
 
   /**
-   * Android WebView: the Codex sheet is a full opaque scrollable layer. Stop the WebGL RAF loop
-   * behind it so Chromium's compositor is not invalidating tiles under a scrolling layer
-   * (also saves battery). No-op in desktop/mobile browsers.
+   * Android WebView: pause the WebGL RAF loop behind full-screen/sheet modals so Chromium's
+   * Skia Vulkan tile-cache and ANGLE WebGL swapchain never race on the same frame.
+   * No-op in desktop/mobile browsers.
    */
   private pauseSceneBehindOpaqueSheet(): void {
     if (!window.EldermereAndroid) return;
@@ -1181,6 +1189,7 @@ export class AppController {
 
   private resumeSceneAfterOpaqueSheet(): void {
     if (!window.EldermereAndroid) return;
+    if (this.shouldKeepScenePausedForAndroid()) return;
     this.sceneManager?.start();
   }
 
@@ -1191,6 +1200,7 @@ export class AppController {
     this.leaderboardModal.close();
     const vm = this.buildFactionDossierViewModel();
     if (vm) {
+      this.pauseSceneBehindOpaqueSheet();
       this.factionDossierModal.open(vm, focusFaction);
     }
   }
@@ -1202,6 +1212,7 @@ export class AppController {
     this.factionDossierModal.close();
     const vm = this.buildLeaderboardViewModel();
     if (vm) {
+      this.pauseSceneBehindOpaqueSheet();
       this.leaderboardModal.open(vm);
     }
   }

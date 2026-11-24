@@ -845,7 +845,10 @@ textarea {
   box-shadow: var(--ui-cta-shadow-active) !important;
 }
 
-/* Android WebView compositor safety overrides (eliminates ANGLE/Vulkan tile-cache scrambling) */
+/* Android WebView compositor safety overrides:
+   ANGLE/Vulkan Skia tile-atlas on Android Emulator corrupts 512x256 tiles whenever large
+   blurred box-shadows or multi-layer inset shadows sit over WebGL. Replace blurred shadows
+   with crisp physical border-bottom 3D bevels (zero offscreen blur FBOs, identical tactile look!). */
 html.android-webview .title-screen {
   background: transparent !important;
   padding: 0 !important;
@@ -859,10 +862,13 @@ html.android-webview .title-screen .campaign-rail {
   border-radius: 20px 20px 0 0 !important;
   overflow: visible !important;
   isolation: isolate;
+  box-shadow: none !important;
 }
 html.android-webview .tt-title-banner {
   margin: 12px auto 0 auto !important;
-  box-shadow: 0 3px 0 var(--ui-rim-deep) !important;
+  background: var(--ui-surface-elevated) !important;
+  border-bottom: 5px solid var(--ui-rim-deep) !important;
+  box-shadow: none !important;
 }
 html.android-webview .tt-start-console {
   padding: 12px 4px 4px !important;
@@ -874,15 +880,48 @@ html.android-webview .tt-start-console::before,
 html.android-webview .tt-start-console::after {
   display: none !important;
 }
-html.android-webview .title-screen .emblem-tab-crest {
-  filter: none !important;
-  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.30) !important;
-}
+html.android-webview .title-screen .emblem-tab-crest,
 html.android-webview .title-screen .emblem-tab.selected .emblem-tab-crest {
-  box-shadow: 0 4px 0 var(--ui-rim-deep) !important;
-}
-html.android-webview .tt-faction-showcase {
+  filter: none !important;
   box-shadow: none !important;
+  border-bottom-width: 5px !important;
+}
+html.android-webview .tt-faction-showcase,
+html.android-webview .tt-champion-frame,
+html.android-webview .tt-cycle-medallion,
+html.android-webview .tt-play-btn,
+html.android-webview .tt-dock-medallion,
+html.android-webview .tt-dock-badge,
+html.android-webview .tt-dock-label,
+html.android-webview .action-tile-visual,
+html.android-webview .tile-cost-pill,
+html.android-webview .top-pill,
+html.android-webview .top-crest-badge,
+html.android-webview .selection-drawer,
+html.android-webview .modal-panel,
+html.android-webview .defeat-notice-card,
+html.android-webview .gameover-card,
+html.android-webview .leaderboard-row,
+html.android-webview .tech-card,
+html.android-webview .btn,
+html.android-webview .btn-cta {
+  box-shadow: none !important;
+}
+html.android-webview .top-pill,
+html.android-webview .selection-drawer,
+html.android-webview .modal-panel,
+html.android-webview .tt-champion-frame,
+html.android-webview .tt-cycle-medallion,
+html.android-webview .tt-dock-label {
+  border-bottom: 4px solid var(--ui-border-strong) !important;
+}
+html.android-webview .tt-play-btn,
+html.android-webview .tt-dock-btn-end .tt-dock-medallion,
+html.android-webview .action-tile-visual {
+  border-bottom: 5px solid var(--ui-accent-deep) !important;
+}
+html.android-webview .tt-dock-btn-codex .tt-dock-medallion {
+  border-bottom: 5px solid var(--ui-rim-deep) !important;
 }
 html.android-webview .tt-champion-frame .thumb-rail-unit,
 html.android-webview .action-tile-visual .thumb-tile-action,
@@ -893,4 +932,13 @@ html.android-webview .modal-panel,
 html.android-webview .selection-drawer,
 html.android-webview .top-pill {
   background: var(--ui-surface-solid) !important;
+}
+html.android-webview .modal-backdrop,
+html.android-webview .modal-panel,
+html.android-webview .leaderboard-row,
+html.android-webview .defeat-notice-card,
+html.android-webview .tt-faction-showcase {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
 }

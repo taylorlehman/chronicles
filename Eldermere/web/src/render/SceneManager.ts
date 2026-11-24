@@ -91,7 +91,9 @@ export class SceneManager {
     });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.setSize(width, height);
-    this.renderer.shadowMap.enabled = true;
+    // Android WebView (ANGLE/Vulkan) exhibits depth-buffer shadow acne (pitch-black triangles)
+    // on low-poly cones under cloud shadows; our 3-light studio rig already produces crisp flat facets.
+    this.renderer.shadowMap.enabled = !isAndroidWebView;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.NeutralToneMapping;
     this.renderer.toneMappingExposure = 1.06;
