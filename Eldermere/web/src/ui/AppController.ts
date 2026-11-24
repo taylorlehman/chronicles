@@ -131,6 +131,7 @@ export class AppController {
   private sessionToken = 0;
   private titleSettleTimer: number | null = null;
   private isTitleDioramaActive = false;
+  private titleShowcaseState: GameState | null = null;
 
   constructor(
     canvasContainer: HTMLElement,
@@ -155,6 +156,7 @@ export class AppController {
       onSelectFaction: (faction) => {
         triggerAndroidHaptic('tap');
         this.applyFactionTheme(faction);
+        this.focusTitleOnFaction(faction, false);
       },
     });
 
@@ -377,17 +379,18 @@ export class AppController {
     const board = new BoardRenderer(sceneManager.scene);
     board.syncState(showcaseState, viewer.id);
 
-    // Center diorama cleanly for both desktop left-rail and mobile bottom-sheet
-    const focusX = window.innerWidth >= 768 ? 6 : 7.5;
-    sceneManager.focusOnWorld(tileToWorld(focusX, 7.5, showcaseState.mapSize, 0), true);
+    this.sceneManager = sceneManager;
+    this.board = board;
+    this.titleShowcaseState = showcaseState;
+
+    // Frame the actual in-game 3D capital of the currently selected civilization
+    // squarely in the visible upper portion above the Start Console.
+    this.focusTitleOnFaction(this.titleScreen.getSelectedFaction(), true);
 
     sceneManager.onUpdate((dt, elapsed) => {
       board.update(dt, elapsed);
     });
     sceneManager.start();
-
-    this.sceneManager = sceneManager;
-    this.board = board;
 
     // On Android WebView, let initial textures & SVG sprites finish uploading behind the
     // launch loading screen, then render a crisp sunlit frame and stop the 60fps RAF loop
@@ -399,6 +402,36 @@ export class AppController {
         sceneManager.renderOnce();
         sceneManager.stop();
       }, 850);
+    }
+  }
+
+  /**
+   * Focuses the live Start Screen 3D in-game board directly on the selected faction's
+   * capital citadel & homeland biome, offset cleanly above the Start Console on mobile.
+   */
+  private focusTitleOnFaction(faction: FactionId, immediate: boolean): void {
+    if (!this.isTitleDioramaActive || !this.sceneManager || !this.titleShowcaseState) return;
+    const state = this.titleShowcaseState;
+    const player = state.players.find((p) => p.faction === faction) ?? state.players[0];
+    const playerCities = getPlayerCities(state, player.id);
+    const capital = playerCities[0] ?? Object.values(state.cities)[0];
+    if (!capital) return;
+
+    // Shift focus slightly in +x/+z (down-screen in isometric view) on mobile portrait
+    // so the citadel sits right in the center of the upper visible half above the console.
+    const isDesktop = window.innerWidth >= 768;
+    const targetX = capital.x + (isDesktop ? -1.4 : 1.7);
+    const targetY = capital.y + (isDesktop ? 0.5 : 1.7);
+    const worldPos = tileToWorld(targetX, targetY, state.mapSize, 0);
+
+    const isAndroidWebView = Boolean(window.EldermereAndroid);
+    this.sceneManager.focusOnWorld(worldPos, immediate || isAndroidWebView);
+    if (isAndroidWebView && !immediate) {
+      const token = this.sessionToken;
+      window.setTimeout(() => {
+        if (token !== this.sessionToken || !this.isTitleDioramaActive || !this.sceneManager) return;
+        this.sceneManager.renderOnce();
+      }, 320);
     }
   }
 

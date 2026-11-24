@@ -33,10 +33,21 @@ export type IconName =
   | 'eye'
   | 'trophy'
   | 'ruins'
+  | 'helm'
+  | 'mapGrid'
+  | 'playSword'
   | 'crestHumans'
   | 'crestOrcs'
   | 'crestElves'
-  | 'crestDwarves';
+  | 'crestDwarves'
+  | 'codexHumans'
+  | 'codexOrcs'
+  | 'codexElves'
+  | 'codexDwarves'
+  | 'endTurnHumans'
+  | 'endTurnOrcs'
+  | 'endTurnElves'
+  | 'endTurnDwarves';
 
 const ICON_PATHS: Record<IconName, string> = {
   // 8-point Star of Gondor
@@ -135,17 +146,38 @@ const ICON_PATHS: Record<IconName, string> = {
   // Ancient Ruins / Weathered Archway & Spark
   ruins: `<path d="M4.5 20h15M6.5 20V9.5M17.5 20V11.5M10.5 20v-7.5M5.5 9.5h7.5l2-2.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M17.5 4l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" fill="currentColor" stroke="none"/>`,
 
-  // Faction Crest: Humans — White Tree & Crown of Gondor
-  crestHumans: `<path d="M12 19.5V8.5M12 13.5l-3.8-2.5M12 13.5l3.8-2.5M12 10.5L9.5 8.5M12 10.5l2.5-2M8 19.5h8" stroke-linecap="round" stroke-linejoin="round"/><path d="M7.5 6.5l2 1.2L12 4.5l2.5 3.2 2-1.2-.8 2.5H8.3l-.8-2.5z" fill="currentColor" fill-opacity="0.3" stroke-linejoin="round"/>`,
+  // AI Difficulty: Knight Helm & Shield
+  helm: `<path d="M5.5 11.5a6.5 6.5 0 0113 0v3.2c0 2.6-2 4.6-4.5 5.3v-5.5h-4V20c-2.5-.7-4.5-2.7-4.5-5.3v-3.2z" fill="currentColor" fill-opacity="0.22" stroke-linejoin="round"/><path d="M12 5v5.5M8.5 11.5h7" stroke-linecap="round"/><path d="M17.2 13.5l3.3 1.2v2.4c0 1.9-1.3 3.4-3.3 4.1-2-.7-3.3-2.2-3.3-4.1v-2.4l3.3-1.2z" fill="currentColor" fill-opacity="0.32" stroke-linejoin="round"/>`,
 
-  // Faction Crest: Orcs — Dark Tower & Flame Eye
-  crestOrcs: `<path d="M6.5 20.5L8.5 5l3.5 3.5L15.5 5l2 15.5z" stroke-linejoin="round"/><ellipse cx="12" cy="12" rx="3.2" ry="1.8" fill="currentColor" fill-opacity="0.35"/><path d="M12 10.5v3" stroke-linecap="round"/>`,
+  // Map Size: Isometric Tile Grid Cube
+  mapGrid: `<path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3z" fill="currentColor" fill-opacity="0.16" stroke-linejoin="round"/><path d="M12 12l8-4.5M12 12L4 7.5M12 12v9M8 5.25l8 4.5M16 5.25l-8 4.5" stroke-linecap="round" stroke-linejoin="round"/>`,
 
-  // Faction Crest: Elves — Mallorn Star & Twin Leaves
-  crestElves: `<path d="M12 3l1.6 5.4L19 10l-5.4 1.6L12 17l-1.6-5.4L5 10l5.4-1.6z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M6.5 18.5c2.2-.2 4.2-1.2 5.5-2.8 1.3 1.6 3.3 2.6 5.5 2.8" stroke-linecap="round"/>`,
+  // Play Button: Diagonal Broadsword
+  playSword: `<path d="M19.5 4.5l-1.2 4.5-7.8 7.8-3.3-3.3 7.8-7.8 4.5-1.2z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M6.2 12.2l5.6 5.6M4.5 19.5l3.3-3.3" stroke-linecap="round" stroke-linejoin="round"/>`,
 
-  // Faction Crest: Dwarves — Mountain Crown & Crossed Hammers
-  crestDwarves: `<path d="M3.5 19L9 8.5l3 4.5 3-4.5L20.5 19z" stroke-linejoin="round"/><path d="M9.5 6.5h5M12 4.5v4.5" stroke-linecap="round"/>`,
+  // Faction Crest: Humans — Sunlit Citadel Rook Tower
+  crestHumans: `<path d="M6 20h12v-2.2l-1.2-1V10l1.2-1V5h-2.8v2h-2V5h-2.4v2h-2V5H6v4l1.2 1v6.8l-1.2 1V20z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M10.2 20v-4.2a1.8 1.8 0 013.6 0V20" stroke-linecap="round"/>`,
+
+  // Faction Crest: Orcs — Ironspire Battle-Axe & Horned Crest
+  crestOrcs: `<path d="M12 4.5v15.5" stroke-linecap="round" stroke-width="2.2"/><path d="M12 7.5c-2.6 0-5-1.2-6.5-2.8-.8 3.2-.8 6.4 0 9.6 1.5-1.6 3.9-2.8 6.5-2.8 2.6 0 5 1.2 6.5 2.8.8-3.2.8-6.4 0-9.6-1.5 1.6-3.9 2.8-6.5 2.8z" fill="currentColor" fill-opacity="0.32" stroke-linejoin="round"/>`,
+
+  // Faction Crest: Elves — Starlight Leaf Crest
+  crestElves: `<path d="M12 3l1.9 5.5 5.6 1.7-5.6 1.8L12 17.5l-1.9-5.5L4.5 10.2l5.6-1.7L12 3z" fill="currentColor" fill-opacity="0.32" stroke-linejoin="round"/><path d="M6.5 19.5c2.2-.3 4.2-1.2 5.5-2.7 1.3 1.5 3.3 2.4 5.5 2.7" stroke-linecap="round"/>`,
+
+  // Faction Crest: Dwarves — Mountain Peaks & Forge Anvil
+  crestDwarves: `<path d="M4 12.5L9 5.5l3 4 3-4 5 7" stroke-linejoin="round" stroke-linecap="round"/><path d="M5.5 14.5h13c-.6 1.8-1.9 2.7-3.5 2.7h-1.2l.8 2.3H9.4l.8-2.3H9c-1.6 0-2.9-.9-3.5-2.7z" fill="currentColor" fill-opacity="0.34" stroke-linejoin="round"/>`,
+
+  // Per-Civ Codex Tome Icons
+  codexHumans: `<path d="M3.5 6.5C6.2 5.4 9.2 5.5 12 7.2c2.8-1.7 5.8-1.8 8.5-.7v11.5c-2.7-1.1-5.7-1-8.5.7-2.8-1.7-5.8-1.8-8.5-.7V6.5z" fill="currentColor" fill-opacity="0.24" stroke-linejoin="round"/><path d="M12 7.2v11.5M6.5 9.8h3M6.5 13h3M14.5 9.8h3M14.5 13h3" stroke-linecap="round"/>`,
+  codexOrcs: `<path d="M5.5 4.5h11.5a1.8 1.8 0 011.8 1.8v12a1.8 1.8 0 01-1.8 1.8H6.5a1.5 1.5 0 01-1.5-1.5V5.5a1 1 0 01.5-1z" fill="currentColor" fill-opacity="0.24" stroke-linejoin="round"/><path d="M8.2 4.5v15.5M12.8 9.2l-1.6 1.6v3l1.6 1.4 1.6-1.4v-3l-1.6-1.6zM10.5 8.5l1.2 1.2M15.1 8.5l-1.2 1.2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  codexElves: `<path d="M5.5 4.5h11.5a2 2 0 012 2v11.5a2 2 0 01-2 2H6.5a1.5 1.5 0 01-1.5-1.5V6a1.5 1.5 0 01.5-1.5z" fill="currentColor" fill-opacity="0.22" stroke-linejoin="round"/><path d="M8 4.5v15.5M13.5 8.2c2.2 1.2 2.8 4.2 1.2 6.6-1.6-2.4-2.2-5.4-1.2-6.6zM13.5 14.8v2.2" stroke-linecap="round" stroke-linejoin="round"/>`,
+  codexDwarves: `<path d="M5.5 4.5h12l1.5 1.5v12.5L17.5 20h-12V4.5z" fill="currentColor" fill-opacity="0.26" stroke-linejoin="round"/><path d="M8.5 4.5V20M12 8.2v7.6M12 8.2l3.4 2.4-3.4 2.2 3.6 3" stroke-linecap="round" stroke-linejoin="round"/>`,
+
+  // Per-Civ End Turn Medallion Icons
+  endTurnHumans: `<path d="M6.5 6.5l5.5 5.5-5.5 5.5V6.5zM13 6.5l5.5 5.5-5.5 5.5V6.5z" fill="currentColor" stroke-linejoin="round"/>`,
+  endTurnOrcs: `<path d="M5.5 7.2l6.2 4.8-6.2 4.8V7.2z" fill="currentColor" stroke-linejoin="round"/><path d="M12.5 13.8c2.6-.5 4.6-2 6-4.8l1.5 1.5c-1.5 3.4-4 5.5-7.5 6.2v-2.9z" fill="currentColor" fill-opacity="0.88" stroke-linejoin="round"/>`,
+  endTurnElves: `<path d="M8.5 7.5l1.2 3.2 3.2 1.3-3.2 1.3-1.2 3.2-1.3-3.2L4 12l3.2-1.3 1.3-3.2z" fill="currentColor" stroke="none"/><path d="M13 6.5l6.2 5.5-6.2 5.5 2.2-5.5L13 6.5z" fill="currentColor" stroke-linejoin="round"/>`,
+  endTurnDwarves: `<path d="M4.5 10.5h7.5v3.2c-1 .9-2.2 1.3-3.8 1.3l-.6 1.8h3.4v1.7H5.5v-1.7h.8l.5-1.8c-1.2-.5-2-1.4-2.3-2.5v-2z" fill="currentColor" stroke-linejoin="round"/><path d="M13.5 6.5l6 5.5-6 5.5v-11z" fill="currentColor" stroke-linejoin="round"/>`,
 };
 
 export function renderIcon(name: IconName, className = 'icon'): string {
@@ -159,6 +191,26 @@ export function renderFactionCrest(faction: FactionId, className = 'icon icon-cr
     orcs: 'crestOrcs',
     elves: 'crestElves',
     dwarves: 'crestDwarves',
+  };
+  return renderIcon(map[faction], className);
+}
+
+export function renderFactionCodexIcon(faction: FactionId, className = 'icon'): string {
+  const map: Record<FactionId, IconName> = {
+    humans: 'codexHumans',
+    orcs: 'codexOrcs',
+    elves: 'codexElves',
+    dwarves: 'codexDwarves',
+  };
+  return renderIcon(map[faction], className);
+}
+
+export function renderFactionEndTurnIcon(faction: FactionId, className = 'icon'): string {
+  const map: Record<FactionId, IconName> = {
+    humans: 'endTurnHumans',
+    orcs: 'endTurnOrcs',
+    elves: 'endTurnElves',
+    dwarves: 'endTurnDwarves',
   };
   return renderIcon(map[faction], className);
 }

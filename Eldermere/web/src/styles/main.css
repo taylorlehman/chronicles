@@ -1,13 +1,40 @@
 /* ==========================================================================
-   Chronicles of Middle-earth — Mobile-First Polytopia HUD & Faction Themes
-   Typography:
-     - Wordmark & Humans: IM Fell English SC / IM Fell English
-     - Orcs: Pirata One
-     - Elves: Uncial Antiqua
-     - Dwarves: MedievalSharp
-     - UI / Stats / Body: Alegreya Sans
-   4 Distinct Faction Material Themes via [data-faction="humans|orcs|elves|dwarves"]
+   Chronicles of Eldermere — Tactile Tabletop Heraldry UI & Faction Materials
+   Unified Typography: Alegreya Sans (locally bundled 500/700/800/900)
+   4 Per-Civ Material Expressions within ONE Cohesive Tabletop Family
    ========================================================================== */
+
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('../assets/fonts/alegreya-sans-500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('../assets/fonts/alegreya-sans-700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('../assets/fonts/alegreya-sans-800.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('../assets/fonts/alegreya-sans-900.woff2') format('woff2');
+}
 
 :root {
   /* Safe-area insets (overridden dynamically by Android edge-to-edge bridge, env() fallback on web/iOS) */
@@ -16,50 +43,66 @@
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 
-  /* Expressive LOTR Google Font Families */
-  --font-editorial: 'IM Fell English SC', 'IM Fell English', Georgia, serif;
-  --font-prose: 'IM Fell English', Georgia, serif;
-  --font-humans: 'IM Fell English SC', 'IM Fell English', Georgia, serif;
-  --font-orcs: 'Pirata One', Georgia, serif;
-  --font-elves: 'Uncial Antiqua', Georgia, serif;
-  --font-dwarves: 'MedievalSharp', Georgia, serif;
-  --font-carved: 'MedievalSharp', Georgia, serif;
+  /* Single Consistent Game Font Everywhere */
   --font-ui: 'Alegreya Sans', system-ui, -apple-system, sans-serif;
+  --font-editorial: var(--font-ui);
+  --font-prose: var(--font-ui);
+  --font-humans: var(--font-ui);
+  --font-orcs: var(--font-ui);
+  --font-elves: var(--font-ui);
+  --font-dwarves: var(--font-ui);
+  --font-carved: var(--font-ui);
+  --font-faction: var(--font-ui);
+  --faction-font-style: normal;
+  --faction-font-weight: 800;
+  --faction-text-transform: none;
+  --faction-letter-spacing: 0.02em;
+  --faction-line-height: 1.15;
+  --faction-font-scale: 1;
 
-  /* Default semantic tokens (Humans fallback) */
-  --ui-surface: linear-gradient(180deg, rgba(248, 249, 251, 0.96) 0%, rgba(231, 236, 243, 0.96) 100%);
-  --ui-surface-elevated: #ffffff;
-  --ui-surface-recessed: #dde4ee;
-  --ui-border-color: #8c9eb5;
-  --ui-border-width: 1.5px;
-  --ui-hairline: rgba(19, 29, 44, 0.14);
-  --ui-inset-highlight: inset 0 1px 0 #ffffff;
-  --ui-panel-shadow: 0 10px 28px rgba(10, 18, 30, 0.30), 0 2px 8px rgba(10, 18, 30, 0.16);
-  --ui-backdrop-blur: blur(10px);
+  /* Shared Tabletop Chamfer Geometry */
+  --tt-clip: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+  --tt-clip-sm: polygon(7px 0, calc(100% - 7px) 0, 100% 7px, 100% calc(100% - 7px), calc(100% - 7px) 100%, 7px 100%, 0 calc(100% - 7px), 0 7px);
+  --tt-clip-oct: polygon(28% 0, 72% 0, 100% 28%, 100% 72%, 72% 100%, 28% 100%, 0 72%, 0 28%);
+
+  /* Default semantic tokens (Humans fallback — Carved Sunlit Ivory Marble) */
+  --ui-surface: linear-gradient(180deg, #faf6ec 0%, #ede6d6 100%);
+  --ui-surface-solid: #f4efe3;
+  --ui-surface-elevated: #fcf9f2;
+  --ui-surface-recessed: #e4dcc9;
+  --ui-border-color: #c9a24b;
+  --ui-border-strong: #9f7a27;
+  --ui-border-width: 2px;
+  --ui-hairline: rgba(28, 36, 52, 0.14);
+  --ui-inset-highlight: inset 0 2px 0 rgba(255, 255, 255, 0.85), inset 0 -2px 0 rgba(140, 114, 64, 0.25);
+  --ui-panel-shadow: 0 8px 22px rgba(10, 18, 34, 0.34), 0 3px 0 #b89a64;
+  --ui-backdrop-blur: none;
 
   --ui-radius: 10px;
   --ui-btn-radius: 10px;
   --ui-clip: none;
   --ui-clip-sm: none;
 
-  --ui-ink: #131d2c;
-  --ui-ink-muted: #51627a;
-  --ui-accent: #1d437a;
-  --ui-accent-bright: #3264ad;
-  --ui-gold: #b38932;
-  --ui-cta-text: #f7f9fc;
-  --ui-cta-shadow: 0 3px 0 #11284a;
-  --ui-cta-shadow-active: 0 1px 0 #11284a;
+  --ui-ink: #1c2434;
+  --ui-ink-muted: #505d73;
+  --ui-accent: #2356c9;
+  --ui-accent-bright: #3b72eb;
+  --ui-accent-deep: #173a8d;
+  --ui-gold: #d99b26;
+  --ui-rim: #d9a73e;
+  --ui-rim-deep: #8c6419;
+  --ui-cta-text: #ffffff;
+  --ui-cta-shadow: 0 4px 0 #163785;
+  --ui-cta-shadow-active: 0 1px 0 #163785;
+  --tt-label-bg: #f4efe3;
+  --tt-label-ink: #1c2434;
+  --tt-label-border: #c9a24b;
+  --tt-token-bg: linear-gradient(180deg, #fcf9f2 0%, #e9e0cc 100%);
+  --tt-token-ring: #d9a73e;
+  --tt-codex-bg: linear-gradient(180deg, #fcf8ee 0%, #e7dec8 100%);
+  --tt-codex-ink: #b9821f;
 
-  --font-faction: var(--font-humans);
-  --faction-font-style: normal;
-  --faction-font-weight: 400;
-  --faction-text-transform: none;
-  --faction-letter-spacing: 0.035em;
-  --faction-line-height: 1.15;
-  --faction-font-scale: 1.04;
-
-  --btn-transition: 120ms cubic-bezier(0.2, 0, 0, 1);
+  --btn-transition: 110ms cubic-bezier(0.2, 0, 0, 1);
 
   /* Status colors */
   --status-lethal: #b91c1c;
@@ -72,143 +115,135 @@
 }
 
 /* --------------------------------------------------------------------------
-   1) Humans — Minas Tirith White Marble & Gondor Silver-Blue
+   1) Humans — Valoria & Sunmark (Carved Sunlit Marble · Royal Cobalt · Gold)
    -------------------------------------------------------------------------- */
 [data-faction='humans'] {
-  --ui-surface: linear-gradient(180deg, rgba(248, 249, 251, 0.96) 0%, rgba(231, 236, 243, 0.96) 100%);
-  --ui-surface-elevated: #ffffff;
-  --ui-surface-recessed: #dde4ee;
-  --ui-border-color: #8c9eb5;
-  --ui-border-width: 1.5px;
-  --ui-hairline: rgba(19, 29, 44, 0.14);
-  --ui-inset-highlight: inset 0 1px 0 #ffffff;
-  --ui-panel-shadow: 0 10px 28px rgba(10, 18, 30, 0.30), 0 2px 8px rgba(10, 18, 30, 0.16);
-  --ui-backdrop-blur: blur(10px);
-
-  --ui-radius: 8px;
-  --ui-btn-radius: 8px;
-  --ui-clip: none;
-  --ui-clip-sm: none;
-
-  --ui-ink: #131d2c;
-  --ui-ink-muted: #51627a;
-  --ui-accent: #1d437a;
-  --ui-accent-bright: #3264ad;
-  --ui-gold: #b38932;
-  --ui-cta-text: #f7f9fc;
-  --ui-cta-shadow: 0 3px 0 #11284a;
-  --ui-cta-shadow-active: 0 1px 0 #11284a;
-
-  --font-faction: var(--font-humans);
-  --faction-letter-spacing: 0.035em;
-  --faction-line-height: 1.15;
-  --faction-font-scale: 1.04;
-  --btn-transition: 120ms cubic-bezier(0.2, 0, 0, 1);
+  --ui-surface: linear-gradient(180deg, #faf6ec 0%, #ede6d6 100%);
+  --ui-surface-solid: #f4efe3;
+  --ui-surface-elevated: #fcf9f2;
+  --ui-surface-recessed: #e4dcc9;
+  --ui-border-color: #c9a24b;
+  --ui-border-strong: #9f7a27;
+  --ui-hairline: rgba(28, 36, 52, 0.14);
+  --ui-inset-highlight: inset 0 2px 0 rgba(255, 255, 255, 0.85), inset 0 -2px 0 rgba(140, 114, 64, 0.25);
+  --ui-panel-shadow: 0 8px 22px rgba(10, 18, 34, 0.34), 0 3px 0 #b89a64;
+  --ui-ink: #1c2434;
+  --ui-ink-muted: #505d73;
+  --ui-accent: #2356c9;
+  --ui-accent-bright: #3b72eb;
+  --ui-accent-deep: #173a8d;
+  --ui-gold: #d99b26;
+  --ui-rim: #d9a73e;
+  --ui-rim-deep: #8c6419;
+  --ui-cta-text: #ffffff;
+  --ui-cta-shadow: 0 4px 0 #163785;
+  --ui-cta-shadow-active: 0 1px 0 #163785;
+  --tt-label-bg: #f4efe3;
+  --tt-label-ink: #1c2434;
+  --tt-label-border: #c9a24b;
+  --tt-token-bg: linear-gradient(180deg, #fcf9f2 0%, #e9e0cc 100%);
+  --tt-token-ring: #d9a73e;
+  --tt-codex-bg: linear-gradient(180deg, #fcf8ee 0%, #e7dec8 100%);
+  --tt-codex-ink: #b9821f;
 }
 
 /* --------------------------------------------------------------------------
-   2) Orcs — Barad-dûr Forged Black Iron & Glowing Ember Crimson (Dark HUD)
+   2) Orcs — Ashfell & Ironspire (Forged Obsidian Iron · War Crimson · Copper)
    -------------------------------------------------------------------------- */
 [data-faction='orcs'] {
-  --ui-surface: linear-gradient(180deg, rgba(33, 28, 27, 0.96) 0%, rgba(19, 16, 15, 0.96) 100%);
-  --ui-surface-elevated: #2b2321;
-  --ui-surface-recessed: #0e0c0b;
-  --ui-border-color: #6b3b33;
-  --ui-border-width: 1.5px;
-  --ui-hairline: rgba(243, 232, 224, 0.12);
-  --ui-inset-highlight: inset 0 1px 0 rgba(255, 102, 54, 0.22);
-  --ui-panel-shadow: 0 12px 32px rgba(0, 0, 0, 0.56), 0 3px 10px rgba(0, 0, 0, 0.36);
-  --ui-backdrop-blur: blur(8px);
-
-  --ui-radius: 4px;
-  --ui-btn-radius: 4px;
-  --ui-clip: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
-  --ui-clip-sm: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
-
-  --ui-ink: #f3e8e0;
-  --ui-ink-muted: #a69187;
-  --ui-accent: #c7281e;
-  --ui-accent-bright: #ff5b2e;
-  --ui-gold: #f0a843;
-  --ui-cta-text: #fff5ee;
-  --ui-cta-shadow: 0 3px 0 #5e110c;
-  --ui-cta-shadow-active: 0 1px 0 #5e110c;
-
-  --font-faction: var(--font-orcs);
-  --faction-letter-spacing: 0.04em;
-  --faction-line-height: 1.12;
-  --faction-font-scale: 1.12;
-  --btn-transition: 80ms cubic-bezier(0.2, 0, 0, 1);
+  --ui-surface: linear-gradient(180deg, #322b33 0%, #221d23 100%);
+  --ui-surface-solid: #282329;
+  --ui-surface-elevated: #362e37;
+  --ui-surface-recessed: #1a161b;
+  --ui-border-color: #b8602c;
+  --ui-border-strong: #7d3c16;
+  --ui-hairline: rgba(244, 236, 226, 0.14);
+  --ui-inset-highlight: inset 0 2px 0 rgba(255, 166, 110, 0.22), inset 0 -2px 0 rgba(0, 0, 0, 0.45);
+  --ui-panel-shadow: 0 10px 26px rgba(0, 0, 0, 0.54), 0 3px 0 #141015;
+  --ui-ink: #f4ece2;
+  --ui-ink-muted: #baa89b;
+  --ui-accent: #c92a2a;
+  --ui-accent-bright: #e04338;
+  --ui-accent-deep: #871919;
+  --ui-gold: #f0a83a;
+  --ui-rim: #d96b27;
+  --ui-rim-deep: #7a3812;
+  --ui-cta-text: #fff7f2;
+  --ui-cta-shadow: 0 4px 0 #701414;
+  --ui-cta-shadow-active: 0 1px 0 #701414;
+  --tt-label-bg: #241f25;
+  --tt-label-ink: #f4ece2;
+  --tt-label-border: #b8602c;
+  --tt-token-bg: linear-gradient(180deg, #39313a 0%, #241e25 100%);
+  --tt-token-ring: #d96b27;
+  --tt-codex-bg: linear-gradient(180deg, #382f39 0%, #221c23 100%);
+  --tt-codex-ink: #e88848;
 }
 
 /* --------------------------------------------------------------------------
-   3) Elves — Lothlórien Moonstone Ivory, Gold Filigree & Forest Emerald
+   3) Elves — Sylvanvale & Starhaven (Moonlit Birch · Emerald · Starlight Gold)
    -------------------------------------------------------------------------- */
 [data-faction='elves'] {
-  --ui-surface: linear-gradient(165deg, rgba(250, 253, 249, 0.94) 0%, rgba(232, 242, 234, 0.92) 100%);
-  --ui-surface-elevated: rgba(255, 255, 255, 0.97);
-  --ui-surface-recessed: rgba(214, 229, 219, 0.78);
-  --ui-border-color: rgba(184, 148, 62, 0.72);
-  --ui-border-width: 1.25px;
-  --ui-hairline: rgba(18, 41, 29, 0.12);
-  --ui-inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  --ui-panel-shadow: 0 12px 30px rgba(12, 34, 22, 0.24), 0 3px 10px rgba(12, 34, 22, 0.14);
-  --ui-backdrop-blur: blur(12px);
-
-  --ui-radius: 14px;
-  --ui-btn-radius: 12px;
-  --ui-clip: none;
-  --ui-clip-sm: none;
-
-  --ui-ink: #12291d;
-  --ui-ink-muted: #4b6a58;
-  --ui-accent: #17613f;
-  --ui-accent-bright: #258559;
-  --ui-gold: #b8943e;
-  --ui-cta-text: #f7fcf8;
-  --ui-cta-shadow: 0 4px 12px rgba(23, 97, 63, 0.30);
-  --ui-cta-shadow-active: 0 2px 6px rgba(23, 97, 63, 0.22);
-
-  --font-faction: var(--font-elves);
-  --faction-letter-spacing: 0.04em;
-  --faction-line-height: 1.2;
-  --faction-font-scale: 0.95;
-  --btn-transition: 180ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ui-surface: linear-gradient(180deg, #f5f9f2 0%, #e4eee0 100%);
+  --ui-surface-solid: #edf3ea;
+  --ui-surface-elevated: #fafdf8;
+  --ui-surface-recessed: #d7e5d2;
+  --ui-border-color: #c2a046;
+  --ui-border-strong: #8d7229;
+  --ui-hairline: rgba(20, 40, 33, 0.13);
+  --ui-inset-highlight: inset 0 2px 0 rgba(255, 255, 255, 0.9), inset 0 -2px 0 rgba(122, 138, 102, 0.24);
+  --ui-panel-shadow: 0 8px 22px rgba(10, 32, 22, 0.30), 0 3px 0 #a9b59b;
+  --ui-ink: #142821;
+  --ui-ink-muted: #456558;
+  --ui-accent: #12805c;
+  --ui-accent-bright: #1ba075;
+  --ui-accent-deep: #0b563d;
+  --ui-gold: #c8a23c;
+  --ui-rim: #cfb052;
+  --ui-rim-deep: #856d26;
+  --ui-cta-text: #f7fcf9;
+  --ui-cta-shadow: 0 4px 0 #0a4e37;
+  --ui-cta-shadow-active: 0 1px 0 #0a4e37;
+  --tt-label-bg: #edf3ea;
+  --tt-label-ink: #142821;
+  --tt-label-border: #c2a046;
+  --tt-token-bg: linear-gradient(180deg, #f8fbf6 0%, #dfeadd 100%);
+  --tt-token-ring: #c8a23c;
+  --tt-codex-bg: linear-gradient(180deg, #f8fbf6 0%, #dfeadd 100%);
+  --tt-codex-ink: #12805c;
 }
 
 /* --------------------------------------------------------------------------
-   4) Dwarves — Erebor Chiseled Basalt Slate & Burnished Bronze-Amber (Dark HUD)
+   4) Dwarves — Deepforge & Stonehelm (Hewn Granite · Forge Amber · Bronze)
    -------------------------------------------------------------------------- */
 [data-faction='dwarves'] {
-  --ui-surface: linear-gradient(180deg, rgba(37, 43, 51, 0.96) 0%, rgba(24, 28, 34, 0.96) 100%);
-  --ui-surface-elevated: #2e3540;
-  --ui-surface-recessed: #12151a;
-  --ui-border-color: #a87434;
-  --ui-border-width: 1.5px;
-  --ui-hairline: rgba(242, 237, 226, 0.13);
-  --ui-inset-highlight: inset 0 1px 0 rgba(214, 158, 76, 0.28);
-  --ui-panel-shadow: 0 12px 32px rgba(0, 0, 0, 0.54), 0 3px 10px rgba(0, 0, 0, 0.34);
-  --ui-backdrop-blur: blur(8px);
-
-  --ui-radius: 6px;
-  --ui-btn-radius: 6px;
-  --ui-clip: polygon(6px 0, calc(100% - 6px) 0, 100% 6px, 100% calc(100% - 6px), calc(100% - 6px) 100%, 6px 100%, 0 calc(100% - 6px), 0 6px);
-  --ui-clip-sm: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
-
-  --ui-ink: #f2ede2;
-  --ui-ink-muted: #98a2b0;
-  --ui-accent: #c47a27;
-  --ui-accent-bright: #e8a43c;
-  --ui-gold: #f0bc52;
-  --ui-cta-text: #16110a;
-  --ui-cta-shadow: 0 3px 0 #5e3b10;
-  --ui-cta-shadow-active: 0 1px 0 #5e3b10;
-
-  --font-faction: var(--font-dwarves);
-  --faction-letter-spacing: 0.045em;
-  --faction-line-height: 1.16;
-  --faction-font-scale: 1.02;
-  --btn-transition: 100ms cubic-bezier(0.2, 0, 0, 1);
+  --ui-surface: linear-gradient(180deg, #3b4656 0%, #2a323e 100%);
+  --ui-surface-solid: #313a47;
+  --ui-surface-elevated: #404b5c;
+  --ui-surface-recessed: #222933;
+  --ui-border-color: #c89033;
+  --ui-border-strong: #875d1a;
+  --ui-hairline: rgba(244, 239, 229, 0.14);
+  --ui-inset-highlight: inset 0 2px 0 rgba(242, 200, 120, 0.24), inset 0 -2px 0 rgba(0, 0, 0, 0.42);
+  --ui-panel-shadow: 0 10px 26px rgba(0, 0, 0, 0.50), 0 3px 0 #1b2129;
+  --ui-ink: #f4efe5;
+  --ui-ink-muted: #b0bccb;
+  --ui-accent: #d47415;
+  --ui-accent-bright: #eb8e2a;
+  --ui-accent-deep: #8f4b09;
+  --ui-gold: #e8b042;
+  --ui-rim: #e0a135;
+  --ui-rim-deep: #855a16;
+  --ui-cta-text: #fffaf2;
+  --ui-cta-shadow: 0 4px 0 #7b4109;
+  --ui-cta-shadow-active: 0 1px 0 #7b4109;
+  --tt-label-bg: #2c3542;
+  --tt-label-ink: #f4efe5;
+  --tt-label-border: #c89033;
+  --tt-token-bg: linear-gradient(180deg, #424e60 0%, #2b3340 100%);
+  --tt-token-ring: #e0a135;
+  --tt-codex-bg: linear-gradient(180deg, #414d5e 0%, #2a323e 100%);
+  --tt-codex-ink: #e8b042;
 }
 
 /* ==========================================================================

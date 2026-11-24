@@ -1,6 +1,6 @@
 import { ALL_FACTIONS, FACTION_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
 import type { Difficulty, FactionId, GameState, MapSize, PlayerId } from '../game/types';
-import { renderFactionCrest, renderIcon, renderUnitIcon } from './icons';
+import { renderFactionCrest, renderIcon, renderUnitIcon, type IconName } from './icons';
 import { renderUnitThumbOrIcon } from './thumbs';
 
 export interface StartGameOptions {
@@ -32,92 +32,40 @@ export interface GameOverCallbacks {
   onPlayAgain: () => void;
 }
 
-interface FactionBullet {
-  lead: string;
-  detail: string;
+interface FactionPerk {
+  icon: IconName;
+  text: string;
 }
 
-/** Heraldic crest accents per faction */
+/** Heraldic crest accents per faction (Tabletop Heraldry palette) */
 export const FACTION_HERALDRY: Record<FactionId, string> = {
-  humans: '#1d437a',
-  orcs: '#c7281e',
-  elves: '#17613f',
-  dwarves: '#c47a27',
+  humans: '#2356c9',
+  orcs: '#c92a2a',
+  elves: '#12805c',
+  dwarves: '#d47415',
 };
 
-/** 4 crisp, scannable strengths & unique advantages per faction for the Launch Screen */
-const FACTION_STRENGTH_BULLETS: Record<FactionId, FactionBullet[]> = {
+/** 3 crisp single-line icon-led perks per faction for the Start Console */
+const FACTION_PERKS: Record<FactionId, FactionPerk[]> = {
   humans: [
-    {
-      lead: 'Kingdom Builders',
-      detail: 'Excels at rapid road-linked expansion & city growth',
-    },
-    {
-      lead: 'Beacon Network',
-      detail: 'Connected cities earn +1★/turn; Roads grant +1 MOV',
-    },
-    {
-      lead: 'Sunmark Knight',
-      detail: 'High-speed cavalry (3 MOV) with Persist chain-kills',
-    },
-    {
-      lead: 'Head Start',
-      detail: 'Begins with Gathering unlocked for immediate growth',
-    },
+    { icon: 'road', text: '+1 MOV on Roads' },
+    { icon: 'star', text: '+1★ Linked Cities' },
+    { icon: 'swords', text: 'Sunmark Knight' },
   ],
   orcs: [
-    {
-      lead: 'Relentless War Swarm',
-      detail: 'Fuels its economy through early aggression & conquest',
-    },
-    {
-      lead: 'Spoils of War',
-      detail: 'Earn +2★ per enemy slain & +4★ per city captured',
-    },
-    {
-      lead: 'Ironblood Berserker',
-      detail: 'Bloodlust strikes at full 3.5 ATK even when wounded',
-    },
-    {
-      lead: 'Head Start',
-      detail: 'Begins with 7★ treasury & Pillage unlocked',
-    },
+    { icon: 'swords', text: '+2★ Kill · +4★ Capture' },
+    { icon: 'star', text: '7★ Start & Pillage' },
+    { icon: 'axe', text: 'Ironblood Berserker' },
   ],
   elves: [
-    {
-      lead: 'Agile Forest Guardians',
-      detail: 'Dominates woodlands with superior mobility & range',
-    },
-    {
-      lead: 'Woodland Grace',
-      detail: 'No forest move penalty; Ancient Woods give +1★/turn',
-    },
-    {
-      lead: 'Elven Sentinel',
-      detail: 'Range-2 skirmisher that strikes and fades back (Escape)',
-    },
-    {
-      lead: 'Head Start',
-      detail: 'Begins with an Archer & Woodland Lore unlocked',
-    },
+    { icon: 'tree', text: 'Free Forest Movement' },
+    { icon: 'star', text: '+1★ Ancient Woods' },
+    { icon: 'bow', text: 'Elven Sentinel' },
   ],
   dwarves: [
-    {
-      lead: 'Unbreakable Fortress Economy',
-      detail: 'Snowballs wealth from impenetrable peaks',
-    },
-    {
-      lead: 'Deep Mines',
-      detail: 'Cross Mountains Turn 1 (1.75× DEF); Mines earn +1★/turn',
-    },
-    {
-      lead: 'Ironbreaker',
-      detail: '20 HP armored juggernaut (Stalwart: resists range & chains)',
-    },
-    {
-      lead: 'Head Start',
-      detail: 'Begins with Deep Delving to climb & harvest ore Turn 1',
-    },
+    { icon: 'pickaxe', text: 'Climb Peaks Turn 1' },
+    { icon: 'star', text: '+1★ Mountain Mines' },
+    { icon: 'shield', text: 'Ironbreaker (20 HP)' },
   ],
 };
 
@@ -278,20 +226,15 @@ export class TitleScreen {
     const dossiersHtml = ALL_FACTIONS.map((factionId) => {
       const activeDef = FACTION_DEFINITIONS[factionId];
       const uniqueUnit = UNIT_DEFINITIONS[activeDef.uniqueUnit];
-      const heraldry = FACTION_HERALDRY[factionId];
-      const bullets = FACTION_STRENGTH_BULLETS[factionId];
+      const perks = FACTION_PERKS[factionId];
       const isSelected = this.selectedFaction === factionId;
 
-      const bulletsHtml = bullets
+      const perksHtml = perks
         .map(
-          (item) => `
-            <li class="rail-strength-item">
-              <span class="rail-strength-pip" style="background: ${heraldry};" aria-hidden="true"></span>
-              <span class="rail-strength-copy">
-                <strong class="rail-strength-lead">${esc(item.lead)}</strong>
-                <span class="rail-strength-dash">&mdash;</span>
-                <span class="rail-strength-detail">${formatStars(item.detail)}</span>
-              </span>
+          (perk) => `
+            <li class="tt-perk-item">
+              <span class="tt-perk-icon" aria-hidden="true">${renderIcon(perk.icon, 'icon')}</span>
+              <span>${formatStars(perk.text)}</span>
             </li>
           `,
         )
@@ -306,83 +249,66 @@ export class TitleScreen {
 
       return `
         <section
-          class="rail-dossier ${isSelected ? '' : 'hidden'}"
+          class="tt-faction-showcase ${isSelected ? '' : 'hidden'}"
           data-faction-panel="${factionId}"
           aria-live="polite"
         >
-          <div class="rail-dossier-compact-head">
-            <span class="rail-dossier-realm">${esc(activeDef.name)}</span>
-            <span class="rail-dossier-dot" style="background: ${heraldry};"></span>
-            <span class="rail-craft-name">${esc(activeDef.realm)}</span>
+          <div class="tt-champion-frame" title="${esc(uniqueUnit.name)} (HP ${uniqueUnit.maxHp} · ATK ${uniqueUnit.attack} · DEF ${uniqueUnit.defense} · MOV ${uniqueUnit.movement})">
+            ${unitVisualHtml}
           </div>
-
-          <ul class="rail-strengths-list" aria-label="${esc(activeDef.name)} strengths and unique advantages">
-            ${bulletsHtml}
-          </ul>
-
-          <div class="rail-unit-row">
-            <div class="rail-unit-thumb">${unitVisualHtml}</div>
-            <div class="rail-unit-meta">
-              <div class="rail-unit-title">
-                <span>${esc(uniqueUnit.name)}</span>
-                <span class="cost-tag">${uniqueUnit.cost}${renderIcon('star', 'icon icon-sm icon-star')}</span>
-              </div>
-              <div class="rail-unit-stats">
-                <span>HP ${uniqueUnit.maxHp}</span>
-                <span>ATK ${uniqueUnit.attack}</span>
-                <span>DEF ${uniqueUnit.defense}</span>
-                <span>MOV ${uniqueUnit.movement}</span>
-                ${uniqueUnit.range > 1 ? `<span>RNG ${uniqueUnit.range}</span>` : ''}
-              </div>
-            </div>
+          <div class="tt-showcase-copy">
+            <div class="tt-showcase-realm">${esc(activeDef.realm)}</div>
+            <ul class="tt-perk-list" aria-label="${esc(activeDef.name)} advantages">
+              ${perksHtml}
+            </ul>
           </div>
         </section>
       `;
     }).join('');
 
+    const diffLabel = this.difficulty === 'easy' ? 'Squire' : 'Captain';
+    const mapLabel = `${this.mapSize}×${this.mapSize}`;
+
     this.railEl.innerHTML = `
-        <div class="rail-inner">
-          <header class="rail-wordmark">
-            <h1 class="rail-title">Chronicles of Eldermere</h1>
-          </header>
+      <header class="tt-title-banner">
+        <h1 class="rail-title">Chronicles of Eldermere</h1>
+      </header>
+      <div class="tt-start-console">
+        <div class="faction-emblem-strip" role="group" aria-label="Select Civilization">
+          ${emblemTabsHtml}
+        </div>
 
-          <div class="faction-emblem-strip" role="group" aria-label="Select Realm">
-            ${emblemTabsHtml}
-          </div>
+        ${dossiersHtml}
 
-          ${dossiersHtml}
+        <div class="tt-start-actions">
+          <button
+            type="button"
+            class="tt-cycle-btn"
+            data-cycle-difficulty="true"
+            title="Switch AI Difficulty (Squire / Captain)"
+            aria-label="AI Difficulty: ${diffLabel}"
+          >
+            <span class="tt-cycle-medallion" aria-hidden="true">${renderIcon('helm', 'icon')}</span>
+            <span class="tt-cycle-label" data-difficulty-label="true">${diffLabel}</span>
+          </button>
 
-          <div class="rail-toggles">
-            <div class="rail-toggle-row">
-              <span class="rail-toggle-label">AI</span>
-              <div class="segmented" role="group" aria-label="Difficulty">
-                <button type="button" class="segmented-btn ${this.difficulty === 'easy' ? 'active' : ''}" data-difficulty="easy">
-                  Squire
-                </button>
-                <button type="button" class="segmented-btn ${this.difficulty === 'normal' ? 'active' : ''}" data-difficulty="normal">
-                  Captain
-                </button>
-              </div>
-            </div>
+          <button
+            type="button"
+            class="tt-cycle-btn"
+            data-cycle-mapsize="true"
+            title="Switch Map Size (16×16 / 18×18)"
+            aria-label="Map Size: ${mapLabel}"
+          >
+            <span class="tt-cycle-medallion" aria-hidden="true">${renderIcon('mapGrid', 'icon')}</span>
+            <span class="tt-cycle-label" data-mapsize-label="true">${mapLabel}</span>
+          </button>
 
-            <div class="rail-toggle-row">
-              <span class="rail-toggle-label">Realm Size</span>
-              <div class="segmented" role="group" aria-label="Realm Size">
-                <button type="button" class="segmented-btn ${this.mapSize === 16 ? 'active' : ''}" data-mapsize="16">
-                  16&times;16 (256)
-                </button>
-                <button type="button" class="segmented-btn ${this.mapSize === 18 ? 'active' : ''}" data-mapsize="18">
-                  18&times;18 (324)
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <button type="button" class="btn btn-cta btn-begin" data-action="begin">
+          <button type="button" class="tt-play-btn" data-action="begin">
+            ${renderIcon('playSword', 'icon')}
             <span>Play</span>
-            ${renderIcon('chevronRight', 'icon')}
           </button>
         </div>
+      </div>
     `;
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-faction-pick]').forEach((btn) => {
@@ -396,25 +322,19 @@ export class TitleScreen {
       });
     });
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const diff = btn.dataset.difficulty as Difficulty;
-        if (diff && diff !== this.difficulty) {
-          this.difficulty = diff;
-          this.syncSelectionState();
-        }
+    this.root
+      .querySelector<HTMLButtonElement>('[data-cycle-difficulty]')
+      ?.addEventListener('click', () => {
+        this.difficulty = this.difficulty === 'normal' ? 'easy' : 'normal';
+        this.syncSelectionState();
       });
-    });
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-mapsize]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const size = Number(btn.dataset.mapsize) as MapSize;
-        if ((size === 16 || size === 18) && size !== this.mapSize) {
-          this.mapSize = size;
-          this.syncSelectionState();
-        }
+    this.root
+      .querySelector<HTMLButtonElement>('[data-cycle-mapsize]')
+      ?.addEventListener('click', () => {
+        this.mapSize = this.mapSize === 16 ? 18 : 16;
+        this.syncSelectionState();
       });
-    });
 
     const beginBtn = this.root.querySelector<HTMLButtonElement>('[data-action="begin"]');
     beginBtn?.addEventListener('click', () => {
@@ -436,12 +356,17 @@ export class TitleScreen {
     this.root.querySelectorAll<HTMLElement>('[data-faction-panel]').forEach((panel) => {
       panel.classList.toggle('hidden', panel.dataset.factionPanel !== this.selectedFaction);
     });
-    this.root.querySelectorAll<HTMLButtonElement>('[data-difficulty]').forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.difficulty === this.difficulty);
-    });
-    this.root.querySelectorAll<HTMLButtonElement>('[data-mapsize]').forEach((btn) => {
-      btn.classList.toggle('active', Number(btn.dataset.mapsize) === this.mapSize);
-    });
+    const diffLabel = this.difficulty === 'easy' ? 'Squire' : 'Captain';
+    const diffEl = this.root.querySelector<HTMLElement>('[data-difficulty-label]');
+    if (diffEl) diffEl.textContent = diffLabel;
+    const diffBtn = this.root.querySelector<HTMLButtonElement>('[data-cycle-difficulty]');
+    diffBtn?.setAttribute('aria-label', `AI Difficulty: ${diffLabel}`);
+
+    const mapLabel = `${this.mapSize}×${this.mapSize}`;
+    const mapEl = this.root.querySelector<HTMLElement>('[data-mapsize-label]');
+    if (mapEl) mapEl.textContent = mapLabel;
+    const mapBtn = this.root.querySelector<HTMLButtonElement>('[data-cycle-mapsize]');
+    mapBtn?.setAttribute('aria-label', `Map Size: ${mapLabel}`);
   }
 }
 

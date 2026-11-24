@@ -10,7 +10,13 @@ import type {
   Unit,
 } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
-import { renderActionIcon, renderIcon, renderUnitIcon } from './icons';
+import {
+  renderActionIcon,
+  renderFactionCodexIcon,
+  renderFactionEndTurnIcon,
+  renderIcon,
+  renderUnitIcon,
+} from './icons';
 import { render3DThumbImg, renderUnitThumbOrIcon } from './thumbs';
 
 export type SelectionLayer = 'unit' | 'tile';
@@ -214,7 +220,7 @@ export class ActionBar {
   private renderIdleBar(vm: ActionBarViewModel): string {
     const techBadgeHtml =
       vm.hasAffordableTech && vm.affordableTechCount > 0
-        ? `<span class="idle-badge-count">${vm.affordableTechCount}</span>`
+        ? `<span class="tt-dock-badge">${vm.affordableTechCount}</span>`
         : '';
 
     const shouldGlow = vm.isHumanTurn && vm.allUnitsActed;
@@ -223,26 +229,30 @@ export class ActionBar {
       <div class="idle-bottom-bar" role="toolbar" aria-label="Turn controls">
         <button
           type="button"
-          class="btn idle-codex-btn"
+          class="tt-dock-btn tt-dock-btn-codex idle-codex-btn"
           data-idle-action="tech"
           title="Open Tech Codex"
+          aria-label="Open Tech Codex"
         >
-          ${renderIcon('codex', 'icon')}
-          <span>Codex</span>
-          ${techBadgeHtml}
+          <span class="tt-dock-medallion" aria-hidden="true">
+            ${renderFactionCodexIcon(vm.playerFaction, 'icon')}
+            ${techBadgeHtml}
+          </span>
+          <span class="tt-dock-label">Codex</span>
         </button>
-
-        <div class="idle-spacer" aria-hidden="true"></div>
 
         <button
           type="button"
-          class="btn btn-cta idle-end-turn-btn ${shouldGlow ? 'all-done' : ''}"
+          class="tt-dock-btn tt-dock-btn-end idle-end-turn-btn ${shouldGlow ? 'all-done' : ''}"
           data-idle-action="end-turn"
           title="${vm.isHumanTurn ? 'End Turn (Space)' : 'Rival turn in progress'}"
+          aria-label="${vm.isHumanTurn ? 'End Turn' : 'Rival Turn'}"
           ${vm.isHumanTurn ? '' : 'disabled'}
         >
-          <span>${vm.isHumanTurn ? 'End Turn' : 'Rival Turn'}</span>
-          ${vm.isHumanTurn ? renderIcon('chevronRight', 'icon icon-sm') : ''}
+          <span class="tt-dock-medallion" aria-hidden="true">
+            ${renderFactionEndTurnIcon(vm.playerFaction, 'icon')}
+          </span>
+          <span class="tt-dock-label">${vm.isHumanTurn ? 'End Turn' : 'Rival Turn'}</span>
         </button>
       </div>
     `;

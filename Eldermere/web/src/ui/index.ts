@@ -1,4 +1,5 @@
 import '../styles/main.css';
+import '../styles/tabletop-theme.css';
 
 export { TopBar, type TopBarCallbacks, type TopBarViewModel } from './TopBar';
 export {
