@@ -1,18 +1,23 @@
-# Chronicles of Eldermere
+# Chronicles
 
-A client-side, Polytopia-style turn-based 4X strategy game built with **Three.js** and **TypeScript**, featuring four asymmetric fantasy civilizations (**Humans**, **Orcs**, **Elves**, and **Dwarves**), a fast deterministic rules-based AI (no LLMs), procedurally textured 3D isometric terrain, and unified Polytopia-style character sprites.
+A collection of Chronicles strategy games.
 
-## Development
+## Repository Structure
 
-```bash
-npm install
-npm run dev
+```text
+Chronicles
+└── Eldermere
+    ├── web/      # Chronicles of Eldermere — Three.js + TypeScript web client
+    └── android/  # Chronicles of Eldermere — Android client (planned)
 ```
 
-## Build & Test
+## Chronicles of Eldermere (Web)
+
+- **Play live:** https://www.taylorlehman.com/chronicles/eldermere
+- **Source:** [`Eldermere/web/`](./Eldermere/web/)
 
 ```bash
-npm run typecheck
-npm test
-npm run build
+cd Eldermere/web
+npm install
+npm run dev
 ```
