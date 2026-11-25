@@ -119,29 +119,24 @@ export class TopBar {
     const age: PlayerAge = vm.age ?? getPlayerAge(vm.player);
     const techCount = vm.techCount ?? vm.player.techs.length;
     const clampedTechs = Math.max(0, Math.min(7, techCount));
-    const fillPct = Math.round((clampedTechs / 7) * 100);
     const superpowerUsed = Boolean(vm.superpowerUsed);
+    const fillRatio = superpowerUsed ? 0 : Math.min(1, clampedTechs / 7);
     const superpowerTargeting = Boolean(vm.superpowerTargeting);
     const canUseSuperpower = Boolean(vm.canUseSuperpower && !superpowerUsed);
     const isSuperpowerMode = (canUseSuperpower || superpowerTargeting) && !superpowerUsed;
+    const isAlmost = clampedTechs === 6 && !superpowerUsed && !isSuperpowerMode;
     const ageLabel = `Age ${AGE_ROMAN[age]}`;
-    const remainingToAge3 = Math.max(0, 7 - clampedTechs);
-    const chargeTier =
-      clampedTechs >= 5 ? 'charge-high' : clampedTechs >= 3 ? 'charge-mid' : 'charge-low';
     const superpowerShort = superpowerTargeting
       ? 'Cancel'
       : shortSuperpowerLabel(vm.player.faction, vm.superpowerName);
     const superpowerTitle = superpowerTargeting
       ? 'Cancel superpower targeting'
-      : vm.superpowerName
-        ? `Activate ${vm.superpowerName}`
-        : `Activate ${superpowerShort} Superpower`;
+      : isSuperpowerMode
+        ? `Activate ${vm.superpowerName ?? superpowerShort}`
+        : `${ageLabel} (${clampedTechs}/7 to ${superpowerShort}) — Open Codex`;
 
-    const pipsHtml = Array.from({ length: 7 }, (_, i) => {
-      const filled = i < clampedTechs;
-      const isMilestone = i === 2;
-      return `<span class="relic-pip ${filled ? 'is-filled' : ''} ${isMilestone ? 'is-milestone' : ''}"></span>`;
-    }).join('');
+    const circum = 2 * Math.PI * 25;
+    const dashOffset = (circum * (1 - (isSuperpowerMode ? 1 : fillRatio))).toFixed(1);
 
     const barKey = [
       vm.player.faction,
@@ -160,78 +155,53 @@ export class TopBar {
     }
     this.lastBarKey = barKey;
 
-    const rightButtonHtml = isSuperpowerMode
-      ? `
+    const btnStateClass = superpowerTargeting
+      ? 'is-targeting'
+      : isSuperpowerMode
+        ? 'is-ready'
+        : superpowerUsed
+          ? 'is-spent'
+          : isAlmost
+            ? 'is-almost'
+            : 'is-dormant';
+
+    const badgeText = superpowerTargeting
+      ? 'CANCEL'
+      : isSuperpowerMode
+        ? 'READY'
+        : `AGE ${AGE_ROMAN[age]}`;
+
+    const centerButtonHtml = `
+      <div class="sp-round-wrap ${btnStateClass}">
+        <svg class="sp-ring-svg" viewBox="0 0 58 58" aria-hidden="true">
+          <circle class="sp-ring-bg" cx="29" cy="29" r="25" />
+          <circle
+            class="sp-ring-fg"
+            cx="29"
+            cy="29"
+            r="25"
+            stroke-dasharray="${circum.toFixed(1)}"
+            stroke-dashoffset="${dashOffset}"
+          />
+        </svg>
         <button
           type="button"
-          class="top-pill top-pill-age top-age-meter is-superpower-ready ${superpowerTargeting ? 'is-superpower-targeting' : ''}"
-          data-action="superpower"
+          class="sp-round-btn ${btnStateClass}"
+          data-action="${isSuperpowerMode ? 'superpower' : 'codex'}"
           title="${esc(superpowerTitle)}"
           aria-label="${esc(superpowerTitle)}"
         >
-          <span class="top-age-meter-track" aria-hidden="true">
-            <span class="top-age-meter-fill" style="width: 100%;"></span>
-            <span class="top-age-meter-sheen"></span>
-          </span>
-          <span class="top-age-meter-content">
-            <span class="relic-medallion is-ignited" aria-hidden="true">
-              ${
-                superpowerTargeting
-                  ? renderIcon('close', 'icon icon-sm icon-age')
-                  : renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')
-              }
-            </span>
-            <span class="top-age-stack">
-              <span class="top-age-val">${esc(superpowerShort)}</span>
-              <span class="top-age-sub">${superpowerTargeting ? 'Tap target' : 'Ready!'}</span>
-            </span>
-          </span>
+          <span class="sp-btn-gloss" aria-hidden="true"></span>
+          ${isSuperpowerMode && !superpowerTargeting ? '<span class="sp-btn-sweep" aria-hidden="true"></span>' : ''}
+          ${
+            superpowerTargeting
+              ? renderIcon('close', 'icon sp-round-icon')
+              : renderFactionSuperpowerIcon(vm.player.faction, 'icon sp-round-icon')
+          }
         </button>
-      `
-      : superpowerUsed || age >= 3
-        ? `
-          <button
-            type="button"
-            class="top-pill top-pill-age top-age-meter is-age-complete"
-            data-action="codex"
-            title="${ageLabel} — Open Tech Codex"
-            aria-label="${ageLabel} — Open Tech Codex"
-          >
-            <span class="top-age-meter-content">
-              <span class="relic-medallion is-spent" aria-hidden="true">
-                ${renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')}
-              </span>
-              <span class="top-age-val">${ageLabel}</span>
-            </span>
-          </button>
-        `
-        : `
-          <button
-            type="button"
-            class="top-pill top-pill-age top-age-meter is-filling ${chargeTier}"
-            data-action="codex"
-            title="${ageLabel} (${clampedTechs}/7 to unlock ${esc(superpowerShort)}) — Open Tech Codex"
-            aria-label="${ageLabel}, ${clampedTechs} of 7 technologies to unlock ${esc(superpowerShort)} — Open Tech Codex"
-          >
-            <span class="top-age-meter-track" aria-hidden="true">
-              <span class="top-age-meter-fill" style="width: ${fillPct}%;">
-                <span class="top-age-meter-sheen"></span>
-              </span>
-            </span>
-            <span class="top-age-meter-content">
-              <span class="relic-medallion ${chargeTier}" aria-hidden="true">
-                ${renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')}
-              </span>
-              <span class="top-age-stack">
-                <span class="top-age-row">
-                  <span class="top-age-val">${ageLabel}</span>
-                  ${remainingToAge3 <= 2 ? `<span class="top-age-soon">${remainingToAge3} left</span>` : ''}
-                </span>
-                <span class="relic-pips" aria-hidden="true">${pipsHtml}</span>
-              </span>
-            </span>
-          </button>
-        `;
+        <span class="sp-round-badge ${btnStateClass}">${esc(badgeText)}</span>
+      </div>
+    `;
 
     this.root.innerHTML = `
       <div class="top-cluster top-cluster-left">
@@ -251,15 +221,15 @@ export class TopBar {
       </div>
 
       <div class="top-cluster top-cluster-center">
+        ${centerButtonHtml}
+      </div>
+
+      <div class="top-cluster top-cluster-right">
         <div class="top-pill top-pill-stars" title="Stars &amp; income per turn">
           ${renderIcon('star', 'icon icon-star')}
           <span class="top-stars-val">${vm.player.gold}</span>
           <span class="top-stars-delta">(+${vm.player.goldPerTurn})</span>
         </div>
-      </div>
-
-      <div class="top-cluster top-cluster-right">
-        ${rightButtonHtml}
       </div>
     `;
 

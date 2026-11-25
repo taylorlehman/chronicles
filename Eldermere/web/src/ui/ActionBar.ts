@@ -15,7 +15,6 @@ import {
   renderActionIcon,
   renderFactionCodexIcon,
   renderFactionEndTurnIcon,
-  renderFactionSuperpowerIcon,
   renderIcon,
   renderUnitIcon,
 } from './icons';
@@ -233,32 +232,6 @@ export class ActionBar {
         : '';
 
     const shouldGlow = vm.isHumanTurn && vm.allUnitsActed;
-    const showSuperpowerDock = Boolean(vm.canUseSuperpower || vm.superpowerTargeting);
-    const spLabel = vm.superpowerTargeting
-      ? 'Cancel'
-      : vm.superpowerLabel || 'Power';
-    const superpowerDockHtml = showSuperpowerDock
-      ? `
-        <button
-          type="button"
-          class="tt-dock-btn tt-dock-btn-superpower ${vm.superpowerTargeting ? 'is-targeting' : ''}"
-          data-idle-action="superpower"
-          title="${vm.superpowerTargeting ? 'Cancel superpower targeting' : `Unleash ${esc(spLabel)}`}"
-          aria-label="${vm.superpowerTargeting ? 'Cancel superpower targeting' : `Unleash ${esc(spLabel)}`}"
-          ${vm.isHumanTurn ? '' : 'disabled'}
-        >
-          <span class="tt-dock-medallion tt-superpower-medallion" aria-hidden="true">
-            <span class="tt-superpower-ring"></span>
-            ${
-              vm.superpowerTargeting
-                ? renderIcon('close', 'icon icon-superpower-dock')
-                : renderFactionSuperpowerIcon(vm.playerFaction, 'icon icon-superpower-dock')
-            }
-          </span>
-          <span class="tt-dock-label tt-superpower-label">${esc(spLabel)}</span>
-        </button>
-      `
-      : '';
 
     return `
       <div class="idle-bottom-bar" role="toolbar" aria-label="Turn controls">
@@ -275,8 +248,6 @@ export class ActionBar {
           </span>
           <span class="tt-dock-label">Codex</span>
         </button>
-
-        ${superpowerDockHtml}
 
         <button
           type="button"
