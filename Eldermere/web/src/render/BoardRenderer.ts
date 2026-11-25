@@ -235,6 +235,7 @@ export class BoardRenderer {
 
   private tileHitMeshes: THREE.Mesh[] = [];
   private unitHitMeshes: THREE.Mesh[] = [];
+  private moveTargetHitMeshes: THREE.Mesh[] = [];
   private animatedTrees: THREE.Object3D[] = [];
   private waterMeshes: THREE.Mesh[] = [];
   private windmillBlades: THREE.Object3D[] = [];
@@ -339,6 +340,10 @@ export class BoardRenderer {
 
   public getUnitHitMeshes(): THREE.Mesh[] {
     return this.unitHitMeshes;
+  }
+
+  public getMoveTargetHitMeshes(): THREE.Mesh[] {
+    return this.moveTargetHitMeshes;
   }
 
   public getUnitObject(unitId: string): BuiltUnitSprite | undefined {
@@ -999,6 +1004,7 @@ export class BoardRenderer {
 
   public setMoveTargets(coords: Coord[]): void {
     clearGroup(this.moveOverlayGroup);
+    this.moveTargetHitMeshes = [];
     if (coords.length === 0) return;
 
     for (const c of coords) {
@@ -1029,7 +1035,9 @@ export class BoardRenderer {
       );
       fill.position.copy(pos);
       fill.renderOrder = 32;
+      fill.userData = { tileX: c.x, tileY: c.y };
       this.moveOverlayGroup.add(fill);
+      this.moveTargetHitMeshes.push(fill);
 
       // Crisp bright Polytopia outer ring
       const ring = new THREE.Mesh(

@@ -122,6 +122,16 @@ export class InputController {
       }
     }
 
+    // Check elevated blue move rings next so tapping a move target on a mountain, city, or resource
+    // resolves to that exact move destination rather than the flat tile behind it.
+    const moveHits = this.raycaster.intersectObjects(this.board.getMoveTargetHitMeshes(), false);
+    if (moveHits.length > 0) {
+      const data = moveHits[0].object.userData;
+      if (typeof data.tileX === 'number' && typeof data.tileY === 'number') {
+        return { x: data.tileX, y: data.tileY };
+      }
+    }
+
     const hits = this.raycaster.intersectObjects(this.board.getTileHitMeshes(), false);
     if (hits.length === 0) return null;
 

@@ -425,10 +425,6 @@ export class TutorialController {
     this.modalEl.setAttribute('aria-label', 'Tutorial Complete');
     this.modalEl.innerHTML = `
       <div class="modal-panel tutorial-modal-panel tutorial-complete-panel">
-        <div class="tutorial-modal-kicker is-gold">
-          ${renderIcon('trophy', 'icon icon-sm')}
-          <span>All 7 Steps Mastered</span>
-        </div>
         <div class="tutorial-complete-crest" aria-hidden="true">
           ${renderIcon('crown', 'icon icon-xl')}
         </div>

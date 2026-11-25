@@ -1148,6 +1148,18 @@ export class AppController {
         }
       }
 
+      if (
+        action.type === 'MOVE_UNIT' ||
+        action.type === 'ATTACK_UNIT' ||
+        action.type === 'CAPTURE_CITY' ||
+        action.type === 'EXPLORE_RUINS'
+      ) {
+        this.validMoves = [];
+        this.validAttacks = [];
+        this.board?.clearHighlights();
+        this.badges?.setLethalTargets([]);
+      }
+
       if (this.animQueue) {
         await this.animQueue.playEvents(events, nextState, this.humanPlayerId, 1.0);
       }

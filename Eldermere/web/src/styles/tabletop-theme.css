@@ -407,7 +407,8 @@ textarea {
    2) IN-GAME TOP BAR — 3 Chamfered Tabletop Plaques (Same Family, Per-Civ)
    -------------------------------------------------------------------------- */
 .top-bar {
-  padding: calc(10px + var(--safe-top)) calc(12px + var(--safe-right)) 6px calc(12px + var(--safe-left)) !important;
+  top: 0 !important;
+  padding: calc(6px + var(--safe-top)) calc(12px + var(--safe-right)) 6px calc(12px + var(--safe-left)) !important;
   gap: 8px;
 }
 
@@ -1031,7 +1032,7 @@ html.android-webview .tt-faction-showcase {
 /* Guided Tutorial Banner (sits cleanly below TopBar, non-blocking) */
 .tutorial-banner {
   position: fixed;
-  top: calc(86px + var(--safe-top));
+  top: calc(60px + var(--safe-top));
   left: calc(12px + var(--safe-left));
   right: calc(12px + var(--safe-right));
   z-index: 36;

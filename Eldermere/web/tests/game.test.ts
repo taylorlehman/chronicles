@@ -58,6 +58,7 @@ function placeTestUnit(
   x: number,
   y: number,
   overrides: Partial<Unit> = {},
+  revealRadiusForOwner = 3,
 ): Unit {
   const id = `test_unit_${state.nextEntityId++}`;
   const baseHp = overrides.maxHp ?? 10;
@@ -85,9 +86,20 @@ function placeTestUnit(
   state.units[id] = unit;
   const tile = getTile(state, x, y)!;
   tile.unitId = id;
-  // Reveal tile for all players so combat/move tests aren't blocked by fog
+  // Reveal tile for all players and surrounding vision for owner so synthetic move/combat tests aren't blocked by fog
   for (const p of state.players) {
     p.revealedTiles[tileIndex(x, y, state.mapSize)] = true;
+    if (p.id === ownerId && revealRadiusForOwner > 0) {
+      for (let dy = -revealRadiusForOwner; dy <= revealRadiusForOwner; dy++) {
+        for (let dx = -revealRadiusForOwner; dx <= revealRadiusForOwner; dx++) {
+          const rx = x + dx;
+          const ry = y + dy;
+          if (rx >= 0 && ry >= 0 && rx < state.mapSize && ry < state.mapSize) {
+            p.revealedTiles[tileIndex(rx, ry, state.mapSize)] = true;
+          }
+        }
+      }
+    }
   }
   return unit;
 }
@@ -1679,5 +1691,49 @@ describe('Authoritative Remaining Actions & Dash/Escape/Persist Auto-Exhaustion'
     // Game over -> always false
     state.phase = 'game_over';
     expect(hasUnitRemainingActions(state, trapped.id)).toBe(false);
+  });
+
+  it('never includes cloud-covered (unrevealed) tiles or impassable mountains/water in getValidMoves', () => {
+    const state = createGame(makeConfig({ humanFaction: 'humans' }));
+    clearBoardUnits(state);
+    const human = getPlayer(state, 'player_humans')!;
+
+    // Flatten a 5x5 region around (7, 7) to plains and reveal only a 3x3 ring around (7, 7)
+    human.revealedTiles.fill(false);
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const t = getTile(state, 7 + dx, 7 + dy)!;
+        t.terrain = 'plains';
+        t.hasRoad = false;
+        t.unitId = null;
+        if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
+          human.revealedTiles[tileIndex(7 + dx, 7 + dy, state.mapSize)] = true;
+        }
+      }
+    }
+
+    // Place a mountain at (8, 7) and water at (6, 7) inside the revealed ring
+    getTile(state, 8, 7)!.terrain = 'mountain';
+    getTile(state, 6, 7)!.terrain = 'water';
+
+    // Rider has 2 MOV: its range would reach distance-2 cloud-covered tiles (e.g. (7, 5), (7, 9))
+    const rider = placeTestUnit(state, 'player_humans', 'rider', 7, 7, {}, 0);
+    const movesBeforeTech = getValidMoves(state, rider.id);
+
+    // Must never include mountain without Mountaineering tech, water, or any unrevealed cloud tile
+    expect(movesBeforeTech).not.toContainEqual({ x: 8, y: 7 });
+    expect(movesBeforeTech).not.toContainEqual({ x: 6, y: 7 });
+    for (const m of movesBeforeTech) {
+      expect(human.revealedTiles[tileIndex(m.x, m.y, state.mapSize)]).toBe(true);
+    }
+
+    // Researching Mountaineering unlocks moving onto the revealed mountain (and still blocks clouds & water)
+    human.techs.push('humans_mountaineering');
+    const movesAfterTech = getValidMoves(state, rider.id);
+    expect(movesAfterTech).toContainEqual({ x: 8, y: 7 });
+    expect(movesAfterTech).not.toContainEqual({ x: 6, y: 7 });
+    for (const m of movesAfterTech) {
+      expect(human.revealedTiles[tileIndex(m.x, m.y, state.mapSize)]).toBe(true);
+    }
   });
 });

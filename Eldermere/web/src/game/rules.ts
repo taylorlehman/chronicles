@@ -627,6 +627,10 @@ export function getValidMoves(state: GameState, unitId: string): Coord[] {
     }
 
     for (const next of getNeighbors8(state, curr.x, curr.y)) {
+      const nIdx = tileIndex(next.x, next.y, size);
+      // Never allow moving into or traversing through cloud-covered (unrevealed) tiles
+      if (!owner.revealedTiles[nIdx]) continue;
+
       if (!isTilePassableForUnit(owner, next)) continue;
 
       // Cannot pass through or land on enemy units
@@ -644,7 +648,6 @@ export function getValidMoves(state: GameState, unitId: string): Coord[] {
         nextRem = 0; // Forests stop movement unless Elves or Road
       }
 
-      const nIdx = tileIndex(next.x, next.y, size);
       // Can land on empty tile
       if (next.unitId === null && !added[nIdx]) {
         added[nIdx] = 1;
