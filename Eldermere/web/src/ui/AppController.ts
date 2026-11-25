@@ -1,5 +1,6 @@
 import { planAITurn } from '../ai';
 import {
+  AGE_ROMAN,
   TECH_DEFINITIONS,
   UNIT_DEFINITIONS,
   applyAction,
@@ -17,6 +18,7 @@ import {
   getFactionTechs,
   getLeaderboard,
   getPlayer,
+  getPlayerAge,
   getPlayerCities,
   getPlayerUnits,
   getTechCost,
@@ -35,6 +37,7 @@ import {
   type GameAction,
   type GameEvent,
   type GameState,
+  type PlayerAge,
   type PlayerId,
   type PlayerState,
   type ResourceType,
@@ -203,12 +206,14 @@ export class AppController {
 
     this.topBar = new TopBar(this.hudRoot, {
       onOpenLeaderboard: () => this.openLeaderboardModal(),
+      onOpenCodex: () => this.openTechModal(),
     });
 
     this.actionBar = new ActionBar(this.hudRoot, {
       onAction: (action) => {
         void this.handleHumanAction(action);
       },
+      onUnlockTech: (techId) => this.handleUnlockTechRequest(techId),
       onDeselect: () => this.clearSelection(),
       onSwitchLayer: (layer) => this.switchSelectionLayer(layer),
       onOpenTech: () => this.openTechModal(),
@@ -727,6 +732,7 @@ export class AppController {
     const human = getPlayer(this.state, this.humanPlayerId);
     const faction: FactionId = human?.faction ?? this.titleScreen.getSelectedFaction();
     const turn = this.state.turn;
+    const age: PlayerAge = human ? getPlayerAge(human) : 1;
     const citiesCount = getPlayerCities(this.state, this.humanPlayerId).length;
     const score = human?.score ?? 0;
 
@@ -749,6 +755,7 @@ export class AppController {
     this.resignationOverlay.show({
       faction,
       turn,
+      age,
       citiesCount,
       score,
     });
@@ -1125,8 +1132,21 @@ export class AppController {
     this.input?.setInputLocked(true);
 
     try {
+      const prevHuman = getPlayer(this.state, this.humanPlayerId);
+      const prevAge = prevHuman ? getPlayerAge(prevHuman) : null;
       const { state: nextState, events } = applyAction(this.state, action);
       this.state = nextState;
+
+      let advancedToAge: PlayerAge | null = null;
+      if (action.type === 'RESEARCH_TECH' && prevAge !== null) {
+        const nextHuman = getPlayer(nextState, this.humanPlayerId);
+        if (nextHuman) {
+          const nextAge = getPlayerAge(nextHuman);
+          if (nextAge > prevAge) {
+            advancedToAge = nextAge;
+          }
+        }
+      }
 
       let hapticStyle: 'tap' | 'combat' | 'capture' | 'victory' = 'tap';
       for (const ev of events) {
@@ -1140,12 +1160,18 @@ export class AppController {
           hapticStyle = 'combat';
         }
       }
+      if (advancedToAge !== null && hapticStyle === 'tap') {
+        hapticStyle = 'capture';
+      }
       triggerAndroidHaptic(hapticStyle);
 
       for (const ev of events) {
         if (ev.type === 'RUINS_CLAIMED' && ev.playerId === this.humanPlayerId) {
           this.showRuinsRewardToast(ev, nextState);
         }
+      }
+      if (advancedToAge !== null) {
+        this.showAgeAdvancementToast(advancedToAge);
       }
 
       if (
@@ -1341,7 +1367,9 @@ export class AppController {
     if (!human) return null;
 
     const factionTechs = getFactionTechs(human.faction);
-    const target = factionTechs.find((t) => canResearchTech(this.state!, human.id, t.id));
+    const target =
+      factionTechs.find((t) => t.tier === 1 && canResearchTech(this.state!, human.id, t.id)) ??
+      factionTechs.find((t) => canResearchTech(this.state!, human.id, t.id));
     return target?.id ?? null;
   }
 
@@ -1772,6 +1800,23 @@ export class AppController {
     }
   }
 
+  private handleUnlockTechRequest(techId: TechId): void {
+    if (!this.state) return;
+    if (this.tutorial.isActive() && this.tutorial.getStage() !== 'codex') {
+      triggerAndroidHaptic('tap');
+      this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+      return;
+    }
+    triggerAndroidHaptic('tap');
+    this.factionDossierModal.close();
+    this.leaderboardModal.close();
+    const vm = this.buildTechModalViewModel();
+    if (vm) {
+      this.pauseSceneBehindOpaqueSheet();
+      this.techModal.openToTech(vm, techId);
+    }
+  }
+
   /**
    * Android WebView: pause the WebGL RAF loop behind full-screen/sheet modals so Chromium's
    * Skia Vulkan tile-cache and ANGLE WebGL swapchain never race on the same frame.
@@ -1814,12 +1859,36 @@ export class AppController {
 
   private buildLeaderboardViewModel(): LeaderboardModalViewModel | null {
     if (!this.state) return null;
+    const human = getPlayer(this.state, this.humanPlayerId);
     return {
       entries: getLeaderboard(this.state),
       turn: this.state.turn,
       maxTurns: this.state.config.maxTurns,
+      age: human ? getPlayerAge(human) : 1,
       tutorialActive: this.tutorial.isActive(),
     };
+  }
+
+  private showAgeAdvancementToast(newAge: PlayerAge): void {
+    const roman = AGE_ROMAN[newAge];
+    this.rewardToastEl.innerHTML = `
+      <span class="toast-ruins-icon">${renderIcon('crown', 'icon icon-star')}</span>
+      <span class="toast-ruins-body">
+        <span class="toast-ruins-kicker">Age ${roman} Unlocked!</span>
+        <span class="toast-ruins-line"><span>Tier ${roman} technologies are now available in the Codex.</span></span>
+      </span>
+    `;
+
+    this.rewardToastEl.classList.remove('hidden', 'toast-show');
+    void this.rewardToastEl.offsetWidth;
+    this.rewardToastEl.classList.add('toast-show');
+
+    if (this.rewardToastTimer !== null) {
+      window.clearTimeout(this.rewardToastTimer);
+    }
+    this.rewardToastTimer = window.setTimeout(() => {
+      this.hideRewardToast();
+    }, 3600);
   }
 
   private showRuinsRewardToast(
@@ -1904,6 +1973,7 @@ export class AppController {
 
     return {
       player: human,
+      state: this.state,
       cityCount: getPlayerCities(this.state, human.id).length,
       isHumanTurn: this.isHumanTurn(),
       techCosts,
@@ -1941,6 +2011,7 @@ export class AppController {
       activePlayer,
       turn: this.state.turn,
       maxTurns: this.state.config.maxTurns,
+      age: getPlayerAge(human),
       isHumanTurn: isHuman,
     });
   }

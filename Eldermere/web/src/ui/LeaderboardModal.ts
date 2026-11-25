@@ -1,12 +1,14 @@
 import { FACTION_DEFINITIONS } from '../game/data';
-import type { FactionId, LeaderboardEntry } from '../game/types';
+import { AGE_ROMAN } from '../game/rules';
+import type { FactionId, LeaderboardEntry, PlayerAge } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
 import { renderFactionCrest, renderIcon } from './icons';
 
 export interface LeaderboardModalViewModel {
   entries: LeaderboardEntry[];
-  turn: number;
-  maxTurns: number;
+  turn?: number;
+  maxTurns?: number;
+  age?: PlayerAge;
   tutorialActive?: boolean;
 }
 
@@ -151,12 +153,8 @@ export class LeaderboardModal {
       })
       .join('');
 
-    const turnSubtitle =
-      vm.maxTurns > 0 ? `Turn ${vm.turn} / ${vm.maxTurns}` : `Turn ${vm.turn}`;
-    const footerHint =
-      vm.maxTurns > 0
-        ? `Capture all enemy capitals or lead Glory at Turn ${vm.maxTurns}`
-        : 'Capture all enemy capitals to win · Tap a realm for details';
+    const ageSubtitle = `Age ${AGE_ROMAN[vm.age ?? 1]}`;
+    const footerHint = 'Capture all enemy capitals to win · Tap a realm for details';
 
     this.root.innerHTML = `
       <div class="modal-panel leaderboard-modal-panel">
@@ -168,7 +166,7 @@ export class LeaderboardModal {
               <span>Realm Standings</span>
             </h2>
             <span class="modal-subtitle">
-              <strong class="lb-turn-pill">${turnSubtitle}</strong>
+              <strong class="lb-turn-pill">${ageSubtitle}</strong>
             </span>
           </div>
           <button type="button" class="btn btn-icon modal-close-btn" data-action="close" aria-label="Close Leaderboard">

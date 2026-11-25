@@ -219,13 +219,12 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
         state = captureRes.state;
         expect(getPlayerCities(state, human.id)).toHaveLength(2);
 
-        // Step 5: Deterministic tutorial target tech (Pillar 0 Branch A) is affordable in the Codex
-        const targetTech = getFactionTechs(faction).find((t) =>
-          canResearchTech(state, human.id, t.id),
+        // Step 5: Deterministic tutorial target tech (affordable Age I root tech) in the Codex
+        const targetTech = getFactionTechs(faction).find(
+          (t) => t.tier === 1 && canResearchTech(state, human.id, t.id),
         );
         expect(targetTech).toBeDefined();
-        expect(targetTech!.pillarIndex).toBe(0);
-        expect(targetTech!.tier).toBe(2);
+        expect(targetTech!.tier).toBe(1);
 
         const techRes = applyAction(state, {
           type: 'RESEARCH_TECH',

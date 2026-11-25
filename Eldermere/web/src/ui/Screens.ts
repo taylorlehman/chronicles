@@ -1,5 +1,6 @@
 import { ALL_FACTIONS, FACTION_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
-import type { Difficulty, FactionId, GameState, MapSize, PlayerId } from '../game/types';
+import { AGE_ROMAN } from '../game/rules';
+import type { Difficulty, FactionId, GameState, MapSize, PlayerAge, PlayerId } from '../game/types';
 import { renderFactionCrest, renderIcon, renderUnitIcon, type IconName } from './icons';
 import type { SavedCampaignSummary } from './persistence';
 import { renderUnitThumbOrIcon } from './thumbs';
@@ -36,7 +37,8 @@ export interface GameOverCallbacks {
 
 export interface ResignationData {
   faction: FactionId;
-  turn: number;
+  turn?: number;
+  age?: PlayerAge;
   citiesCount: number;
   score: number;
 }
@@ -442,7 +444,7 @@ export class TitleScreen {
             ${renderFactionCrest(saved.faction, 'icon icon-crest-sm')}
           </span>
           <div class="tt-resume-text">
-            <span class="tt-resume-title">${esc(def.name)} · Turn ${saved.turn}</span>
+            <span class="tt-resume-title">${esc(def.name)} · ${esc(def.realm)}</span>
             <span class="tt-resume-sub">${esc(citiesLabel)} · ${saved.score.toLocaleString()} Glory</span>
           </div>
         </div>
@@ -501,8 +503,8 @@ export class GameOverOverlay {
 
   private formatWinSubtitle(state: GameState): string {
     return state.winReason === 'domination'
-      ? `Domination — All Rival Capitals Claimed (Turn ${state.turn})`
-      : `Glory Triumph — Turn ${state.turn}`;
+      ? 'Domination — All Rival Capitals Claimed'
+      : 'Glory Triumph';
   }
 
   private render(): void {
@@ -639,7 +641,7 @@ export class GameOverOverlay {
               ${esc(fDef.name)}${isHuman ? ' (You)' : ''}
               ${isWinner ? renderIcon('crown', 'icon icon-sm icon-star') : ''}
             </td>
-            <td class="col-fate">${player.alive ? 'Standing' : `T${player.eliminatedOnTurn ?? '?'}`}</td>
+            <td class="col-fate">${player.alive ? 'Standing' : 'Fallen'}</td>
             <td class="num">${stats.cities}</td>
             <td class="num col-lore">${stats.techs}</td>
             <td class="num score-total">${stats.total.toLocaleString()}</td>
@@ -755,8 +757,8 @@ export class ResignationOverlay {
 
         <div class="resignation-stats-grid" role="list" aria-label="Campaign Summary">
           <div class="resignation-stat-card" role="listitem">
-            <span class="resignation-stat-label">Turn Reached</span>
-            <strong class="resignation-stat-val">${data.turn}</strong>
+            <span class="resignation-stat-label">Age Reached</span>
+            <strong class="resignation-stat-val">Age ${AGE_ROMAN[data.age ?? 1]}</strong>
           </div>
           <div class="resignation-stat-card" role="listitem">
             <span class="resignation-stat-label">Cities</span>

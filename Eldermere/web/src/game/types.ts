@@ -7,6 +7,7 @@ export type FactionId = 'humans' | 'orcs' | 'elves' | 'dwarves';
 export type PlayerId = string;
 export type Difficulty = 'easy' | 'normal';
 export type MapSize = 16 | 18;
+export type PlayerAge = 1 | 2 | 3;
 
 export interface Coord {
   x: number;
@@ -440,6 +441,7 @@ export interface ActionOption {
   enabled: boolean;
   disabledReason?: string;
   unitType?: UnitType;
+  requiredTechId?: TechId;
 }
 
 export interface ActionResult {

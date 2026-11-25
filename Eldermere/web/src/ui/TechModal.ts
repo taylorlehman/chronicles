@@ -3,15 +3,24 @@ import {
   TECH_DEFINITIONS,
   getFactionTechs,
 } from '../game/data';
-import type { PlayerState, TechDefinition, TechId } from '../game/types';
+import {
+  AGE_ROMAN,
+  AGE_THRESHOLDS,
+  getNextAgeProgress,
+  getPlayerAge,
+  getTechResearchBlockReason,
+} from '../game/rules';
+import type { GameState, PlayerAge, PlayerState, TechDefinition, TechId } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
-import { renderFactionCrest, renderIcon, renderUnitIcon, toRoman } from './icons';
+import { renderFactionCrest, renderIcon, renderUnitIcon } from './icons';
 import { getTechIconKey, render3DThumbImg } from './thumbs';
 
 export interface TechModalViewModel {
   player: PlayerState;
   cityCount: number;
   isHumanTurn: boolean;
+  /** Optional full GameState for exact rules-engine block reasons. */
+  state?: GameState;
   /** Optional precomputed dynamic Star cost per tech ID (falls back to standard formula if omitted). */
   techCosts?: Partial<Record<TechId, number>>;
   /** When set during the guided tutorial, highlights this tech and locks all others. */
@@ -72,6 +81,7 @@ export class TechModal {
   private openState = false;
   private activePillarIndex: PillarIndex = 0;
   private pendingTechId: TechId | null = null;
+  private blockedTechId: TechId | null = null;
   private lastVm: TechModalViewModel | null = null;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
 
@@ -86,8 +96,8 @@ export class TechModal {
 
     this.root.addEventListener('click', (e) => {
       if (e.target === this.root) {
-        if (this.pendingTechId) {
-          this.cancelPendingResearch();
+        if (this.pendingTechId || this.blockedTechId) {
+          this.dismissSubDialog();
         } else {
           this.close();
         }
@@ -96,9 +106,9 @@ export class TechModal {
 
     this.onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && this.openState) {
-        if (this.pendingTechId) {
+        if (this.pendingTechId || this.blockedTechId) {
           e.stopPropagation();
-          this.cancelPendingResearch();
+          this.dismissSubDialog();
         } else {
           this.close();
         }
@@ -114,6 +124,7 @@ export class TechModal {
   public open(vm: TechModalViewModel): void {
     this.openState = true;
     this.pendingTechId = null;
+    this.blockedTechId = null;
     this.lastVm = vm;
     if (vm.tutorialTargetTechId) {
       const targetTech = TECH_DEFINITIONS[vm.tutorialTargetTechId];
@@ -121,6 +132,39 @@ export class TechModal {
         this.activePillarIndex = targetTech.pillarIndex as PillarIndex;
       }
     }
+    this.render(vm);
+    this.root.classList.remove('hidden');
+    this.restoreCarouselPosition(false);
+  }
+
+  public openToTech(vm: TechModalViewModel, techId: TechId): void {
+    this.openState = true;
+    this.pendingTechId = null;
+    this.blockedTechId = null;
+    this.lastVm = vm;
+
+    const targetTech = TECH_DEFINITIONS[techId];
+    if (targetTech && targetTech.faction === vm.player.faction) {
+      this.activePillarIndex = targetTech.pillarIndex as PillarIndex;
+      const researchedSet = new Set<TechId>(vm.player.techs);
+      const age = getPlayerAge(vm.player);
+      const cost = vm.techCosts?.[targetTech.id] ?? defaultTechCost(targetTech, vm.player, vm.cityCount);
+      const tutorialBlocked = Boolean(vm.tutorialTargetTechId && vm.tutorialTargetTechId !== targetTech.id);
+      const canResearchNow =
+        !tutorialBlocked &&
+        vm.isHumanTurn &&
+        !researchedSet.has(targetTech.id) &&
+        age >= targetTech.tier &&
+        hasAllPrerequisites(targetTech, researchedSet) &&
+        vm.player.gold >= cost;
+
+      if (canResearchNow) {
+        this.pendingTechId = techId;
+      } else {
+        this.blockedTechId = techId;
+      }
+    }
+
     this.render(vm);
     this.root.classList.remove('hidden');
     this.restoreCarouselPosition(false);
@@ -138,6 +182,7 @@ export class TechModal {
     if (!this.openState) return;
     this.openState = false;
     this.pendingTechId = null;
+    this.blockedTechId = null;
     this.root.classList.add('hidden');
     this.callbacks.onClose();
   }
@@ -147,13 +192,51 @@ export class TechModal {
     this.root.remove();
   }
 
-  private cancelPendingResearch(): void {
-    if (!this.pendingTechId) return;
+  private dismissSubDialog(): void {
+    if (!this.pendingTechId && !this.blockedTechId) return;
     this.pendingTechId = null;
+    this.blockedTechId = null;
     if (this.openState && this.lastVm) {
       this.render(this.lastVm);
       this.restoreCarouselPosition(false);
     }
+  }
+
+  private computeBlockReason(
+    vm: TechModalViewModel,
+    tech: TechDefinition,
+    cost: number,
+    age: PlayerAge,
+    researchedSet: ReadonlySet<TechId>,
+  ): string {
+    const { player, isHumanTurn, state } = vm;
+    if (researchedSet.has(tech.id)) {
+      return 'Already researched.';
+    }
+    if (!isHumanTurn) {
+      return 'Wait for your turn to research technologies.';
+    }
+    if (vm.tutorialTargetTechId && vm.tutorialTargetTechId !== tech.id) {
+      const targetName = TECH_DEFINITIONS[vm.tutorialTargetTechId]?.name ?? 'the highlighted technology';
+      return `Complete the tutorial step by researching ${targetName} first.`;
+    }
+    if (tech.tier > age) {
+      const needed = Math.max(1, AGE_THRESHOLDS[tech.tier] - player.techs.length);
+      return `Requires Age ${AGE_ROMAN[tech.tier]} — research ${needed} more ${needed === 1 ? 'technology' : 'technologies'} to advance to Age ${AGE_ROMAN[tech.tier]}.`;
+    }
+    const missingPrereqs = tech.prerequisites.filter((id) => !researchedSet.has(id));
+    if (missingPrereqs.length > 0) {
+      const names = missingPrereqs.map((id) => TECH_DEFINITIONS[id]?.name ?? id);
+      return `Requires ${names.join(' & ')} first.`;
+    }
+    if (player.gold < cost) {
+      return `Need ${cost}★ (you have ${player.gold}★).`;
+    }
+    if (state) {
+      const ruleReason = getTechResearchBlockReason(state, player.id, tech.id);
+      if (ruleReason) return ruleReason;
+    }
+    return 'Cannot research right now.';
   }
 
   private render(vm: TechModalViewModel): void {
@@ -164,6 +247,8 @@ export class TechModal {
     const factionTechs = getFactionTechs(player.faction);
     const totalTechs = factionTechs.length;
     const researchedSet = new Set<TechId>(player.techs);
+    const age = getPlayerAge(player);
+    const ageProgress = getNextAgeProgress(player);
 
     const getCost = (tech: TechDefinition): number =>
       techCosts?.[tech.id] ?? defaultTechCost(tech, player, cityCount);
@@ -186,6 +271,7 @@ export class TechModal {
             (t) =>
               (!tutorialTargetTechId || t.id === tutorialTargetTechId) &&
               !researchedSet.has(t.id) &&
+              t.tier <= age &&
               hasAllPrerequisites(t, researchedSet) &&
               player.gold >= getCost(t),
           );
@@ -211,6 +297,14 @@ export class TechModal {
 
     const pillarNavHtml = `
       <div class="tech-pillar-nav" role="tablist" aria-label="Codex Pillars">
+        <button
+          type="button"
+          class="tech-carousel-arrow tech-carousel-prev"
+          data-carousel-prev
+          aria-label="Previous pillar"
+          title="Previous pillar"
+          ${this.activePillarIndex === 0 ? 'disabled' : ''}
+        >&lsaquo;</button>
         <div class="tech-pillar-pills">
           ${pillars
             .map(
@@ -229,6 +323,14 @@ export class TechModal {
             )
             .join('')}
         </div>
+        <button
+          type="button"
+          class="tech-carousel-arrow tech-carousel-next"
+          data-carousel-next
+          aria-label="Next pillar"
+          title="Next pillar"
+          ${this.activePillarIndex >= pillars.length - 1 ? 'disabled' : ''}
+        >&rsaquo;</button>
         <span class="tech-pillar-counter" data-pillar-counter>${this.activePillarIndex + 1}/${pillars.length}</span>
       </div>
     `;
@@ -239,6 +341,7 @@ export class TechModal {
           pillar,
           getCost,
           player,
+          age,
           researchedSet,
           isHumanTurn,
           tutorialTargetTechId,
@@ -255,6 +358,7 @@ export class TechModal {
         candidate.faction === player.faction &&
         (!tutorialTargetTechId || candidate.id === tutorialTargetTechId) &&
         !researchedSet.has(candidate.id) &&
+        candidate.tier <= age &&
         hasAllPrerequisites(candidate, researchedSet) &&
         isHumanTurn &&
         player.gold >= getCost(candidate)
@@ -265,9 +369,36 @@ export class TechModal {
       }
     }
 
-    const confirmHtml = pendingTech
+    let blockedTech: TechDefinition | null = null;
+    if (!pendingTech && this.blockedTechId) {
+      const candidate = TECH_DEFINITIONS[this.blockedTechId];
+      if (candidate && candidate.faction === player.faction) {
+        blockedTech = candidate;
+      } else {
+        this.blockedTechId = null;
+      }
+    }
+
+    const overlayHtml = pendingTech
       ? this.renderConfirmDialog(pendingTech, getCost(pendingTech), player)
-      : '';
+      : blockedTech
+        ? this.renderRequirementsDialog(
+            blockedTech,
+            getCost(blockedTech),
+            player,
+            this.computeBlockReason(vm, blockedTech, getCost(blockedTech), age, researchedSet),
+          )
+        : '';
+
+    const ageProgressText =
+      ageProgress.nextAge !== null && ageProgress.requiredTechs !== null
+        ? `${ageProgress.currentTechs}/${ageProgress.requiredTechs} Lore to Age ${AGE_ROMAN[ageProgress.nextAge]}`
+        : `Max Age (${player.techs.length}/${totalTechs} Lore)`;
+
+    const cityScaleNote =
+      cityCount > 1
+        ? `<span>&middot;</span><span class="tech-city-scale-note" title="Each additional city increases tech cost by +1 Star">+1${renderIcon('star', 'icon icon-xs icon-star')}/city</span>`
+        : '';
 
     this.root.innerHTML = `
       <div class="modal-panel tech-modal-panel">
@@ -279,11 +410,13 @@ export class TechModal {
                 ${renderFactionCrest(player.faction, 'icon icon-crest-sm')}
               </span>
               <span>${esc(factionDef.name)} Codex</span>
+              <span class="tech-age-pill">${renderIcon('codex', 'icon icon-xs')}<span>Age ${AGE_ROMAN[age]}</span></span>
             </h2>
             <span class="modal-subtitle">
               <strong class="gold-text">${player.gold}${renderIcon('star', 'icon icon-sm icon-star')}</strong>
               <span>&middot;</span>
-              <span>${player.techs.length}/${totalTechs} Lore</span>
+              <span class="tech-age-progress">${esc(ageProgressText)}</span>
+              ${cityScaleNote}
               ${player.techs.includes('elves_elven_lore') ? '<span>&middot;</span><span class="tech-discount-note">-1★ Lore</span>' : ''}
             </span>
           </div>
@@ -298,11 +431,26 @@ export class TechModal {
           ${pillarsHtml}
         </div>
 
-        ${confirmHtml}
+        ${overlayHtml}
       </div>
     `;
 
     this.bindEvents();
+  }
+
+  private renderTechDialogIcon(tech: TechDefinition, player: PlayerState): string {
+    const iconKey = getTechIconKey(tech);
+    const thumbImg = render3DThumbImg(iconKey, player.faction, 'thumb-3d thumb-confirm', tech.name);
+    if (thumbImg) return thumbImg;
+    return tech.unlocksUnits.length > 0
+      ? renderUnitIcon(tech.unlocksUnits[0], 'icon icon-lg')
+      : tech.unlocksImprovements.length > 0
+        ? renderIcon('tower', 'icon icon-lg')
+        : tech.unlocksResources.length > 0
+          ? renderIcon('leaf', 'icon icon-lg')
+          : tech.tier === 3
+            ? renderIcon('crown', 'icon icon-lg')
+            : renderIcon('codex', 'icon icon-lg');
   }
 
   private renderConfirmDialog(
@@ -311,29 +459,16 @@ export class TechModal {
     player: PlayerState,
   ): string {
     const remainingGold = Math.max(0, player.gold - cost);
-    const iconKey = getTechIconKey(tech);
-    const thumbImg = render3DThumbImg(iconKey, player.faction, 'thumb-3d thumb-confirm', tech.name);
-    const fallbackIcon =
-      tech.unlocksUnits.length > 0
-        ? renderUnitIcon(tech.unlocksUnits[0], 'icon icon-lg')
-        : tech.unlocksImprovements.length > 0
-          ? renderIcon('tower', 'icon icon-lg')
-          : tech.unlocksResources.length > 0
-            ? renderIcon('leaf', 'icon icon-lg')
-            : tech.tier === 3
-              ? renderIcon('crown', 'icon icon-lg')
-              : renderIcon('codex', 'icon icon-lg');
-
-    const tierLabel =
-      tech.tier === 3 ? 'Tier III · Capstone' : `Tier ${toRoman(tech.tier)}`;
+    const ageLabel =
+      tech.tier === 3 ? 'Age III · Capstone' : `Age ${AGE_ROMAN[tech.tier]}`;
 
     return `
       <div class="tech-confirm-scrim" data-confirm-scrim role="alertdialog" aria-modal="true" aria-label="Confirm Research">
         <div class="tech-confirm-card">
           <div class="tech-confirm-top">
-            <div class="tech-confirm-thumb" aria-hidden="true">${thumbImg || fallbackIcon}</div>
+            <div class="tech-confirm-thumb" aria-hidden="true">${this.renderTechDialogIcon(tech, player)}</div>
             <div class="tech-confirm-copy">
-              <div class="tech-confirm-kicker">${esc(tech.pillar)} &middot; ${tierLabel}</div>
+              <div class="tech-confirm-kicker">${esc(tech.pillar)} &middot; ${ageLabel}</div>
               <h3 class="tech-confirm-title">Research ${esc(tech.name)}?</h3>
               <p class="tech-confirm-summary">${formatStars(tech.summary)}</p>
             </div>
@@ -359,10 +494,52 @@ export class TechModal {
     `;
   }
 
+  private renderRequirementsDialog(
+    tech: TechDefinition,
+    cost: number,
+    player: PlayerState,
+    reason: string,
+  ): string {
+    const ageLabel =
+      tech.tier === 3 ? 'Age III · Capstone' : `Age ${AGE_ROMAN[tech.tier]}`;
+
+    return `
+      <div class="tech-confirm-scrim" data-confirm-scrim role="alertdialog" aria-modal="true" aria-label="Technology Requirements">
+        <div class="tech-confirm-card tech-requirements-card">
+          <div class="tech-confirm-top">
+            <div class="tech-confirm-thumb" aria-hidden="true">${this.renderTechDialogIcon(tech, player)}</div>
+            <div class="tech-confirm-copy">
+              <div class="tech-confirm-kicker">${esc(tech.pillar)} &middot; ${ageLabel}</div>
+              <h3 class="tech-confirm-title">${esc(tech.name)}</h3>
+              <p class="tech-confirm-summary">${formatStars(tech.summary)}</p>
+            </div>
+          </div>
+          <div class="tech-requirements-reason">
+            ${renderIcon('lock', 'icon icon-sm')}
+            <span>${formatStars(reason)}</span>
+          </div>
+          <div class="tech-confirm-cost-row">
+            <span class="tech-confirm-cost-label">Cost</span>
+            <span class="tech-confirm-cost-val">
+              <strong>${cost}${renderIcon('star', 'icon icon-sm icon-star')}</strong>
+              <span class="tech-confirm-balance">(You have ${player.gold}${renderIcon('star', 'icon icon-xs icon-star')})</span>
+            </span>
+          </div>
+          <div class="tech-confirm-actions is-single">
+            <button type="button" class="btn btn-primary tech-confirm-ok" data-confirm-cancel>
+              OK
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private renderPillar(
     pillar: PillarGroup,
     getCost: (tech: TechDefinition) => number,
     player: PlayerState,
+    age: PlayerAge,
     researchedSet: ReadonlySet<TechId>,
     isHumanTurn: boolean,
     tutorialTargetTechId: TechId | null,
@@ -371,22 +548,22 @@ export class TechModal {
     const isPillarComplete = pillar.researchedCount === pillar.techs.length;
 
     const rootHtml = root
-      ? `<div class="tech-tree-row-center">${this.renderTechCard(root, getCost(root), player, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
+      ? `<div class="tech-tree-row-center">${this.renderTechCard(root, getCost(root), player, age, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
       : '';
 
     const forkConnectorHtml = this.renderForkConnector(root, branchA, branchB, researchedSet);
 
     const branchRowHtml = `
       <div class="tech-tree-row-split">
-        ${branchA ? this.renderTechCard(branchA, getCost(branchA), player, researchedSet, isHumanTurn, 'branch', tutorialTargetTechId) : '<div class="tech-slot-empty"></div>'}
-        ${branchB ? this.renderTechCard(branchB, getCost(branchB), player, researchedSet, isHumanTurn, 'branch', tutorialTargetTechId) : '<div class="tech-slot-empty"></div>'}
+        ${branchA ? this.renderTechCard(branchA, getCost(branchA), player, age, researchedSet, isHumanTurn, 'branch', tutorialTargetTechId) : '<div class="tech-slot-empty"></div>'}
+        ${branchB ? this.renderTechCard(branchB, getCost(branchB), player, age, researchedSet, isHumanTurn, 'branch', tutorialTargetTechId) : '<div class="tech-slot-empty"></div>'}
       </div>
     `;
 
     const capstoneConnectorHtml = this.renderCapstoneConnector(branchA, branchB, capstone, researchedSet);
 
     const capstoneHtml = capstone
-      ? `<div class="tech-tree-row-center">${this.renderTechCard(capstone, getCost(capstone), player, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
+      ? `<div class="tech-tree-row-center">${this.renderTechCard(capstone, getCost(capstone), player, age, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
       : '';
 
     return `
@@ -504,6 +681,7 @@ export class TechModal {
     tech: TechDefinition,
     cost: number,
     player: PlayerState,
+    age: PlayerAge,
     researchedSet: ReadonlySet<TechId>,
     isHumanTurn: boolean,
     layout: 'wide' | 'branch',
@@ -512,10 +690,17 @@ export class TechModal {
     const isResearched = researchedSet.has(tech.id);
     const isTutorialTarget = Boolean(tutorialTargetTechId && tech.id === tutorialTargetTechId);
     const isTutorialLocked = Boolean(tutorialTargetTechId && tech.id !== tutorialTargetTechId);
+    const isAgeLocked = !isResearched && tech.tier > age;
     const missingPrereqs = tech.prerequisites.filter((id) => !researchedSet.has(id));
     const hasPrereq = missingPrereqs.length === 0;
     const isAffordable = player.gold >= cost;
-    const canResearch = !isResearched && !isTutorialLocked && hasPrereq && isAffordable && isHumanTurn;
+    const canResearch =
+      !isResearched &&
+      !isTutorialLocked &&
+      !isAgeLocked &&
+      hasPrereq &&
+      isAffordable &&
+      isHumanTurn;
     const shortfall = Math.max(0, cost - player.gold);
     const missingPrereqNames = missingPrereqs.map((id) => TECH_DEFINITIONS[id]?.name ?? id);
 
@@ -528,6 +713,11 @@ export class TechModal {
       stateClass = 'researched';
       pillClass = 'researched';
       pillHtml = `${renderIcon('check', 'icon icon-xs')}<span>Done</span>`;
+    } else if (isAgeLocked) {
+      stateClass = 'locked age-locked';
+      pillClass = 'locked';
+      const ageNeeded = Math.max(1, AGE_THRESHOLDS[tech.tier] - player.techs.length);
+      statusNoteHtml = `<div class="tech-status-note is-age-locked">${renderIcon('lock', 'icon icon-xs')}<span>Age ${AGE_ROMAN[tech.tier]} &middot; ${ageNeeded} more</span></div>`;
     } else if (hasPrereq) {
       if (isAffordable && isHumanTurn) {
         stateClass = 'available affordable';
@@ -559,10 +749,10 @@ export class TechModal {
               : renderIcon('codex', 'icon icon-lg');
 
     const thumbHtml = `<div class="tech-thumb-box" aria-hidden="true">${thumbImg || fallbackIcon}</div>`;
-    const tierBadge =
+    const ageBadge =
       tech.tier === 3
-        ? `${renderIcon('crown', 'icon icon-xs icon-star')}<span>III &middot; Capstone</span>`
-        : `<span>Tier ${toRoman(tech.tier)}</span>`;
+        ? `${renderIcon('crown', 'icon icon-xs icon-star')}<span>Age III &middot; Capstone</span>`
+        : `<span>Age ${AGE_ROMAN[tech.tier]}</span>`;
     const tutorialBadgeHtml = isTutorialTarget
       ? '<span class="tech-tutorial-badge">TUTORIAL</span>'
       : '';
@@ -582,7 +772,7 @@ export class TechModal {
             <div class="tech-card-main">
               <div class="tech-card-head">
                 <div class="tech-card-titles">
-                  <div class="tech-tier-tag">${tierBadge}${tutorialBadgeHtml}</div>
+                  <div class="tech-tier-tag">${ageBadge}${tutorialBadgeHtml}</div>
                   <div class="tech-name">${esc(tech.name)}</div>
                 </div>
                 <span class="tech-status-pill ${pillClass}">${pillHtml}</span>
@@ -596,7 +786,7 @@ export class TechModal {
           <div class="tech-card-branch-top">
             ${thumbHtml}
             <div class="tech-card-branch-meta">
-              <div class="tech-tier-tag">${tierBadge}${tutorialBadgeHtml}</div>
+              <div class="tech-tier-tag">${ageBadge}${tutorialBadgeHtml}</div>
               <span class="tech-status-pill ${pillClass}">${pillHtml}</span>
             </div>
           </div>
@@ -632,6 +822,7 @@ export class TechModal {
         const techId = btn.dataset.researchTech as TechId;
         if (techId && !btn.disabled && this.lastVm) {
           this.pendingTechId = techId;
+          this.blockedTechId = null;
           this.render(this.lastVm);
           this.restoreCarouselPosition(false);
         }
@@ -640,12 +831,12 @@ export class TechModal {
 
     this.root.querySelector<HTMLElement>('[data-confirm-scrim]')?.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) {
-        this.cancelPendingResearch();
+        this.dismissSubDialog();
       }
     });
 
     this.root.querySelector<HTMLButtonElement>('[data-confirm-cancel]')?.addEventListener('click', () => {
-      this.cancelPendingResearch();
+      this.dismissSubDialog();
     });
 
     this.root.querySelector<HTMLButtonElement>('[data-confirm-research]')?.addEventListener('click', (e) => {
@@ -653,6 +844,7 @@ export class TechModal {
       const techId = btn.dataset.confirmResearch as TechId;
       if (techId) {
         this.pendingTechId = null;
+        this.blockedTechId = null;
         this.callbacks.onResearch(techId);
       }
     });
@@ -660,6 +852,8 @@ export class TechModal {
     const carousel = this.root.querySelector<HTMLElement>('[data-tech-carousel]');
     const pills = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-pillar-jump]'));
     const counterEl = this.root.querySelector<HTMLElement>('[data-pillar-counter]');
+    const prevBtn = this.root.querySelector<HTMLButtonElement>('[data-carousel-prev]');
+    const nextBtn = this.root.querySelector<HTMLButtonElement>('[data-carousel-next]');
 
     const updateNavActive = (idx: PillarIndex) => {
       this.activePillarIndex = idx;
@@ -670,6 +864,12 @@ export class TechModal {
       });
       if (counterEl && pills.length > 0) {
         counterEl.textContent = `${idx + 1}/${pills.length}`;
+      }
+      if (prevBtn) {
+        prevBtn.disabled = idx <= 0;
+      }
+      if (nextBtn) {
+        nextBtn.disabled = idx >= Math.max(0, pills.length - 1);
       }
       // Tab-switched single-pillar view (used by html.android-webview mobile CSS instead of a scroll carousel)
       this.root.querySelectorAll<HTMLElement>('.tech-pillar').forEach((el) => {
@@ -686,7 +886,36 @@ export class TechModal {
       });
     });
 
+    prevBtn?.addEventListener('click', () => {
+      const nextIdx = Math.max(0, this.activePillarIndex - 1) as PillarIndex;
+      if (nextIdx !== this.activePillarIndex) {
+        updateNavActive(nextIdx);
+        this.restoreCarouselPosition(true);
+      }
+    });
+
+    nextBtn?.addEventListener('click', () => {
+      const maxIdx = Math.max(0, pills.length - 1);
+      const nextIdx = Math.min(maxIdx, this.activePillarIndex + 1) as PillarIndex;
+      if (nextIdx !== this.activePillarIndex) {
+        updateNavActive(nextIdx);
+        this.restoreCarouselPosition(true);
+      }
+    });
+
     if (carousel) {
+      carousel.addEventListener(
+        'wheel',
+        (e: WheelEvent) => {
+          if (carousel.scrollWidth <= carousel.clientWidth + 2) return;
+          if (Math.abs(e.deltaY) > Math.abs(e.deltaX) && e.deltaY !== 0) {
+            e.preventDefault();
+            carousel.scrollLeft += e.deltaY;
+          }
+        },
+        { passive: false },
+      );
+
       let scrollRaf: number | null = null;
       carousel.addEventListener(
         'scroll',

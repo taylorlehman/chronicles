@@ -18,6 +18,8 @@ export {
 
 // Rules & Queries
 export {
+  AGE_ROMAN,
+  AGE_THRESHOLDS,
   CHOP_FOREST_GOLD,
   HARVEST_COST,
   PLANT_WOODS_COST,
@@ -39,10 +41,13 @@ export {
   getImprovementPopGain,
   getLeaderboard,
   getNeighbors8,
+  getNextAgeProgress,
   getPlayer,
+  getPlayerAge,
   getPlayerCities,
   getPlayerUnits,
   getTechCost,
+  getTechResearchBlockReason,
   getTileActionOptions,
   getTrainableUnits,
   getUnitActionOptions,
@@ -58,6 +63,7 @@ export {
   isCityBesieged,
   isRuinsTile,
   unitHasTrait,
+  type AgeProgressInfo,
 } from './rules';
 
 // Core Simulation Engine

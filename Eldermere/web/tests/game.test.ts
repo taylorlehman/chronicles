@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGE_ROMAN,
+  AGE_THRESHOLDS,
   ALL_FACTIONS,
   FACTION_DEFINITIONS,
   TECH_DEFINITIONS,
@@ -17,9 +19,12 @@ import {
   getEffectiveAttack,
   getFactionTechs,
   getLeaderboard,
+  getNextAgeProgress,
   getPlayer,
+  getPlayerAge,
   getPlayerCities,
   getTechCost,
+  getTechResearchBlockReason,
   getTerrainDefenseBonus,
   getTile,
   getTileActionOptions,
@@ -575,8 +580,12 @@ describe('Economy, Tech Tree, Faction Mechanics & City Leveling', () => {
     const cap = getPlayerCities(state, 'player_dwarves')[0];
     player.gold = 60;
 
-    // Research Mountain Mining -> unlocks Mine on Mountain
-    const r0 = applyAction(state, { type: 'RESEARCH_TECH', techId: 'dwarves_mining' });
+    // Reach Age II (3 techs) via Tier 1 Shieldbearers & Ram Riders before Tier 2 Mining
+    const rPre1 = applyAction(state, { type: 'RESEARCH_TECH', techId: 'dwarves_shieldbearers' });
+    const rPre2 = applyAction(rPre1.state, { type: 'RESEARCH_TECH', techId: 'dwarves_ram_riders' });
+
+    // Research Mountain Mining (Tier 2) -> unlocks Mine on Mountain
+    const r0 = applyAction(rPre2.state, { type: 'RESEARCH_TECH', techId: 'dwarves_mining' });
 
     // Build Mine on a mountain in borders -> +2 Pop (levels city to Lv 2!) and +1★/turn
     const mtn = r0.state.tiles.find(
@@ -599,10 +608,9 @@ describe('Economy, Tech Tree, Faction Mechanics & City Leveling', () => {
     const r2 = applyAction(r2a.state, { type: 'RESEARCH_TECH', techId: 'dwarves_stone_walls' });
     expect(r2.state.cities[cap.id].hasWalls).toBe(true);
 
-    // Research Shieldbearers -> Defender has 17 maxHP
-    const r3 = applyAction(r2.state, { type: 'RESEARCH_TECH', techId: 'dwarves_shieldbearers' });
-    clearBoardUnits(r3.state);
-    const r4 = applyAction(r3.state, {
+    // Shieldbearers already researched -> Defender has 17 maxHP
+    clearBoardUnits(r2.state);
+    const r4 = applyAction(r2.state, {
       type: 'TRAIN_UNIT',
       cityId: cap.id,
       unitType: 'defender',
@@ -610,9 +618,8 @@ describe('Economy, Tech Tree, Faction Mechanics & City Leveling', () => {
     const defUnit = Object.values(r4.state.units)[0];
     expect(defUnit.maxHp).toBe(17);
 
-    // Research Ram Riders + Dwarven Siegecraft -> Catapult has 15 HP
-    const r5 = applyAction(r4.state, { type: 'RESEARCH_TECH', techId: 'dwarves_ram_riders' });
-    const r6 = applyAction(r5.state, { type: 'RESEARCH_TECH', techId: 'dwarves_siegecraft' });
+    // Research Dwarven Siegecraft -> Catapult has 15 HP
+    const r6 = applyAction(r4.state, { type: 'RESEARCH_TECH', techId: 'dwarves_siegecraft' });
     clearBoardUnits(r6.state);
     const r7 = applyAction(r6.state, {
       type: 'TRAIN_UNIT',
@@ -643,10 +650,11 @@ describe('Economy, Tech Tree, Faction Mechanics & City Leveling', () => {
     expect(getPlayer(r2.state, player.id)!.gold).toBe(goldBeforeChop + 2);
     expect(getTile(r2.state, forestTile.x, forestTile.y)!.terrain).toBe('plains');
 
-    const r3 = applyAction(r2.state, { type: 'RESEARCH_TECH', techId: 'orcs_siege_works' });
-    expect(getUnitCost(r3.state, player.id, 'catapult')).toBe(6);
+    // Research Tier 1 Shield Wall to reach Age II (3 techs) before Tier 2 Siege Works & War Barracks
+    const r3 = applyAction(r2.state, { type: 'RESEARCH_TECH', techId: 'orcs_shield_wall' });
+    const r4 = applyAction(r3.state, { type: 'RESEARCH_TECH', techId: 'orcs_siege_works' });
+    expect(getUnitCost(r4.state, player.id, 'catapult')).toBe(6);
 
-    const r4 = applyAction(r3.state, { type: 'RESEARCH_TECH', techId: 'orcs_shield_wall' });
     const r5 = applyAction(r4.state, { type: 'RESEARCH_TECH', techId: 'orcs_war_barracks' });
     expect(getCityUnitCap(r5.state, r5.state.cities[cap.id])).toBe(3);
   });
@@ -654,12 +662,14 @@ describe('Economy, Tech Tree, Faction Mechanics & City Leveling', () => {
   it('Elves Elven Lore reduces tech cost by 1★ (min 2★) and Tree-Singing plants Ancient Woods', () => {
     const state = createGame(makeConfig({ humanFaction: 'elves' }));
     const player = getPlayer(state, 'player_elves')!;
-    player.gold = 30;
+    player.gold = 40;
 
     expect(getTechCost(state, player.id, 'elves_elven_steeds')).toBe(3);
     expect(canResearchTech(state, player.id, 'elves_high_paths')).toBe(true);
 
-    const r0 = applyAction(state, { type: 'RESEARCH_TECH', techId: 'elves_high_paths' });
+    // Reach Age II (3 techs) via Tier 1 Woodland Aim & High Paths before Tier 2 Elven Lore & Tree-Singing
+    const rPre = applyAction(state, { type: 'RESEARCH_TECH', techId: 'elves_woodland_aim' });
+    const r0 = applyAction(rPre.state, { type: 'RESEARCH_TECH', techId: 'elves_high_paths' });
     const r1 = applyAction(r0.state, { type: 'RESEARCH_TECH', techId: 'elves_elven_lore' });
     expect(getTechCost(r1.state, player.id, 'elves_elven_steeds')).toBe(2);
     expect(getTechCost(r1.state, player.id, 'elves_mallorn_siege')).toBe(4);
@@ -1735,5 +1745,192 @@ describe('Authoritative Remaining Actions & Dash/Escape/Persist Auto-Exhaustion'
     for (const m of movesAfterTech) {
       expect(human.revealedTiles[tileIndex(m.x, m.y, state.mapSize)]).toBe(true);
     }
+  });
+});
+
+describe('Ages Progression & Tap-to-Research Metadata', () => {
+  it('getPlayerAge transitions 1 -> 2 at 3 techs and 2 -> 3 at 7 techs, and getNextAgeProgress tracks progress', () => {
+    const state = createGame(makeConfig({ humanFaction: 'humans' }));
+    const player = getPlayer(state, 'player_humans')!;
+
+    expect(AGE_THRESHOLDS).toEqual({ 1: 0, 2: 3, 3: 7 });
+    expect(AGE_ROMAN).toEqual({ 1: 'I', 2: 'II', 3: 'III' });
+
+    // Starts with 1 tech -> Age I
+    expect(player.techs).toHaveLength(1);
+    expect(getPlayerAge(player)).toBe(1);
+    expect(getNextAgeProgress(player)).toEqual({
+      currentAge: 1,
+      nextAge: 2,
+      currentTechs: 1,
+      requiredTechs: 3,
+      remaining: 2,
+    });
+
+    // 2 techs -> still Age I
+    player.techs.push('humans_roads');
+    expect(getPlayerAge(player)).toBe(1);
+    expect(getNextAgeProgress(player)).toEqual({
+      currentAge: 1,
+      nextAge: 2,
+      currentTechs: 2,
+      requiredTechs: 3,
+      remaining: 1,
+    });
+
+    // 3 techs -> Age II
+    player.techs.push('humans_riding');
+    expect(getPlayerAge(player)).toBe(2);
+    expect(getNextAgeProgress(player)).toEqual({
+      currentAge: 2,
+      nextAge: 3,
+      currentTechs: 3,
+      requiredTechs: 7,
+      remaining: 4,
+    });
+
+    // 6 techs -> still Age II
+    player.techs.push('humans_hunting', 'humans_farming', 'humans_granaries');
+    expect(player.techs).toHaveLength(6);
+    expect(getPlayerAge(player)).toBe(2);
+    expect(getNextAgeProgress(player).remaining).toBe(1);
+
+    // 7 techs -> Age III
+    player.techs.push('humans_shield_wall');
+    expect(player.techs).toHaveLength(7);
+    expect(getPlayerAge(player)).toBe(3);
+    expect(getNextAgeProgress(player)).toEqual({
+      currentAge: 3,
+      nextAge: null,
+      currentTechs: 7,
+      requiredTechs: null,
+      remaining: 0,
+    });
+  });
+
+  it('canResearchTech enforces Age gates and getTechResearchBlockReason returns exact Age, Prereq, Stars, and Already researched reasons', () => {
+    const state = createGame(makeConfig({ humanFaction: 'humans' }));
+    const player = getPlayer(state, 'player_humans')!;
+    player.gold = 50;
+
+    // Already researched
+    expect(canResearchTech(state, player.id, 'humans_gathering')).toBe(false);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_gathering')).toBe(
+      'Already researched',
+    );
+
+    // Age I (1 tech): Tier 2 tech is blocked even when prerequisite (humans_gathering) is owned
+    expect(canResearchTech(state, player.id, 'humans_farming')).toBe(false);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_farming')).toBe(
+      'Requires Age II (research 2 more techs)',
+    );
+
+    // Age I (2 techs): singular "1 more tech"
+    player.techs.push('humans_roads');
+    expect(getTechResearchBlockReason(state, player.id, 'humans_farming')).toBe(
+      'Requires Age II (research 1 more tech)',
+    );
+
+    // Age II (3 techs): Tier 2 with prereq met is now researchable; Tier 2 without prereq shows Prereq; Tier 3 shows Age III
+    player.techs.push('humans_riding');
+    expect(canResearchTech(state, player.id, 'humans_farming')).toBe(true);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_farming')).toBeNull();
+
+    // Missing prerequisite (humans_hunting not owned)
+    expect(canResearchTech(state, player.id, 'humans_archery')).toBe(false);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_archery')).toBe(
+      'Requires Ranger Hunting',
+    );
+
+    // Tier 3 capstone blocked by Age III in Age II (3 techs -> needs 4 more)
+    expect(canResearchTech(state, player.id, 'humans_milling')).toBe(false);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_milling')).toBe(
+      'Requires Age III (research 4 more techs)',
+    );
+
+    // Insufficient stars check
+    player.gold = 2;
+    expect(canResearchTech(state, player.id, 'humans_farming')).toBe(false);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_farming')).toBe(
+      'Need 5★ (have 2★)',
+    );
+
+    // Reach Age III (7 techs) with prereq & gold -> Tier 3 capstone becomes researchable
+    player.gold = 50;
+    player.techs.push('humans_farming', 'humans_granaries', 'humans_hunting', 'humans_shield_wall');
+    expect(getPlayerAge(player)).toBe(3);
+    expect(canResearchTech(state, player.id, 'humans_milling')).toBe(true);
+    expect(getTechResearchBlockReason(state, player.id, 'humans_milling')).toBeNull();
+  });
+
+  it('getTechCost increases by +1★ per additional conquered city', () => {
+    const state = createGame(makeConfig({ humanFaction: 'humans' }));
+    const player = getPlayer(state, 'player_humans')!;
+
+    // 1 city: T1=3, T2=5, T3=8
+    expect(getPlayerCities(state, player.id)).toHaveLength(1);
+    expect(getTechCost(state, player.id, 'humans_riding')).toBe(3);
+    expect(getTechCost(state, player.id, 'humans_farming')).toBe(5);
+    expect(getTechCost(state, player.id, 'humans_milling')).toBe(8);
+
+    // Conquer a 2nd city: T1=4, T2=6, T3=9
+    const enemyCity1 = Object.values(state.cities).find((c) => c.ownerId !== player.id)!;
+    enemyCity1.ownerId = player.id;
+    expect(getPlayerCities(state, player.id)).toHaveLength(2);
+    expect(getTechCost(state, player.id, 'humans_riding')).toBe(4);
+    expect(getTechCost(state, player.id, 'humans_farming')).toBe(6);
+    expect(getTechCost(state, player.id, 'humans_milling')).toBe(9);
+
+    // Conquer a 3rd city: T1=5, T2=7, T3=10
+    const enemyCity2 = Object.values(state.cities).find((c) => c.ownerId !== player.id)!;
+    enemyCity2.ownerId = player.id;
+    expect(getPlayerCities(state, player.id)).toHaveLength(3);
+    expect(getTechCost(state, player.id, 'humans_riding')).toBe(5);
+    expect(getTechCost(state, player.id, 'humans_farming')).toBe(7);
+    expect(getTechCost(state, player.id, 'humans_milling')).toBe(10);
+  });
+
+  it('getTileActionOptions and getCityTrainOptions populate requiredTechId on tech-locked actions only', () => {
+    const state = createGame(makeConfig({ humanFaction: 'humans' }));
+    const player = getPlayer(state, 'player_humans')!;
+    const cap = getPlayerCities(state, 'player_humans')[0];
+
+    const tile = state.tiles.find((t) => t.cityId === cap.id && !t.isCityCenter)!;
+    tile.terrain = 'plains';
+    tile.resource = 'game';
+    tile.improvement = null;
+    tile.hasRoad = false;
+    player.gold = 1;
+
+    // Locked by missing tech inside friendly borders -> requiredTechId is populated
+    const opts = getTileActionOptions(state, player.id, tile.x, tile.y);
+    expect(opts.find((o) => o.id === 'harvest_game')?.requiredTechId).toBe('humans_hunting');
+    expect(opts.find((o) => o.id === 'build_farm')?.requiredTechId).toBe('humans_farming');
+    expect(opts.find((o) => o.id === 'build_road')?.requiredTechId).toBe('humans_roads');
+
+    // Once tech is unlocked (even if still lacking gold) -> requiredTechId is undefined
+    player.techs.push('humans_farming', 'humans_roads');
+    const brokeOpts = getTileActionOptions(state, player.id, tile.x, tile.y);
+    expect(brokeOpts.find((o) => o.id === 'build_farm')?.requiredTechId).toBeUndefined();
+    expect(brokeOpts.find((o) => o.id === 'build_road')?.requiredTechId).toBeUndefined();
+
+    // Outside borders -> disabled for borders, NOT missing tech -> requiredTechId is undefined
+    const neutralTile = state.tiles.find((t) => t.cityId === null && t.terrain === 'plains')!;
+    player.revealedTiles[tileIndex(neutralTile.x, neutralTile.y, state.mapSize)] = true;
+    neutralTile.resource = 'game';
+    neutralTile.improvement = null;
+    const neutralOpts = getTileActionOptions(state, player.id, neutralTile.x, neutralTile.y);
+    expect(neutralOpts.find((o) => o.id === 'harvest_game')?.disabledReason).toBe(
+      'Outside your borders',
+    );
+    expect(neutralOpts.find((o) => o.id === 'harvest_game')?.requiredTechId).toBeUndefined();
+
+    // City train options set requiredTechId on tech-locked units, not on unlocked units
+    const trainOpts = getCityTrainOptions(state, cap.id);
+    expect(trainOpts.find((o) => o.unitType === 'warrior')?.requiredTechId).toBeUndefined();
+    expect(trainOpts.find((o) => o.unitType === 'rider')?.requiredTechId).toBe('humans_riding');
+    expect(trainOpts.find((o) => o.unitType === 'rohirrim_knight')?.requiredTechId).toBe(
+      'humans_chivalry',
+    );
   });
 });

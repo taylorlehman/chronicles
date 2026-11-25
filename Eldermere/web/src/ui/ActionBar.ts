@@ -1,4 +1,4 @@
-import { IMPROVEMENT_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
+import { IMPROVEMENT_DEFINITIONS, TECH_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
 import type {
   ActionOption,
   City,
@@ -6,6 +6,7 @@ import type {
   FactionId,
   GameAction,
   PlayerState,
+  TechId,
   Tile,
   Unit,
 } from '../game/types';
@@ -69,8 +70,10 @@ export interface ActionBarViewModel {
   remainingUnitsCount: number;
   allUnitsActed: boolean;
   selectionLayer: SelectionLayer;
-  canToggleLayer: boolean;
-  altLayerLabel: 'City' | 'Tile';
+  /** @deprecated Layer toggle removed from ActionBar; kept optional for backward compatibility. */
+  canToggleLayer?: boolean;
+  /** @deprecated Layer toggle removed from ActionBar; kept optional for backward compatibility. */
+  altLayerLabel?: 'City' | 'Tile';
   selectedUnit: SelectedUnitInfo | null;
   selectedCity: SelectedCityInfo | null;
   selectedTile: SelectedTileInfo | null;
@@ -81,6 +84,7 @@ export interface ActionBarCallbacks {
   onAction: (action: GameAction) => void;
   onDeselect?: () => void;
   onSwitchLayer?: (layer: SelectionLayer) => void;
+  onUnlockTech?: (techId: TechId) => void;
   onOpenTech?: () => void;
   onNextReadyUnit?: () => void;
   onEndTurn?: () => void;
@@ -411,27 +415,6 @@ export class ActionBar {
       }
     }
 
-    const layerToggleHtml = vm.canToggleLayer
-      ? `
-        <div class="layer-toggle" role="tablist" aria-label="Switch selection">
-          <button
-            type="button"
-            class="layer-toggle-btn ${vm.selectionLayer === 'unit' ? 'active' : ''}"
-            data-switch-layer="unit"
-            role="tab"
-            aria-selected="${vm.selectionLayer === 'unit'}"
-          >Unit</button>
-          <button
-            type="button"
-            class="layer-toggle-btn ${vm.selectionLayer === 'tile' ? 'active' : ''}"
-            data-switch-layer="tile"
-            role="tab"
-            aria-selected="${vm.selectionLayer === 'tile'}"
-          >${vm.altLayerLabel}</button>
-        </div>
-      `
-      : '';
-
     const closeBtnHtml = this.callbacks.onDeselect
       ? `<button type="button" class="drawer-close-btn" data-action-close="true" title="Close (Esc)" aria-label="Close selection">${renderIcon('close', 'icon icon-sm')}</button>`
       : '';
@@ -443,7 +426,6 @@ export class ActionBar {
             ${headerLeftHtml}
           </div>
           <div class="drawer-header-controls">
-            ${layerToggleHtml}
             ${closeBtnHtml}
           </div>
         </div>
@@ -460,11 +442,13 @@ export class ActionBar {
     faction: FactionId,
   ): string {
     const isEnabled = isHumanTurn && opt.enabled && Boolean(opt.action);
+    const isTechLocked = Boolean(!opt.enabled && opt.requiredTechId && isHumanTurn);
+    const isClickable = isEnabled || isTechLocked;
     const isHeroAction = opt.id === 'capture-city' || opt.id === 'explore-ruins';
     const isExploreRuins = opt.id === 'explore-ruins';
     const isUnique = Boolean(opt.unitType && UNIT_DEFINITIONS[opt.unitType]?.faction !== null);
     const label = shortActionLabel(opt);
-    const lockText = shortDisabledReason(opt, isHumanTurn);
+    const lockText = isTechLocked ? null : shortDisabledReason(opt, isHumanTurn);
 
     let visualHtml: string;
     if (opt.unitType) {
@@ -486,26 +470,40 @@ export class ActionBar {
       visualHtml = renderActionIcon(opt.icon, 'icon icon-lg', opt.id);
     }
 
-    let costPillHtml = '';
-    if (opt.cost !== undefined && opt.cost > 0) {
-      costPillHtml = `<span class="tile-cost-pill">${opt.cost}${renderIcon('star', 'icon icon-xs icon-star')}</span>`;
+    let badgeHtml = '';
+    if (isTechLocked) {
+      badgeHtml = `<span class="tile-lock-badge" aria-hidden="true">${renderIcon('lock', 'icon icon-xs')}</span>`;
+    } else if (opt.cost !== undefined && opt.cost > 0) {
+      badgeHtml = `<span class="tile-cost-pill">${opt.cost}${renderIcon('star', 'icon icon-xs icon-star')}</span>`;
     } else if (opt.id === 'chop_forest') {
-      costPillHtml = `<span class="tile-cost-pill gain">+2${renderIcon('star', 'icon icon-xs icon-star')}</span>`;
+      badgeHtml = `<span class="tile-cost-pill gain">+2${renderIcon('star', 'icon icon-xs icon-star')}</span>`;
     }
 
-    const titleText = lockText
-      ? `${opt.label} (${opt.disabledReason ?? lockText})`
-      : `${opt.label}: ${opt.description}`;
+    const requiredTechName = opt.requiredTechId
+      ? TECH_DEFINITIONS[opt.requiredTechId]?.name ?? opt.requiredTechId
+      : null;
+
+    const titleText = isTechLocked && requiredTechName
+      ? `${opt.label} — Tap to unlock ${requiredTechName}`
+      : lockText
+        ? `${opt.label} (${opt.disabledReason ?? lockText})`
+        : `${opt.label}: ${opt.description}`;
 
     const classes = [
       'action-tile',
       isHeroAction ? 'is-capture' : '',
       isExploreRuins ? 'is-ruins' : '',
       isUnique ? 'is-unique' : '',
-      isEnabled ? '' : 'is-disabled',
+      isTechLocked ? 'is-tech-locked' : isEnabled ? '' : 'is-disabled',
     ]
       .filter(Boolean)
       .join(' ');
+
+    const unlockSubHtml = isTechLocked
+      ? `<span class="action-tile-lock is-unlock">${renderIcon('codex', 'icon icon-xs')}<span>Unlock</span></span>`
+      : lockText
+        ? `<span class="action-tile-lock">${esc(lockText)}</span>`
+        : '';
 
     return `
       <button
@@ -513,13 +511,14 @@ export class ActionBar {
         class="${classes}"
         data-action-scope="${scope}"
         data-action-id="${esc(opt.id)}"
+        ${isTechLocked && opt.requiredTechId ? `data-unlock-tech="${esc(opt.requiredTechId)}"` : ''}
         title="${esc(titleText)}"
-        ${isEnabled ? '' : 'disabled'}
+        ${isClickable ? '' : 'disabled'}
       >
-        ${costPillHtml}
+        ${badgeHtml}
         <span class="action-tile-visual" aria-hidden="true">${visualHtml}</span>
         <span class="action-tile-label">${esc(label)}</span>
-        ${lockText ? `<span class="action-tile-lock">${esc(lockText)}</span>` : ''}
+        ${unlockSubHtml}
       </button>
     `;
   }
@@ -551,15 +550,6 @@ export class ActionBar {
         this.callbacks.onDeselect?.();
       });
 
-    this.root.querySelectorAll<HTMLButtonElement>('[data-switch-layer]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const layer = btn.dataset.switchLayer as SelectionLayer;
-        if (layer === 'unit' || layer === 'tile') {
-          this.callbacks.onSwitchLayer?.(layer);
-        }
-      });
-    });
-
     if (!vm.isHumanTurn) return;
 
     const unitMap = new Map((vm.selectedUnit?.actions ?? []).map((a) => [a.id, a]));
@@ -569,6 +559,11 @@ export class ActionBar {
     this.root.querySelectorAll<HTMLButtonElement>('[data-action-scope]').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.disabled) return;
+        const unlockTechId = btn.dataset.unlockTech as TechId | undefined;
+        if (unlockTechId) {
+          this.callbacks.onUnlockTech?.(unlockTechId);
+          return;
+        }
         const scope = btn.dataset.actionScope;
         const id = btn.dataset.actionId;
         if (!scope || !id) return;

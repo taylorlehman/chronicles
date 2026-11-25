@@ -1,18 +1,21 @@
 import { FACTION_DEFINITIONS } from '../game/data';
-import type { PlayerState } from '../game/types';
+import { AGE_ROMAN, getPlayerAge } from '../game/rules';
+import type { PlayerAge, PlayerState } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
 import { renderFactionCrest, renderIcon } from './icons';
 
 export interface TopBarViewModel {
   player: PlayerState;
   activePlayer: PlayerState;
-  turn: number;
-  maxTurns: number;
+  turn?: number;
+  maxTurns?: number;
+  age?: PlayerAge;
   isHumanTurn: boolean;
 }
 
 export interface TopBarCallbacks {
   onOpenLeaderboard?: () => void;
+  onOpenCodex?: () => void;
 }
 
 function esc(value: string): string {
@@ -85,14 +88,14 @@ export class TopBar {
       }
     }
 
-    const barKey = `${vm.player.faction}|${vm.player.score}|${vm.player.gold}|${vm.player.goldPerTurn}|${vm.turn}|${vm.maxTurns}`;
+    const age: PlayerAge = vm.age ?? getPlayerAge(vm.player);
+    const ageLabel = `Age ${AGE_ROMAN[age]}`;
+
+    const barKey = `${vm.player.faction}|${vm.player.score}|${vm.player.gold}|${vm.player.goldPerTurn}|${age}`;
     if (barKey === this.lastBarKey) {
       return;
     }
     this.lastBarKey = barKey;
-
-    const turnText = vm.maxTurns > 0 ? `T${vm.turn}/${vm.maxTurns}` : `T${vm.turn}`;
-    const turnTitle = vm.maxTurns > 0 ? `Turn ${vm.turn} of ${vm.maxTurns}` : `Turn ${vm.turn}`;
 
     this.root.innerHTML = `
       <div class="top-cluster top-cluster-left">
@@ -120,9 +123,16 @@ export class TopBar {
       </div>
 
       <div class="top-cluster top-cluster-right">
-        <div class="top-pill top-pill-turn" title="${turnTitle}">
-          <span>${turnText}</span>
-        </div>
+        <button
+          type="button"
+          class="top-pill top-pill-age"
+          data-action="codex"
+          title="Current Age — Open Tech Codex"
+          aria-label="${ageLabel} — Open Tech Codex"
+        >
+          ${renderIcon('codex', 'icon icon-sm icon-age')}
+          <span class="top-age-val">${ageLabel}</span>
+        </button>
       </div>
     `;
 
@@ -130,6 +140,12 @@ export class TopBar {
       .querySelector<HTMLButtonElement>('[data-action="leaderboard"]')
       ?.addEventListener('click', () => {
         this.callbacks.onOpenLeaderboard?.();
+      });
+
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="codex"]')
+      ?.addEventListener('click', () => {
+        this.callbacks.onOpenCodex?.();
       });
   }
 }

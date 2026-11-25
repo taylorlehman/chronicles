@@ -455,7 +455,8 @@ textarea {
 
 .top-glory-val,
 .top-stars-val,
-.top-turn-val {
+.top-turn-val,
+.top-age-val {
   font-family: var(--font-ui) !important;
   font-size: 18px !important;
   font-weight: 900 !important;
@@ -470,9 +471,34 @@ textarea {
   color: var(--ui-ink-muted) !important;
 }
 
-.top-pill-turn {
+.top-pill-turn,
+.top-pill-age {
   min-width: 52px;
   justify-content: center;
+}
+
+.top-pill-age {
+  cursor: pointer;
+  touch-action: manipulation;
+  padding: 0 12px !important;
+}
+
+.top-pill-age:active {
+  transform: translateY(2px);
+  box-shadow:
+    0 2px 0 var(--ui-border-strong),
+    0 3px 8px rgba(0, 0, 0, 0.24),
+    var(--ui-inset-highlight) !important;
+}
+
+.top-pill-age .icon-age {
+  color: var(--ui-accent);
+  flex-shrink: 0;
+}
+
+[data-faction='orcs'] .top-pill-age .icon-age,
+[data-faction='dwarves'] .top-pill-age .icon-age {
+  color: var(--ui-gold);
 }
 
 .top-pill .icon-star {
@@ -732,6 +758,54 @@ textarea {
   color: var(--ui-ink-muted) !important;
   box-shadow: 0 2px 0 rgba(0, 0, 0, 0.2) !important;
   opacity: 0.65;
+}
+
+.action-tile.is-tech-locked {
+  cursor: pointer !important;
+}
+
+.action-tile.is-tech-locked .action-tile-visual {
+  background: var(--ui-surface-recessed) !important;
+  border: 2.5px dashed var(--ui-rim) !important;
+  color: var(--ui-ink-muted) !important;
+  box-shadow:
+    0 3px 0 var(--ui-border-strong),
+    0 4px 8px rgba(0, 0, 0, 0.2) !important;
+  opacity: 0.88;
+}
+
+.action-tile.is-tech-locked .action-tile-label {
+  color: var(--ui-ink) !important;
+  opacity: 0.92;
+}
+
+.tile-lock-badge {
+  position: absolute !important;
+  top: -2px !important;
+  right: 4px !important;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--tt-label-bg);
+  border: 1.5px solid var(--ui-rim);
+  color: var(--ui-gold);
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.28);
+}
+
+.action-tile-lock.is-unlock {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--ui-accent) !important;
+  font-weight: 900 !important;
+}
+
+[data-faction='orcs'] .action-tile-lock.is-unlock,
+[data-faction='dwarves'] .action-tile-lock.is-unlock {
+  color: var(--ui-gold) !important;
 }
 
 .action-tile.is-capture .action-tile-visual {
@@ -1536,6 +1610,219 @@ html.android-webview .tech-card.is-tutorial-target {
 
 html.android-webview .tutorial-modal-panel,
 html.android-webview .resignation-panel {
+  background: var(--ui-surface-solid) !important;
+  border-bottom: 4px solid var(--ui-border-strong) !important;
+}
+
+/* --------------------------------------------------------------------------
+   7) CODEX AGES HEADER, REQUIREMENTS DIALOG & HORIZONTAL SWIPEABLE CARDS
+   -------------------------------------------------------------------------- */
+.tech-age-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  margin-left: 4px;
+  border-radius: 999px;
+  background: var(--ui-accent);
+  border: 1.5px solid var(--ui-rim);
+  color: var(--ui-cta-text);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.tech-age-progress {
+  font-weight: 800;
+  color: var(--ui-ink);
+}
+
+.tech-city-scale-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-weight: 800;
+  color: var(--ui-ink-muted);
+}
+
+.tech-status-note.is-age-locked {
+  color: var(--ui-gold);
+}
+
+/* Carousel Prev / Next Arrows in Pillar Nav */
+.tech-carousel-arrow {
+  display: none;
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 2px solid var(--ui-border-color);
+  background: var(--ui-surface-recessed);
+  color: var(--ui-ink);
+  font-family: var(--font-ui) !important;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 120ms ease, border-color 120ms ease, transform var(--btn-transition);
+}
+
+.tech-carousel-arrow:hover:not(:disabled) {
+  border-color: var(--ui-rim);
+  background: var(--ui-surface-elevated);
+}
+
+.tech-carousel-arrow:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.tech-carousel-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Inline Tech Requirements Dialog (same scrim/card overlay as Confirm Research) */
+.tech-requirements-card {
+  border-color: var(--ui-rim) !important;
+}
+
+.tech-requirements-reason {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(217, 119, 6, 0.14);
+  border: 1.5px solid var(--ui-rim);
+  color: var(--ui-ink);
+  font-size: 13.5px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.tech-requirements-reason .icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--ui-gold);
+}
+
+.tech-confirm-actions.is-single {
+  grid-template-columns: 1fr;
+}
+
+/* Horizontal Swipeable / Side-Scrollable Codex Cards on Web & Larger Screens (NO vertical scroll!) */
+@media (min-width: 720px) {
+  .tech-modal-panel {
+    width: min(1100px, 94vw) !important;
+    max-height: 90dvh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  .tech-modal-panel .modal-header {
+    flex-shrink: 0;
+    padding-bottom: 8px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .tech-pillar-nav {
+    display: flex !important;
+    flex-shrink: 0;
+    margin-bottom: 10px !important;
+  }
+
+  .tech-carousel-arrow {
+    display: inline-flex;
+  }
+
+  .tech-tree-grid {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    scroll-snap-type: x mandatory;
+    gap: 16px !important;
+    padding: 2px 2px 8px !important;
+    flex: 1 1 auto;
+    min-height: 0;
+    scrollbar-width: thin;
+  }
+
+  .tech-pillar {
+    flex: 0 0 min(440px, 46%) !important;
+    min-width: 0 !important;
+    scroll-snap-align: start;
+    padding: 10px 12px 11px !important;
+  }
+
+  .tech-pillar-header {
+    padding-bottom: 6px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .tech-svg-connector {
+    height: 18px !important;
+  }
+
+  .tech-card {
+    padding: 7px 9px !important;
+  }
+}
+
+@media (max-width: 440px) {
+  .top-pill-age {
+    height: 36px !important;
+    min-height: 36px !important;
+    padding: 0 8px !important;
+  }
+
+  .top-age-val {
+    font-size: 13px !important;
+  }
+
+  .tech-age-pill {
+    font-size: 10.5px;
+    padding: 1px 7px;
+  }
+}
+
+/* Android WebView GPU Safety Overrides for all new Ages / Tap-to-Research / Codex elements */
+html.android-webview .top-pill-age,
+html.android-webview .action-tile.is-tech-locked .action-tile-visual,
+html.android-webview .tile-lock-badge,
+html.android-webview .tech-age-pill,
+html.android-webview .tech-carousel-arrow,
+html.android-webview .tech-confirm-scrim,
+html.android-webview .tech-confirm-card,
+html.android-webview .tech-requirements-reason {
+  box-shadow: none !important;
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.android-webview .top-pill-age {
+  background: var(--ui-surface-solid) !important;
+  border-bottom: 4px solid var(--ui-border-strong) !important;
+}
+
+html.android-webview .action-tile.is-tech-locked .action-tile-visual {
+  border-bottom: 4px solid var(--ui-border-strong) !important;
+}
+
+html.android-webview .tech-confirm-scrim {
+  background: rgba(8, 12, 22, 0.78) !important;
+}
+
+html.android-webview .tech-confirm-card {
   background: var(--ui-surface-solid) !important;
   border-bottom: 4px solid var(--ui-border-strong) !important;
 }

@@ -17,6 +17,7 @@ import {
   type GameState,
   type ImprovementType,
   type LeaderboardEntry,
+  type PlayerAge,
   type PlayerId,
   type PlayerState,
   type ResourceType,
@@ -213,6 +214,47 @@ export function getTrainableUnits(state: GameState, cityId: string): UnitType[] 
   return ALL_UNIT_TYPES.filter((t) => unlocked.has(t));
 }
 
+export const AGE_THRESHOLDS: Record<PlayerAge, number> = { 1: 0, 2: 3, 3: 7 };
+export const AGE_ROMAN: Record<PlayerAge, string> = { 1: 'I', 2: 'II', 3: 'III' };
+
+export function getPlayerAge(player: PlayerState): PlayerAge {
+  const count = player.techs.length;
+  if (count >= AGE_THRESHOLDS[3]) return 3;
+  if (count >= AGE_THRESHOLDS[2]) return 2;
+  return 1;
+}
+
+export interface AgeProgressInfo {
+  currentAge: PlayerAge;
+  nextAge: PlayerAge | null;
+  currentTechs: number;
+  requiredTechs: number | null;
+  remaining: number;
+}
+
+export function getNextAgeProgress(player: PlayerState): AgeProgressInfo {
+  const currentAge = getPlayerAge(player);
+  const currentTechs = player.techs.length;
+  if (currentAge === 3) {
+    return {
+      currentAge: 3,
+      nextAge: null,
+      currentTechs,
+      requiredTechs: null,
+      remaining: 0,
+    };
+  }
+  const nextAge = (currentAge + 1) as PlayerAge;
+  const requiredTechs = AGE_THRESHOLDS[nextAge];
+  return {
+    currentAge,
+    nextAge,
+    currentTechs,
+    requiredTechs,
+    remaining: Math.max(0, requiredTechs - currentTechs),
+  };
+}
+
 export function getTechCost(state: GameState, playerId: PlayerId, techId: TechId): number {
   const player = getPlayer(state, playerId);
   const tech = TECH_DEFINITIONS[techId];
@@ -228,12 +270,41 @@ export function getTechCost(state: GameState, playerId: PlayerId, techId: TechId
   return cost;
 }
 
+export function getTechResearchBlockReason(
+  state: GameState,
+  playerId: PlayerId,
+  techId: TechId,
+): string | null {
+  const player = getPlayer(state, playerId);
+  const tech = TECH_DEFINITIONS[techId];
+  if (!player || !player.alive || !tech || tech.faction !== player.faction) {
+    return 'Unavailable';
+  }
+  if (hasTech(player, techId)) {
+    return 'Already researched';
+  }
+  if (tech.tier > getPlayerAge(player)) {
+    const needed = AGE_THRESHOLDS[tech.tier] - player.techs.length;
+    return `Requires Age ${AGE_ROMAN[tech.tier]} (research ${needed} more ${needed === 1 ? 'tech' : 'techs'})`;
+  }
+  const missingPrereq = tech.prerequisites.find((prereq) => !hasTech(player, prereq));
+  if (missingPrereq) {
+    return `Requires ${TECH_DEFINITIONS[missingPrereq].name}`;
+  }
+  const cost = getTechCost(state, playerId, techId);
+  if (player.gold < cost) {
+    return `Need ${cost}★ (have ${player.gold}★)`;
+  }
+  return null;
+}
+
 export function canResearchTech(state: GameState, playerId: PlayerId, techId: TechId): boolean {
   const player = getPlayer(state, playerId);
   const tech = TECH_DEFINITIONS[techId];
   if (!player || !player.alive || !tech) return false;
   if (tech.faction !== player.faction) return false;
   if (hasTech(player, techId)) return false;
+  if (getPlayerAge(player) < tech.tier) return false;
   if (!tech.prerequisites.every((prereq) => hasTech(player, prereq))) return false;
   return player.gold >= getTechCost(state, playerId, techId);
 }
@@ -906,10 +977,12 @@ export function getTileActionOptions(
       const meta = RESOURCE_LABELS[res];
       const pop = RESOURCE_POP_GAIN[res];
       let disabledReason: string | undefined;
+      let requiredTechId: TechId | undefined;
       if (!isFriendlyBorder) {
         disabledReason = 'Outside your borders';
       } else if (!hasTech(player, unlockTech.id)) {
         disabledReason = `Requires ${unlockTech.name}`;
+        requiredTechId = unlockTech.id;
       } else if (player.gold < HARVEST_COST) {
         disabledReason = `Need ${HARVEST_COST}★ (have ${player.gold}★)`;
       }
@@ -921,6 +994,7 @@ export function getTileActionOptions(
         icon: meta.icon,
         enabled: !disabledReason,
         disabledReason,
+        ...(requiredTechId ? { requiredTechId } : {}),
         action: !disabledReason ? { type: 'HARVEST_TILE', coord: { x, y } } : undefined,
       });
     }
@@ -938,10 +1012,12 @@ export function getTileActionOptions(
 
         const popGain = getImprovementPopGain(state, x, y, imp);
         let disabledReason: string | undefined;
+        let requiredTechId: TechId | undefined;
         if (!isFriendlyBorder) {
           disabledReason = 'Outside your borders';
         } else if (!hasTech(player, tech.id)) {
           disabledReason = `Requires ${tech.name}`;
+          requiredTechId = tech.id;
         } else if (player.gold < def.cost) {
           disabledReason = `Need ${def.cost}★ (have ${player.gold}★)`;
         }
@@ -970,6 +1046,7 @@ export function getTileActionOptions(
           icon: IMPROVEMENT_ICONS[imp],
           enabled: !disabledReason,
           disabledReason,
+          ...(requiredTechId ? { requiredTechId } : {}),
           action: !disabledReason
             ? { type: 'BUILD_IMPROVEMENT', coord: { x, y }, improvement: imp }
             : undefined,
@@ -988,10 +1065,12 @@ export function getTileActionOptions(
     tile.terrain !== 'mountain'
   ) {
     let disabledReason: string | undefined;
+    let requiredTechId: TechId | undefined;
     if (!(isFriendlyBorder || isNeutral)) {
       disabledReason = 'Enemy territory';
     } else if (!hasTech(player, roadTech.id)) {
       disabledReason = `Requires ${roadTech.name}`;
+      requiredTechId = roadTech.id;
     } else if (player.gold < ROAD_COST) {
       disabledReason = `Need ${ROAD_COST}★ (have ${player.gold}★)`;
     }
@@ -1003,6 +1082,7 @@ export function getTileActionOptions(
       icon: '🛤️',
       enabled: !disabledReason,
       disabledReason,
+      ...(requiredTechId ? { requiredTechId } : {}),
       action: !disabledReason ? { type: 'BUILD_ROAD', coord: { x, y } } : undefined,
     });
   }
@@ -1015,10 +1095,12 @@ export function getTileActionOptions(
     (tile.terrain === 'forest' || tile.terrain === 'ancient_woods')
   ) {
     let disabledReason: string | undefined;
+    let requiredTechId: TechId | undefined;
     if (!isFriendlyBorder) {
       disabledReason = 'Outside your borders';
     } else if (!hasTech(player, chopTech.id)) {
       disabledReason = `Requires ${chopTech.name}`;
+      requiredTechId = chopTech.id;
     }
     options.push({
       id: 'chop_forest',
@@ -1028,6 +1110,7 @@ export function getTileActionOptions(
       icon: '🪓',
       enabled: !disabledReason,
       disabledReason,
+      ...(requiredTechId ? { requiredTechId } : {}),
       action: !disabledReason ? { type: 'CHOP_FOREST', coord: { x, y } } : undefined,
     });
   }
@@ -1042,10 +1125,12 @@ export function getTileActionOptions(
     tile.resource === null
   ) {
     let disabledReason: string | undefined;
+    let requiredTechId: TechId | undefined;
     if (!isFriendlyBorder) {
       disabledReason = 'Outside your borders';
     } else if (!hasTech(player, plantTech.id)) {
       disabledReason = `Requires ${plantTech.name}`;
+      requiredTechId = plantTech.id;
     } else if (player.gold < PLANT_WOODS_COST) {
       disabledReason = `Need ${PLANT_WOODS_COST}★ (have ${player.gold}★)`;
     }
@@ -1057,6 +1142,7 @@ export function getTileActionOptions(
       icon: '🌳',
       enabled: !disabledReason,
       disabledReason,
+      ...(requiredTechId ? { requiredTechId } : {}),
       action: !disabledReason ? { type: 'PLANT_ANCIENT_WOODS', coord: { x, y } } : undefined,
     });
   }
@@ -1091,9 +1177,11 @@ export function getCityTrainOptions(state: GameState, cityId: string): ActionOpt
     const maxHp = getUnitTrainMaxHp(state, owner.id, unitType);
 
     let disabledReason: string | undefined;
+    let requiredTechId: TechId | undefined;
     if (!trainable.has(unitType)) {
       const unlockTech = factionTechs.find((t) => t.unlocksUnits.includes(unitType));
       disabledReason = unlockTech ? `Requires ${unlockTech.name}` : 'Locked';
+      if (unlockTech) requiredTechId = unlockTech.id;
     } else if (isOccupied) {
       disabledReason = 'City tile occupied';
     } else if (atCap) {
@@ -1111,6 +1199,7 @@ export function getCityTrainOptions(state: GameState, cityId: string): ActionOpt
       unitType,
       enabled: !disabledReason,
       disabledReason,
+      ...(requiredTechId ? { requiredTechId } : {}),
       action: !disabledReason ? { type: 'TRAIN_UNIT', cityId: city.id, unitType } : undefined,
     };
   });
