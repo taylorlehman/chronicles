@@ -1,5 +1,12 @@
+import { FACTION_DEFINITIONS } from '../game/data';
 import type { FactionId } from '../game/types';
-import { renderActionIcon, renderIcon, type IconName } from './icons';
+import {
+  ALDERWICK_ASSETS,
+  ALDERWICK_FULL_TITLE,
+  ALDERWICK_NAME,
+  SUPERPOWER_SHOWCASE,
+} from './alderwick';
+import { renderActionIcon, renderFactionCrest, renderFactionSuperpowerIcon, renderIcon, type IconName } from './icons';
 import { markTutorialCompleted } from './persistence';
 import { render3DThumbImg } from './thumbs';
 
@@ -11,7 +18,7 @@ export interface TutorialBannerContext {
   resourceLabel?: string;      // e.g. 'Berries', 'Wild Game', 'Ore Vein'
   targetTechId?: string;
   targetTechName?: string;     // e.g. 'Farming'
-  faction?: FactionId;         // Optional faction for biome-matched 3D resource thumbnail
+  faction?: FactionId;         // Optional faction for biome-matched 3D resource thumbnail & faction callouts
 }
 
 export interface TutorialStep {
@@ -25,44 +32,44 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     id: 'stars',
     icon: 'star',
-    title: 'How Stars Work',
-    body: 'Stars (★) are your realm’s currency — spend them to harvest resources, train units, and research technologies. Upgrading and capturing cities increases the Stars you earn every turn.',
+    title: 'Stars: Eldermere’s Magic',
+    body: 'See those twinkling Stars (★)? That’s pure Starlight from the First Dawn! Spend them to harvest, train troops, and study lore—growing and capturing cities fills your coffers faster each turn.',
   },
   {
     id: 'upgrade',
     icon: 'wheat',
-    title: 'Upgrade Your City',
-    body: 'Tap the two resource tiles inside your borders and harvest both to level up your capital, pick a City Reward, and boost the Stars (★) you earn every turn!',
+    title: 'Grow Your Capital',
+    body: 'Every grand empire begins with a humble harvest! Tap both resource tiles inside your borders to level up your capital, pick a City Reward, and earn more Stars (★) each turn.',
   },
   {
     id: 'move',
     icon: 'compass',
-    title: 'Move Your Unit',
-    body: 'Tap your unit at your capital, then tap the glowing blue ring to the east to march toward the rival outpost.',
+    title: 'March Into the Fog',
+    body: 'Time to stretch those boots, Commander! Tap your unit at your capital, then tap the glowing blue ring to the east to advance toward the rival outpost.',
   },
   {
     id: 'combat',
     icon: 'swords',
-    title: 'Fight the Rival',
-    body: 'Tap the red target ring on the rival warrior guarding the Village to defeat them in battle!',
+    title: 'Clash With a Rival',
+    body: 'Aha—an uninvited guest at that Village! Tap the red target ring on the rival warrior to send them packing and clear the settlement.',
   },
   {
     id: 'capture',
     icon: 'crown',
-    title: 'Capture the Village',
-    body: 'Now that you hold the settlement, tap the glowing Capture button to claim it as your second city!',
+    title: 'Claim the Village',
+    body: 'Splendidly struck! With the Village clear, tap the glowing Capture button to raise your banner and claim your second city.',
   },
   {
     id: 'codex',
     icon: 'codex',
-    title: 'Unlock Technology',
-    body: 'Tap the Codex medallion in the bottom-left and research a new technology to strengthen your realm.',
+    title: 'Crack Open Your Codex',
+    body: 'A sharp mind wins as many crowns as a sharp blade! Tap the Codex medallion in the bottom-left and research a technology to power up your realm.',
   },
   {
     id: 'end_turn',
     icon: 'endTurnHumans',
-    title: 'End Your Turn',
-    body: 'Eldermere is a turn-based game: tapping End Turn lets rival realms move and grants you fresh Stars (★) from your cities each turn. Tap End Turn now to finish the tutorial!',
+    title: 'Turn the Page',
+    body: 'Magnificent first turn! Eldermere is turn-based: tapping End Turn lets rival realms move and showers you with fresh Stars (★) from your cities. Tap End Turn now!',
   },
 ];
 
@@ -74,6 +81,13 @@ const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
   capture: 4,
   codex: 5,
   end_turn: 6,
+};
+
+const FACTION_ACCENT: Record<FactionId, string> = {
+  humans: '#2356c9',
+  orcs: '#c92a2a',
+  elves: '#12805c',
+  dwarves: '#d47415',
 };
 
 function normalizeResourceThumbKey(key: string): string {
@@ -120,14 +134,14 @@ export class TutorialController {
     this.bannerEl = document.createElement('aside');
     this.bannerEl.className = 'tutorial-banner hidden';
     this.bannerEl.setAttribute('role', 'region');
-    this.bannerEl.setAttribute('aria-label', 'Guided Tutorial');
+    this.bannerEl.setAttribute('aria-label', 'Guided Tutorial by Alderwick');
     container.appendChild(this.bannerEl);
 
     this.modalEl = document.createElement('div');
     this.modalEl.className = 'modal-backdrop tutorial-modal hidden';
     this.modalEl.setAttribute('role', 'dialog');
     this.modalEl.setAttribute('aria-modal', 'true');
-    this.modalEl.setAttribute('aria-label', 'Tutorial');
+    this.modalEl.setAttribute('aria-label', 'Alderwick Tutorial');
     container.appendChild(this.modalEl);
   }
 
@@ -136,7 +150,7 @@ export class TutorialController {
     return this.stage !== null && this.stage !== 'complete';
   }
 
-  /** True when either the Tutorial Intro or Tutorial Complete modal is open. */
+  /** True when either the Tutorial Intro or Tutorial Complete ("One More Thing...") modal is open. */
   public isModalOpen(): boolean {
     return this.stage === 'intro' || this.stage === 'complete';
   }
@@ -199,7 +213,7 @@ export class TutorialController {
       return;
     }
 
-    // Active scripted step (1/7 .. 7/7)
+    // Active scripted step (1/7 .. 7/7) — compact talking-head bar
     this.modalEl.classList.add('hidden');
     this.modalEl.innerHTML = '';
     this.renderBanner(nextStage);
@@ -222,6 +236,10 @@ export class TutorialController {
     this.context = { ...ctx };
     if (isTutorialStepStage(this.stage)) {
       this.renderBanner(this.stage);
+    } else if (this.stage === 'intro') {
+      this.renderIntroModal();
+    } else if (this.stage === 'complete') {
+      this.renderCompleteModal();
     }
   }
 
@@ -316,7 +334,7 @@ export class TutorialController {
     const total = TUTORIAL_STEPS.length;
     let bodyText = step.body;
     if (stepId === 'codex' && this.context.targetTechName) {
-      bodyText = `Tap the Codex medallion in the bottom-left and research "${this.context.targetTechName}" (highlighted in gold) to strengthen your realm.`;
+      bodyText = `A sharp mind wins as many crowns as a sharp blade! Tap the Codex medallion in the bottom-left and research “${this.context.targetTechName}” (highlighted in gold).`;
     }
 
     let resourceCalloutHtml = '';
@@ -336,7 +354,7 @@ export class TutorialController {
 
     const nextBtnHtml =
       stepId === 'stars'
-        ? `<button type="button" class="btn btn-cta tutorial-next-btn" data-tutorial-next><span>Got It</span>${renderIcon('chevronRight', 'icon icon-xs')}</button>`
+        ? `<button type="button" class="btn btn-cta tutorial-next-btn" data-tutorial-next><span>Got It!</span>${renderIcon('chevronRight', 'icon icon-xs')}</button>`
         : '';
     const progressHtml = this.subProgress
       ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
@@ -346,21 +364,37 @@ export class TutorialController {
       : '';
 
     this.bannerEl.innerHTML = `
-      <div class="tutorial-card ${pulse ? 'is-nudged' : ''}" data-tutorial-step="${step.id}">
-        <div class="tutorial-card-head">
-          <div class="tutorial-title-group">
-            <span class="tutorial-icon-badge" aria-hidden="true">${renderIcon(step.icon, 'icon icon-sm')}</span>
-            <strong class="tutorial-title">${esc(step.title)}</strong>
+      <div class="tutorial-card tutorial-alderwick-bar ${pulse ? 'is-nudged' : ''}" data-tutorial-step="${step.id}">
+        <div class="tutorial-avatar-col">
+          <div class="tutorial-avatar-frame">
+            <img
+              class="tutorial-avatar-img"
+              src="${ALDERWICK_ASSETS.portrait}"
+              alt="${ALDERWICK_FULL_TITLE}"
+              width="56"
+              height="56"
+              draggable="false"
+            />
           </div>
-          <span class="tutorial-step-pill">${idx + 1} / ${total}</span>
+          <span class="tutorial-speaker-badge">${ALDERWICK_NAME}</span>
         </div>
-        <p class="tutorial-body">${esc(bodyText)}</p>
-        ${resourceCalloutHtml}
-        ${nudgeHtml}
-        <div class="tutorial-footer-row">
-          ${nextBtnHtml}
-          ${progressHtml}
-          <span class="tutorial-hint-note">End anytime in Scores</span>
+
+        <div class="tutorial-speech-col">
+          <div class="tutorial-card-head">
+            <div class="tutorial-title-group">
+              <span class="tutorial-icon-badge" aria-hidden="true">${renderIcon(step.icon, 'icon icon-xs')}</span>
+              <strong class="tutorial-title">${esc(step.title)}</strong>
+            </div>
+            <span class="tutorial-step-pill">${idx + 1} / ${total}</span>
+          </div>
+          <p class="tutorial-body">“${esc(bodyText)}”</p>
+          ${resourceCalloutHtml}
+          ${nudgeHtml}
+          <div class="tutorial-footer-row">
+            ${nextBtnHtml}
+            ${progressHtml}
+            <span class="tutorial-hint-note">End anytime in Scores</span>
+          </div>
         </div>
       </div>
     `;
@@ -377,33 +411,58 @@ export class TutorialController {
   }
 
   private renderIntroModal(): void {
-    this.modalEl.setAttribute('aria-label', 'Guided Tutorial Introduction');
+    const factionDef = this.context.faction ? FACTION_DEFINITIONS[this.context.faction] : null;
+    const realmWelcome = factionDef
+      ? `Pull up a chair, Commander of <strong>${esc(factionDef.realm)}</strong>! Long ago, the <strong>Star-Crown</strong> shattered into four echoes, and the Fog of Forgetting rolled across Eldermere. Now four proud realms march to claim the empty throne—and your Chronicle begins right here on my tabletop!`
+      : `Pull up a chair, Commander! Long ago, the <strong>Star-Crown</strong> shattered into four echoes, and the Fog of Forgetting rolled across Eldermere. Now four proud realms march to claim the empty throne—and your Chronicle begins right here on my tabletop!`;
+
+    this.modalEl.setAttribute('aria-label', 'Welcome to Eldermere — Hosted by Alderwick');
     this.modalEl.innerHTML = `
-      <div class="modal-panel tutorial-modal-panel tutorial-intro-panel">
-        <h2 class="tutorial-modal-headline">Welcome to Eldermere</h2>
-        <p class="tutorial-modal-copy">
-          Learn the essentials of commanding your realm:
+      <div class="modal-panel tutorial-modal-panel tutorial-intro-panel alderwick-hero-card">
+        <div class="alderwick-hero-stage">
+          <div class="alderwick-hero-frame">
+            <img
+              class="alderwick-hero-img"
+              src="${ALDERWICK_ASSETS.hero}"
+              alt="${ALDERWICK_FULL_TITLE} waving from a floating Eldermere tabletop tile"
+              width="148"
+              height="148"
+              draggable="false"
+            />
+          </div>
+          <span class="alderwick-nameplate">
+            ${renderIcon('star', 'icon icon-xs icon-star')}
+            <span>${ALDERWICK_FULL_TITLE}</span>
+          </span>
+        </div>
+
+        <h2 class="tutorial-modal-headline">Welcome to Eldermere!</h2>
+
+        <p class="tutorial-modal-copy alderwick-speech-bubble">
+          “${realmWelcome}”
         </p>
+
         <ul class="tutorial-intro-list">
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('wheat', 'icon icon-xs')}</span>
-            <span>Harvest resources &amp; upgrade your city</span>
+            <span>Harvest Starlight &amp; grow your capital</span>
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('compass', 'icon icon-xs')}</span>
-            <span>Move units across the realm</span>
+            <span>March into the Fog &amp; claim neutral Villages</span>
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('swords', 'icon icon-xs')}</span>
-            <span>Battle rivals &amp; capture villages</span>
+            <span>Battle rival banners across the board</span>
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('codex', 'icon icon-xs')}</span>
-            <span>Research lore &amp; end your turn</span>
+            <span>Unlock your Codex &amp; ascend the Three Ages</span>
           </li>
         </ul>
+
         <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="start">
-          <span>Start Tutorial</span>
+          <span>Begin the Chronicle</span>
           ${renderIcon('chevronRight', 'icon icon-sm')}
         </button>
       </div>
@@ -417,16 +476,83 @@ export class TutorialController {
   }
 
   private renderCompleteModal(): void {
-    this.modalEl.setAttribute('aria-label', 'Tutorial Complete');
-    this.modalEl.innerHTML = `
-      <div class="modal-panel tutorial-modal-panel tutorial-complete-panel">
-        <div class="tutorial-complete-crest" aria-hidden="true">
-          ${renderIcon('crown', 'icon icon-xl')}
+    const playerFaction = this.context.faction ?? null;
+
+    const superpowerCardsHtml = SUPERPOWER_SHOWCASE.map((entry) => {
+      const isPlayerFaction = playerFaction === entry.faction;
+      const accent = FACTION_ACCENT[entry.faction];
+      return `
+        <div
+          class="alderwick-power-item ${isPlayerFaction ? 'is-player-faction' : ''}"
+          style="--power-accent: ${accent};"
+        >
+          <span class="alderwick-power-icon" style="background: ${accent};" aria-hidden="true">
+            ${renderFactionSuperpowerIcon(entry.faction, 'icon icon-xs')}
+          </span>
+          <div class="alderwick-power-copy">
+            <div class="alderwick-power-head">
+              <span class="alderwick-power-name">${esc(entry.powerName)}</span>
+              <span class="alderwick-power-faction">
+                ${renderFactionCrest(entry.faction, 'icon alderwick-mini-crest')}
+                <span>${esc(entry.realmLabel)}</span>
+                ${isPlayerFaction ? '<em class="alderwick-your-tag">Yours</em>' : ''}
+              </span>
+            </div>
+            <span class="alderwick-power-desc">${esc(entry.summary)}</span>
+          </div>
         </div>
-        <h2 class="tutorial-modal-headline">Tutorial Complete!</h2>
-        <p class="tutorial-modal-copy">
-          You’ve mastered the essentials. Expand your realm, unlock new Ages in the Codex, and conquer Eldermere!
+      `;
+    }).join('');
+
+    this.modalEl.setAttribute('aria-label', 'Oh—One More Thing, Commander! Ages and Superpowers');
+    this.modalEl.innerHTML = `
+      <div class="modal-panel tutorial-modal-panel tutorial-complete-panel alderwick-magic-card">
+        <div class="tutorial-modal-kicker is-gold">
+          ${renderIcon('star', 'icon icon-xs')}
+          <span>Tutorial Complete &middot; Secret of the Ages</span>
+        </div>
+
+        <div class="alderwick-magic-header">
+          <div class="alderwick-magic-frame">
+            <img
+              class="alderwick-magic-img"
+              src="${ALDERWICK_ASSETS.magic}"
+              alt="${ALDERWICK_FULL_TITLE} conjuring starlight magic"
+              width="124"
+              height="124"
+              draggable="false"
+            />
+          </div>
+          <div class="alderwick-magic-intro">
+            <h2 class="tutorial-modal-headline alderwick-magic-headline">Oh—One More Thing, Commander!</h2>
+            <p class="alderwick-magic-lead">
+              “Keep researching technologies in your <strong>Codex</strong>! Every realm climbs through <strong>Three Ages</strong> to unleash its ultimate <strong>Superpower</strong>.”
+            </p>
+          </div>
+        </div>
+
+        <div class="alderwick-ages-strip" role="list" aria-label="Age Progression">
+          <div class="alderwick-age-chip" role="listitem">
+            <span class="alderwick-age-badge">Age II</span>
+            <span class="alderwick-age-req">3 Techs</span>
+            <span class="alderwick-age-desc">Elite troops &amp; stronger economy</span>
+          </div>
+          <span class="alderwick-age-arrow" aria-hidden="true">&rarr;</span>
+          <div class="alderwick-age-chip is-zenith" role="listitem">
+            <span class="alderwick-age-badge">Age III</span>
+            <span class="alderwick-age-req">7 Techs</span>
+            <span class="alderwick-age-desc">Capstones &amp; Realm Superpower!</span>
+          </div>
+        </div>
+
+        <div class="alderwick-power-grid" aria-label="Four Realm Superpowers">
+          ${superpowerCardsHtml}
+        </div>
+
+        <p class="alderwick-magic-signoff">
+          “Wield yours wisely—and do try not to singe my favorite beard hairs!”
         </p>
+
         <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="continue">
           <span>Continue Playing</span>
           ${renderIcon('chevronRight', 'icon icon-sm')}

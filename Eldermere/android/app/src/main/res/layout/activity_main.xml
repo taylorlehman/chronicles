@@ -11,6 +11,71 @@
         android:layout_height="match_parent"
         android:background="@color/eldermere_bg_dark" />
 
+    <!-- First-run Full-Bleed Sizzle Video Overlay (plays once after Launch Loading Screen) -->
+    <FrameLayout
+        android:id="@+id/sizzle_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/eldermere_bg_dark"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <TextureView
+            android:id="@+id/sizzle_texture_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="112dp"
+            android:layout_gravity="top"
+            android:alpha="0.55"
+            android:background="@drawable/scrim_loading_top" />
+
+        <LinearLayout
+            android:id="@+id/sizzle_controls_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="16dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="8dp">
+
+            <ImageButton
+                android:id="@+id/sizzle_mute_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/bg_sizzle_pill"
+                android:contentDescription="@string/sizzle_mute_cd"
+                android:padding="10dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_sizzle_volume_on" />
+
+            <TextView
+                android:id="@+id/sizzle_skip_button"
+                android:layout_width="wrap_content"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_sizzle_pill"
+                android:clickable="true"
+                android:contentDescription="@string/sizzle_skip_cd"
+                android:focusable="true"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:minWidth="76dp"
+                android:paddingHorizontal="18dp"
+                android:text="@string/sizzle_skip"
+                android:textAllCaps="true"
+                android:textColor="@color/eldermere_gold_bright"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </FrameLayout>
+
     <!-- Full-bleed Native Launch Loading Screen over WebGL boot -->
     <FrameLayout
         android:id="@+id/loading_overlay"

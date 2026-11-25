@@ -1,6 +1,7 @@
 import { FACTION_DEFINITIONS } from '../game/data';
 import type { FactionId } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
+import { ALDERWICK_ASSETS, ALDERWICK_FULL_TITLE, getEliminationWhisper } from './alderwick';
 import { renderFactionCrest, renderIcon } from './icons';
 
 function esc(value: string): string {
@@ -45,13 +46,17 @@ export class DefeatNoticeModal {
     return this.openState;
   }
 
-  public show(defeatedFaction: FactionId, victorFaction: FactionId): Promise<void> {
+  public show(
+    defeatedFaction: FactionId,
+    victorFaction: FactionId,
+    isHumanDefeated = false,
+  ): Promise<void> {
     if (this.pendingResolve) {
       this.close();
     }
 
     this.openState = true;
-    this.render(defeatedFaction, victorFaction);
+    this.render(defeatedFaction, victorFaction, isHumanDefeated);
     this.root.classList.remove('hidden');
 
     const continueBtn = this.root.querySelector<HTMLButtonElement>('[data-action="continue"]');
@@ -79,11 +84,16 @@ export class DefeatNoticeModal {
     this.root.remove();
   }
 
-  private render(defeatedFaction: FactionId, victorFaction: FactionId): void {
+  private render(
+    defeatedFaction: FactionId,
+    victorFaction: FactionId,
+    isHumanDefeated: boolean,
+  ): void {
     const defeatedDef = FACTION_DEFINITIONS[defeatedFaction];
     const victorDef = FACTION_DEFINITIONS[victorFaction];
     const defeatedColor = FACTION_HERALDRY[defeatedFaction];
     const victorColor = FACTION_HERALDRY[victorFaction];
+    const alderwickWhisper = getEliminationWhisper(defeatedFaction, victorFaction, isHumanDefeated);
 
     this.root.innerHTML = `
       <div
@@ -118,9 +128,30 @@ export class DefeatNoticeModal {
         </div>
 
         <h2 class="defeat-notice-headline">
-          ${esc(defeatedDef.name)} was defeated by ${esc(victorDef.name)}
+          ${esc(defeatedDef.name)} Fell to ${esc(victorDef.name)}
         </h2>
-        <p class="defeat-notice-subline">Their final stronghold has fallen.</p>
+        <p class="defeat-notice-subline">
+          ${esc(defeatedDef.realm)}’s final stronghold has fallen.
+        </p>
+
+        <div class="chronicle-alderwick-card is-notice">
+          <span class="chronicle-alderwick-avatar is-sm">
+            <img
+              src="${ALDERWICK_ASSETS.portrait}"
+              alt="${ALDERWICK_FULL_TITLE}"
+              width="44"
+              height="44"
+              draggable="false"
+            />
+          </span>
+          <div class="chronicle-alderwick-copy">
+            <span class="chronicle-alderwick-speaker">
+              ${renderIcon('star', 'icon icon-xs icon-star')}
+              <span>${ALDERWICK_FULL_TITLE}</span>
+            </span>
+            <p class="chronicle-alderwick-quote">“${esc(alderwickWhisper)}”</p>
+          </div>
+        </div>
 
         <button type="button" class="btn btn-cta defeat-notice-btn" data-action="continue">
           <span>Continue</span>

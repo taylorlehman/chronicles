@@ -12,4 +12,7 @@
     <color name="eldermere_ink_soft">#CAD7EB</color>
     <color name="eldermere_progress_track">#8A09101E</color>
     <color name="eldermere_progress_stroke">#66E8C168</color>
+    <color name="eldermere_sizzle_pill_bg">#B80F1930</color>
+    <color name="eldermere_sizzle_pill_stroke">#99E8C168</color>
+    <color name="eldermere_sizzle_pill_ripple">#38FBE8A6</color>
 </resources>

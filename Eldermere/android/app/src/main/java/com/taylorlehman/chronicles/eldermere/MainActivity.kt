@@ -3,6 +3,10 @@ package com.taylorlehman.chronicles.eldermere
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.graphics.Color
+import android.graphics.SurfaceTexture
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -10,6 +14,8 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.HapticFeedbackConstants
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.webkit.ConsoleMessage
@@ -20,6 +26,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -39,6 +46,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var rootContainer: FrameLayout
     private lateinit var webView: WebView
+    private lateinit var sizzleOverlay: FrameLayout
+    private lateinit var sizzleTextureView: TextureView
+    private lateinit var sizzleControlsContainer: LinearLayout
+    private lateinit var sizzleMuteButton: ImageButton
+    private lateinit var sizzleSkipButton: TextView
     private lateinit var loadingOverlay: FrameLayout
     private lateinit var loadingHeader: LinearLayout
     private lateinit var loadingFooter: LinearLayout
@@ -46,19 +58,32 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loadingProgressBar: ProgressBar
 
     private lateinit var assetLoader: WebViewAssetLoader
+    private lateinit var sizzleStateMachine: SizzleIntroStateMachine
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private var launchElapsedMs: Long = 0L
     private var isPageLoaded: Boolean = false
     private var isOverlayDismissed: Boolean = false
+    private var isActivityResumed: Boolean = false
     private var latestSafeInsets: SafeAreaInsets = SafeAreaInsets.ZERO
     private var progressAnimator: ValueAnimator? = null
     private var tipIndex: Int = 0
     private var loadingTips: Array<String> = emptyArray()
 
+    private var sizzleMediaPlayer: MediaPlayer? = null
+    private var sizzleSurface: Surface? = null
+    private var sizzleVideoWidth: Int = 0
+    private var sizzleVideoHeight: Int = 0
+    private var sizzleResumePositionMs: Int = 0
+
     private val fallbackDismissRunnable = Runnable {
         Log.w(LOG_TAG, "Loading overlay fallback timeout reached (${SplashDismissPolicy.MAX_SPLASH_TIMEOUT_MS}ms); dismissing overlay")
         dismissLoadingOverlay()
+    }
+
+    private val sizzlePrepareTimeoutRunnable = Runnable {
+        Log.w(LOG_TAG, "Sizzle video prepare timeout reached (${SizzleIntroStateMachine.PREPARE_TIMEOUT_MS}ms); falling back to game menu")
+        handleSizzleAction(sizzleStateMachine.onPlaybackErrorOrTimeout())
     }
 
     private val tipCycleRunnable = object : Runnable {
@@ -90,11 +115,17 @@ class MainActivity : AppCompatActivity() {
         )
         super.onCreate(savedInstanceState)
 
+        volumeControlStream = AudioManager.STREAM_MUSIC
         launchElapsedMs = SystemClock.elapsedRealtime()
         setContentView(R.layout.activity_main)
 
         rootContainer = findViewById(R.id.root_container)
         webView = findViewById(R.id.game_webview)
+        sizzleOverlay = findViewById(R.id.sizzle_overlay)
+        sizzleTextureView = findViewById(R.id.sizzle_texture_view)
+        sizzleControlsContainer = findViewById(R.id.sizzle_controls_container)
+        sizzleMuteButton = findViewById(R.id.sizzle_mute_button)
+        sizzleSkipButton = findViewById(R.id.sizzle_skip_button)
         loadingOverlay = findViewById(R.id.loading_overlay)
         loadingHeader = findViewById(R.id.loading_header)
         loadingFooter = findViewById(R.id.loading_footer)
@@ -102,11 +133,14 @@ class MainActivity : AppCompatActivity() {
         loadingProgressBar = findViewById(R.id.loading_progress_bar)
         loadingTips = resources.getStringArray(R.array.loading_tips)
 
+        sizzleStateMachine = SizzleIntroStateMachine(SharedPreferencesSizzleStore(this))
+
         assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
             .build()
 
         setupWindowInsets()
+        setupSizzleOverlay()
         setupLoadingOverlayAnimation()
         setupWebView()
         setupBackNavigation()
@@ -118,6 +152,8 @@ class MainActivity : AppCompatActivity() {
     private fun setupWindowInsets() {
         val baseHeaderTopPadding = loadingHeader.paddingTop
         val baseFooterBottomPadding = loadingFooter.paddingBottom
+        val baseSizzleControlsTopPadding = sizzleControlsContainer.paddingTop
+        val baseSizzleControlsRightPadding = sizzleControlsContainer.paddingRight
 
         ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, windowInsets ->
             val bars = windowInsets.getInsets(
@@ -125,6 +161,10 @@ class MainActivity : AppCompatActivity() {
             )
             loadingHeader.updatePadding(top = baseHeaderTopPadding + bars.top)
             loadingFooter.updatePadding(bottom = baseFooterBottomPadding + bars.bottom)
+            sizzleControlsContainer.updatePadding(
+                top = baseSizzleControlsTopPadding + bars.top,
+                right = baseSizzleControlsRightPadding + bars.right,
+            )
 
             latestSafeInsets = SafeAreaInsets.fromPixels(
                 topPx = bars.top,
@@ -139,6 +179,297 @@ class MainActivity : AppCompatActivity() {
             windowInsets
         }
         ViewCompat.requestApplyInsets(rootContainer)
+    }
+
+    private fun setupSizzleOverlay() {
+        if (!sizzleStateMachine.shouldPrepareSizzle) {
+            sizzleOverlay.visibility = View.GONE
+            return
+        }
+
+        // Keep sizzle overlay visible beneath the opaque loading overlay so TextureView
+        // acquires its SurfaceTexture and MediaPlayer prepares asynchronously during boot.
+        sizzleOverlay.visibility = View.VISIBLE
+        sizzleOverlay.alpha = 1f
+        updateMuteButtonUi(isMuted = sizzleStateMachine.isMuted)
+
+        sizzleSkipButton.setOnClickListener {
+            performHaptic(HapticStyle.TAP)
+            handleSizzleAction(sizzleStateMachine.onSkipRequested())
+        }
+
+        sizzleMuteButton.setOnClickListener {
+            performHaptic(HapticStyle.TAP)
+            val muted = sizzleStateMachine.toggleMute()
+            updateMuteButtonUi(isMuted = muted)
+            sizzleMediaPlayer?.let { applySizzleVolume(it) }
+        }
+
+        sizzleTextureView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(
+                surfaceTexture: SurfaceTexture,
+                width: Int,
+                height: Int,
+            ) {
+                attachSizzleSurface(surfaceTexture, width, height)
+            }
+
+            override fun onSurfaceTextureSizeChanged(
+                surfaceTexture: SurfaceTexture,
+                width: Int,
+                height: Int,
+            ) {
+                applySizzleVideoTransform(width, height)
+            }
+
+            override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+                try {
+                    sizzleMediaPlayer?.setSurface(null)
+                } catch (t: Throwable) {
+                    Log.w(LOG_TAG, "Ignored error detaching sizzle surface", t)
+                }
+                sizzleSurface?.release()
+                sizzleSurface = null
+                return true
+            }
+
+            override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) = Unit
+        }
+
+        if (sizzleTextureView.isAvailable) {
+            sizzleTextureView.surfaceTexture?.let { texture ->
+                attachSizzleSurface(texture, sizzleTextureView.width, sizzleTextureView.height)
+            }
+        }
+    }
+
+    private fun attachSizzleSurface(surfaceTexture: SurfaceTexture, width: Int, height: Int) {
+        if (isDestroyed) return
+        sizzleSurface?.release()
+        val surface = Surface(surfaceTexture)
+        sizzleSurface = surface
+
+        val existingPlayer = sizzleMediaPlayer
+        if (existingPlayer != null) {
+            try {
+                existingPlayer.setSurface(surface)
+                applySizzleVideoTransform(width, height)
+            } catch (t: Throwable) {
+                Log.e(LOG_TAG, "Failed to reattach sizzle video surface", t)
+                handleSizzleAction(sizzleStateMachine.onPlaybackErrorOrTimeout())
+            }
+        } else if (sizzleStateMachine.shouldPrepareSizzle || sizzleStateMachine.isSizzleOverlayActive) {
+            prepareSizzleMediaPlayer(surface)
+        }
+    }
+
+    private fun prepareSizzleMediaPlayer(surface: Surface) {
+        if (isDestroyed) return
+        try {
+            val afd = resources.openRawResourceFd(R.raw.eldermere_sizzle)
+                ?: throw IllegalStateException("Missing raw resource R.raw.eldermere_sizzle")
+            val player = MediaPlayer()
+            sizzleMediaPlayer = player
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_GAME)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                    .build(),
+            )
+            afd.use { descriptor ->
+                player.setDataSource(
+                    descriptor.fileDescriptor,
+                    descriptor.startOffset,
+                    descriptor.length,
+                )
+            }
+            player.setSurface(surface)
+            player.isLooping = false
+
+            player.setOnVideoSizeChangedListener { mp, videoWidth, videoHeight ->
+                if (sizzleMediaPlayer !== mp) return@setOnVideoSizeChangedListener
+                sizzleVideoWidth = videoWidth
+                sizzleVideoHeight = videoHeight
+                applySizzleVideoTransform(sizzleTextureView.width, sizzleTextureView.height)
+            }
+
+            player.setOnPreparedListener { mp ->
+                if (isDestroyed || sizzleMediaPlayer !== mp) return@setOnPreparedListener
+                sizzleVideoWidth = mp.videoWidth
+                sizzleVideoHeight = mp.videoHeight
+                applySizzleVideoTransform(sizzleTextureView.width, sizzleTextureView.height)
+                applySizzleVolume(mp)
+                if (sizzleResumePositionMs > 0) {
+                    try {
+                        mp.seekTo(sizzleResumePositionMs)
+                    } catch (t: Throwable) {
+                        Log.w(LOG_TAG, "Unable to seek sizzle video to $sizzleResumePositionMs", t)
+                    }
+                }
+                handleSizzleAction(sizzleStateMachine.onMediaPrepared(isActivityResumed))
+            }
+
+            player.setOnCompletionListener { mp ->
+                if (sizzleMediaPlayer !== mp) return@setOnCompletionListener
+                handleSizzleAction(sizzleStateMachine.onPlaybackCompleted())
+            }
+
+            player.setOnErrorListener { mp, what, extra ->
+                Log.e(LOG_TAG, "Sizzle video playback error (what=$what, extra=$extra)")
+                if (sizzleMediaPlayer === mp) {
+                    handleSizzleAction(sizzleStateMachine.onPlaybackErrorOrTimeout())
+                }
+                true
+            }
+
+            player.prepareAsync()
+        } catch (t: Throwable) {
+            Log.e(LOG_TAG, "Failed to prepare sizzle video; falling back to Start Game menu", t)
+            handleSizzleAction(sizzleStateMachine.onPlaybackErrorOrTimeout())
+        }
+    }
+
+    private fun handleSizzleAction(action: SizzleAction) {
+        when (action) {
+            SizzleAction.NONE -> Unit
+            SizzleAction.WAIT_FOR_PREPARE -> {
+                mainHandler.removeCallbacks(sizzlePrepareTimeoutRunnable)
+                mainHandler.postDelayed(
+                    sizzlePrepareTimeoutRunnable,
+                    SizzleIntroStateMachine.PREPARE_TIMEOUT_MS,
+                )
+                if (sizzleMediaPlayer == null && sizzleTextureView.isAvailable) {
+                    sizzleTextureView.surfaceTexture?.let { texture ->
+                        attachSizzleSurface(texture, sizzleTextureView.width, sizzleTextureView.height)
+                    }
+                }
+            }
+            SizzleAction.START_PLAYBACK, SizzleAction.RESUME_PLAYBACK -> {
+                mainHandler.removeCallbacks(sizzlePrepareTimeoutRunnable)
+                val player = sizzleMediaPlayer
+                if (player == null) {
+                    handleSizzleAction(sizzleStateMachine.onPlaybackErrorOrTimeout())
+                    return
+                }
+                try {
+                    applySizzleVolume(player)
+                    applySizzleVideoTransform(sizzleTextureView.width, sizzleTextureView.height)
+                    if (!player.isPlaying) {
+                        player.start()
+                    }
+                } catch (t: Throwable) {
+                    Log.e(LOG_TAG, "Failed to start sizzle playback", t)
+                    handleSizzleAction(sizzleStateMachine.onPlaybackErrorOrTimeout())
+                }
+            }
+            SizzleAction.PAUSE_PLAYBACK -> {
+                mainHandler.removeCallbacks(sizzlePrepareTimeoutRunnable)
+                val player = sizzleMediaPlayer ?: return
+                try {
+                    if (player.isPlaying) {
+                        sizzleResumePositionMs = player.currentPosition
+                        player.pause()
+                    }
+                } catch (t: Throwable) {
+                    Log.w(LOG_TAG, "Ignored error pausing sizzle playback", t)
+                }
+            }
+            SizzleAction.FINISH_AND_REVEAL_GAME -> {
+                finishSizzleAndRevealGame()
+            }
+        }
+    }
+
+    private fun finishSizzleAndRevealGame() {
+        mainHandler.removeCallbacks(sizzlePrepareTimeoutRunnable)
+        sizzleMediaPlayer?.let { player ->
+            try {
+                player.setVolume(0f, 0f)
+                if (player.isPlaying) {
+                    player.pause()
+                }
+            } catch (t: Throwable) {
+                Log.w(LOG_TAG, "Ignored error stopping sizzle playback during dismiss", t)
+            }
+        }
+
+        sizzleOverlay.isClickable = false
+        sizzleOverlay.isFocusable = false
+        sizzleSkipButton.isEnabled = false
+        sizzleMuteButton.isEnabled = false
+
+        if (!isOverlayDismissed || sizzleOverlay.visibility != View.VISIBLE) {
+            sizzleOverlay.visibility = View.GONE
+            releaseSizzleMediaPlayer()
+            return
+        }
+
+        sizzleOverlay.animate()
+            .alpha(0f)
+            .setDuration(SizzleIntroStateMachine.FADE_OUT_DURATION_MS)
+            .setInterpolator(DecelerateInterpolator())
+            .withEndAction {
+                sizzleOverlay.visibility = View.GONE
+                sizzleOverlay.alpha = 1f
+                releaseSizzleMediaPlayer()
+            }
+            .start()
+    }
+
+    private fun releaseSizzleMediaPlayer() {
+        mainHandler.removeCallbacks(sizzlePrepareTimeoutRunnable)
+        val player = sizzleMediaPlayer
+        sizzleMediaPlayer = null
+        if (player != null) {
+            try {
+                if (player.isPlaying) {
+                    player.stop()
+                }
+            } catch (ignored: Throwable) {
+            }
+            try {
+                player.setSurface(null)
+            } catch (ignored: Throwable) {
+            }
+            try {
+                player.reset()
+            } catch (ignored: Throwable) {
+            }
+            try {
+                player.release()
+            } catch (ignored: Throwable) {
+            }
+        }
+        sizzleSurface?.release()
+        sizzleSurface = null
+    }
+
+    private fun applySizzleVolume(player: MediaPlayer) {
+        val volume = if (sizzleStateMachine.isMuted) 0f else 1f
+        try {
+            player.setVolume(volume, volume)
+        } catch (t: Throwable) {
+            Log.w(LOG_TAG, "Ignored error applying sizzle volume", t)
+        }
+    }
+
+    private fun updateMuteButtonUi(isMuted: Boolean) {
+        sizzleMuteButton.setImageResource(
+            if (isMuted) R.drawable.ic_sizzle_volume_off else R.drawable.ic_sizzle_volume_on,
+        )
+        sizzleMuteButton.contentDescription = getString(
+            if (isMuted) R.string.sizzle_unmute_cd else R.string.sizzle_mute_cd,
+        )
+    }
+
+    private fun applySizzleVideoTransform(viewWidth: Int, viewHeight: Int) {
+        val transform = VideoViewportTransform.compute(
+            viewWidth = viewWidth,
+            viewHeight = viewHeight,
+            videoWidth = sizzleVideoWidth,
+            videoHeight = sizzleVideoHeight,
+        )
+        sizzleTextureView.setTransform(transform.toMatrix())
     }
 
     private fun setupLoadingOverlayAnimation() {
@@ -253,6 +584,11 @@ class MainActivity : AppCompatActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (sizzleStateMachine.shouldHandleBackPress) {
+                        performHaptic(HapticStyle.TAP)
+                        handleSizzleAction(sizzleStateMachine.onSkipRequested())
+                        return
+                    }
                     if (!isPageLoaded || !isOverlayDismissed) {
                         showExitConfirmationDialog()
                         return
@@ -313,6 +649,9 @@ class MainActivity : AppCompatActivity() {
         progressAnimator?.cancel()
         loadingProgressBar.progress = 1000
 
+        // Kick off first-run sizzle playback as the loading screen cross-fades out.
+        handleSizzleAction(sizzleStateMachine.onLoadingOverlayDismissed(isActivityResumed))
+
         loadingOverlay.animate()
             .alpha(0f)
             .scaleX(1.03f)
@@ -367,6 +706,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        isActivityResumed = false
+        handleSizzleAction(sizzleStateMachine.onActivityPaused())
         if (isPageLoaded) {
             webView.evaluateJavascript(
                 "if(typeof window.__eldermereSetPaused==='function'){window.__eldermereSetPaused(true);}",
@@ -379,6 +720,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        isActivityResumed = true
+        handleSizzleAction(sizzleStateMachine.onActivityResumed())
         webView.onResume()
         if (isPageLoaded) {
             injectSafeAreaInsets(latestSafeInsets)
@@ -395,6 +738,8 @@ class MainActivity : AppCompatActivity() {
         progressAnimator = null
         loadingOverlay.animate().cancel()
         loadingTipText.animate().cancel()
+        sizzleOverlay.animate().cancel()
+        releaseSizzleMediaPlayer()
         webView.removeJavascriptInterface(JS_BRIDGE_NAME)
         webView.stopLoading()
         webView.destroy()

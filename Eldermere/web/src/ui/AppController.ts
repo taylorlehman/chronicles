@@ -1508,26 +1508,26 @@ export class AppController {
     const stage = this.tutorial.getStage();
     switch (stage) {
       case 'stars':
-        return 'Tap "Got It" above to begin upgrading your city!';
+        return 'Not so fast, Commander! Tap “Got It!” above so we can grow your capital first.';
       case 'upgrade':
-        return 'Harvest both resource tiles in your borders and pick a City Reward first!';
+        return 'Easy does it! Harvest both resource tiles in your borders and pick a City Reward first.';
       case 'move':
-        return 'Tap your unit at your capital and move onto the glowing ring to the east!';
+        return 'Tap your unit at your capital and march onto the glowing blue ring to the east!';
       case 'combat':
-        return 'Tap the red target ring on the rival warrior guarding the Village!';
+        return 'Tap the red target ring on the rival warrior guarding that Village—send them packing!';
       case 'capture':
-        return 'Tap the glowing Capture button on the Village to claim your second city!';
+        return 'Don’t forget the prize! Tap the glowing Capture button on the Village to claim your second city.';
       case 'codex': {
         const targetTechId = this.getTutorialTargetTechId();
         const targetTechName = targetTechId ? TECH_DEFINITIONS[targetTechId]?.name : null;
         return targetTechName
-          ? `Tap the Codex medallion in the bottom-left and research ${targetTechName}!`
-          : 'Tap the Codex medallion in the bottom-left and research a technology!';
+          ? `Crack open the Codex medallion in the bottom-left and research ${targetTechName}!`
+          : 'Crack open the Codex medallion in the bottom-left and research a technology!';
       }
       case 'end_turn':
-        return 'Eldermere is turn-based — tap End Turn in the bottom-right to finish the tutorial!';
+        return 'Almost there! Tap End Turn in the bottom-right to finish your first turn of the Chronicle.';
       default:
-        return 'Complete the current tutorial step to continue!';
+        return 'Finish this step of the Chronicle first, Commander!';
     }
   }
 
@@ -1727,7 +1727,7 @@ export class AppController {
       return;
     }
 
-    // Step 7 (End Turn): show Tutorial Complete! immediately, then run End Turn on Continue Playing
+    // Step 7 (End Turn): show Alderwick's "One More Thing..." Age/Superpower card, then run End Turn on Continue Playing
     if (this.tutorial.isActive() && this.tutorial.getStage() === 'end_turn') {
       triggerAndroidHaptic('victory');
       this.ageUpModal.close();
@@ -1736,6 +1736,7 @@ export class AppController {
       this.leaderboardModal.close();
       this.clearSelection();
       this.pendingEndTurnAfterTutorial = true;
+      this.syncTutorialContext();
       this.tutorial.completeAndCelebrate();
       return;
     }
@@ -1919,7 +1920,11 @@ export class AppController {
       const defeated = getPlayer(state, ev.playerId);
       const victor = getPlayer(state, ev.eliminatedByPlayerId);
       if (defeated && victor) {
-        await this.defeatNoticeModal.show(defeated.faction, victor.faction);
+        await this.defeatNoticeModal.show(
+          defeated.faction,
+          victor.faction,
+          defeated.id === this.humanPlayerId,
+        );
       }
     }
   }

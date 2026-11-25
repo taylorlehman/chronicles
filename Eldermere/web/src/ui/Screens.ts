@@ -1,6 +1,13 @@
 import { ALL_FACTIONS, FACTION_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
 import { AGE_ROMAN } from '../game/rules';
 import type { Difficulty, FactionId, GameState, MapSize, PlayerAge, PlayerId } from '../game/types';
+import {
+  ALDERWICK_ASSETS,
+  ALDERWICK_FULL_TITLE,
+  RESIGN_CHRONICLE,
+  VICTORY_CHRONICLE,
+  getDefeatChronicle,
+} from './alderwick';
 import { renderFactionCrest, renderIcon, renderUnitIcon, type IconName } from './icons';
 import type { SavedCampaignSummary } from './persistence';
 import { renderUnitThumbOrIcon } from './thumbs';
@@ -503,8 +510,8 @@ export class GameOverOverlay {
 
   private formatWinSubtitle(state: GameState): string {
     return state.winReason === 'domination'
-      ? 'Domination — All Rival Capitals Claimed'
-      : 'Glory Triumph';
+      ? 'The Star-Crown Reunites — All Rival Capitals Claimed'
+      : 'The Star-Crown Reunites — Eternal Glory';
   }
 
   private render(): void {
@@ -526,9 +533,11 @@ export class GameOverOverlay {
   }
 
   private renderCelebrationStage(data: GameOverData, isVictory: boolean): void {
-    const { state } = data;
+    const { state, humanPlayerId } = data;
     const winner = state.players.find((p) => p.id === state.winnerId) ?? null;
+    const humanPlayer = state.players.find((p) => p.id === humanPlayerId) ?? null;
     const winnerFactionId: FactionId = winner?.faction ?? 'humans';
+    const humanFactionId: FactionId = humanPlayer?.faction ?? 'humans';
     const winnerFaction = FACTION_DEFINITIONS[winnerFactionId];
     const winnerHeraldry = FACTION_HERALDRY[winnerFactionId];
     const championUnit = UNIT_DEFINITIONS[winnerFaction.uniqueUnit];
@@ -542,6 +551,7 @@ export class GameOverOverlay {
     );
 
     if (isVictory) {
+      const chronicle = VICTORY_CHRONICLE[winnerFactionId];
       this.root.innerHTML = `
         <div class="victory-curtain" style="--winner-heraldry: ${winnerHeraldry};">
           <div class="victory-sunburst" aria-hidden="true"></div>
@@ -568,6 +578,28 @@ export class GameOverOverlay {
             <h2 class="victory-headline">VICTORY!</h2>
             <p class="victory-subtitle">${esc(subtitle)}</p>
 
+            <div class="chronicle-story-card is-victory">
+              <p class="chronicle-epilogue">${esc(chronicle.epilogue)}</p>
+              <div class="chronicle-alderwick-row">
+                <span class="chronicle-alderwick-avatar">
+                  <img
+                    src="${ALDERWICK_ASSETS.magic}"
+                    alt="${ALDERWICK_FULL_TITLE}"
+                    width="52"
+                    height="52"
+                    draggable="false"
+                  />
+                </span>
+                <div class="chronicle-alderwick-copy">
+                  <span class="chronicle-alderwick-speaker">
+                    ${renderIcon('star', 'icon icon-xs icon-star')}
+                    <span>${ALDERWICK_FULL_TITLE}</span>
+                  </span>
+                  <p class="chronicle-alderwick-quote">“${esc(chronicle.alderwickQuote)}”</p>
+                </div>
+              </div>
+            </div>
+
             <button type="button" class="btn btn-cta victory-cta-btn" data-action="view-scores">
               <span>View Final Scores &rarr;</span>
             </button>
@@ -575,6 +607,7 @@ export class GameOverOverlay {
         </div>
       `;
     } else {
+      const defeatChronicle = getDefeatChronicle(humanFactionId, winner?.faction ?? null);
       this.root.innerHTML = `
         <div class="defeat-curtain" style="--winner-heraldry: ${winnerHeraldry};">
           <div class="defeat-glow" aria-hidden="true"></div>
@@ -582,7 +615,7 @@ export class GameOverOverlay {
           <div class="defeat-stage">
             <div class="gameover-badge defeat">
               ${renderIcon('skull', 'icon icon-sm')}
-              <span>Defeat</span>
+              <span>Chronicle Fallen</span>
             </div>
 
             <div class="defeat-victor-emblem">
@@ -594,9 +627,31 @@ export class GameOverOverlay {
 
             <h2 class="defeat-headline">DEFEAT</h2>
             <p class="defeat-victor-line">
-              ${winner ? `${esc(winnerFaction.name)} Claimed Eldermere` : 'The Age Concludes'}
+              ${winner ? `${esc(winnerFaction.name)} Claimed the Star-Crown` : 'The Age Concludes'}
             </p>
             <p class="victory-subtitle">${esc(subtitle)}</p>
+
+            <div class="chronicle-story-card is-defeat">
+              <p class="chronicle-epilogue">${esc(defeatChronicle.epilogue)}</p>
+              <div class="chronicle-alderwick-row">
+                <span class="chronicle-alderwick-avatar">
+                  <img
+                    src="${ALDERWICK_ASSETS.portrait}"
+                    alt="${ALDERWICK_FULL_TITLE}"
+                    width="52"
+                    height="52"
+                    draggable="false"
+                  />
+                </span>
+                <div class="chronicle-alderwick-copy">
+                  <span class="chronicle-alderwick-speaker">
+                    ${renderIcon('star', 'icon icon-xs icon-star')}
+                    <span>${ALDERWICK_FULL_TITLE}</span>
+                  </span>
+                  <p class="chronicle-alderwick-quote">“${esc(defeatChronicle.alderwickQuote)}”</p>
+                </div>
+              </div>
+            </div>
 
             <button type="button" class="btn btn-cta victory-cta-btn" data-action="view-scores">
               <span>View Final Scores &rarr;</span>
@@ -654,10 +709,10 @@ export class GameOverOverlay {
       <div class="gameover-panel gameover-scores-panel">
         <div class="gameover-badge ${isVictory ? 'victory' : 'defeat'}">
           ${renderIcon(isVictory ? 'crown' : 'skull', 'icon icon-sm')}
-          <span>${isVictory ? 'Victory' : 'Defeat'}</span>
+          <span>${isVictory ? 'Chronicle Triumphant' : 'Chronicle Sealed'}</span>
         </div>
         <h2 class="gameover-title">
-          ${winnerFaction ? `${esc(winnerFaction.name)} Prevail` : 'The Age Concludes'}
+          ${winnerFaction ? `${esc(winnerFaction.name)} Claim the Star-Crown` : 'The Age Concludes'}
         </h2>
         <p class="gameover-reason">
           ${esc(reasonText)}
@@ -680,6 +735,11 @@ export class GameOverOverlay {
             </tbody>
           </table>
         </div>
+
+        <p class="gameover-chronicle-footnote">
+          ${renderIcon('star', 'icon icon-xs icon-star')}
+          <span>Recorded in the Great Ledger by ${ALDERWICK_FULL_TITLE}</span>
+        </p>
 
         <button type="button" class="btn btn-cta btn-begin" data-action="play-again">
           <span>New Campaign</span>
@@ -733,12 +793,13 @@ export class ResignationOverlay {
   private render(data: ResignationData): void {
     const fDef = FACTION_DEFINITIONS[data.faction];
     const heraldry = FACTION_HERALDRY[data.faction];
+    const resignChronicle = RESIGN_CHRONICLE[data.faction];
 
     this.root.innerHTML = `
       <div class="modal-panel resignation-panel" style="--resign-heraldry: ${heraldry};">
         <div class="resignation-kicker">
           ${renderIcon('banner', 'icon icon-sm')}
-          <span>Campaign Resigned</span>
+          <span>Chronicle Bookmarked &middot; Resigned</span>
         </div>
 
         <div class="resignation-crest-wrap" aria-hidden="true">
@@ -747,13 +808,32 @@ export class ResignationOverlay {
           </span>
         </div>
 
-        <h2 class="resignation-headline">You Have Resigned</h2>
+        <h2 class="resignation-headline">A Chapter Set Aside</h2>
         <p class="resignation-realm-line">
           ${esc(fDef.name)} &middot; ${esc(fDef.realm)}
         </p>
         <p class="resignation-copy">
-          Your banners have been lowered and the chronicle of this campaign has closed.
+          ${esc(resignChronicle.epilogue)}
         </p>
+
+        <div class="chronicle-alderwick-card is-resign">
+          <span class="chronicle-alderwick-avatar">
+            <img
+              src="${ALDERWICK_ASSETS.portrait}"
+              alt="${ALDERWICK_FULL_TITLE}"
+              width="50"
+              height="50"
+              draggable="false"
+            />
+          </span>
+          <div class="chronicle-alderwick-copy">
+            <span class="chronicle-alderwick-speaker">
+              ${renderIcon('star', 'icon icon-xs icon-star')}
+              <span>${ALDERWICK_FULL_TITLE}</span>
+            </span>
+            <p class="chronicle-alderwick-quote">“${esc(resignChronicle.alderwickQuote)}”</p>
+          </div>
+        </div>
 
         <div class="resignation-stats-grid" role="list" aria-label="Campaign Summary">
           <div class="resignation-stat-card" role="listitem">

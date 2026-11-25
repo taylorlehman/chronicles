@@ -17,4 +17,9 @@
     <string name="exit_dialog_message">Step away from the realm for now?</string>
     <string name="exit_dialog_stay">Stay</string>
     <string name="exit_dialog_leave">Leave</string>
+
+    <string name="sizzle_skip">Skip</string>
+    <string name="sizzle_skip_cd">Skip intro video</string>
+    <string name="sizzle_mute_cd">Mute intro video</string>
+    <string name="sizzle_unmute_cd">Unmute intro video</string>
 </resources>
