@@ -1,64 +1,68 @@
 import { renderIcon, type IconName } from './icons';
 import { markTutorialCompleted } from './persistence';
 
-export type TutorialStepId = 'move' | 'upgrade' | 'codex' | 'capture' | 'combat' | 'end_turn';
+export type TutorialStepId = 'upgrade' | 'move' | 'combat' | 'capture' | 'codex';
+export type TutorialStage = 'intro' | TutorialStepId | 'complete';
 
 export interface TutorialStep {
   id: TutorialStepId;
   icon: IconName;
   title: string;
   body: string;
-  ctaLabel: string;
 }
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
-    id: 'move',
-    icon: 'compass',
-    title: 'Move Your Units',
-    body: 'Tap your unit, then tap any glowing blue ring to explore the realm and lift the clouds.',
-    ctaLabel: 'Next',
-  },
-  {
     id: 'upgrade',
     icon: 'wheat',
-    title: 'Upgrade Your Cities',
-    body: 'Tap a resource tile inside your borders (Berries, Game, or Ore) to harvest it. Filling your city bar levels it up for bonus Stars and rewards.',
-    ctaLabel: 'Next',
+    title: 'Upgrade Your City',
+    body: 'Tap the two resource tiles inside your borders and harvest both to level up your capital, then pick a City Reward!',
   },
   {
-    id: 'codex',
-    icon: 'codex',
-    title: 'Technology & Codex',
-    body: 'Tap Codex in the bottom-left to unlock new buildings, terrain skills, and elite units.',
-    ctaLabel: 'Next',
-  },
-  {
-    id: 'capture',
-    icon: 'crown',
-    title: 'Capture Villages & Cities',
-    body: 'Move a unit onto a neutral Village or enemy City. At the start of your next turn, tap the glowing Capture button to claim it.',
-    ctaLabel: 'Next',
+    id: 'move',
+    icon: 'compass',
+    title: 'Move Your Unit',
+    body: 'Tap your unit at your capital, then tap the glowing blue ring to the east to march toward the rival outpost.',
   },
   {
     id: 'combat',
     icon: 'swords',
-    title: 'Battle Rival Realms',
-    body: 'Move in range of an enemy unit and tap the red target ring to attack. Preview damage first — Terrain Defense and Archers can turn the tide.',
-    ctaLabel: 'Next',
+    title: 'Fight the Rival',
+    body: 'Tap the red target ring on the rival warrior guarding the Village to defeat them in battle!',
   },
   {
-    id: 'end_turn',
-    icon: 'trophy',
-    title: 'End Turn & Win',
-    body: 'Tap End Turn in the bottom-right when your units have acted. Capture all rival capitals to claim the Crown of Eldermere!',
-    ctaLabel: 'Finish',
+    id: 'capture',
+    icon: 'crown',
+    title: 'Capture the Village',
+    body: 'Now that you hold the settlement, tap the glowing Capture button to claim it as your second city!',
+  },
+  {
+    id: 'codex',
+    icon: 'codex',
+    title: 'Unlock Technology',
+    body: 'Tap the Codex medallion in the bottom-left and research a new technology to strengthen your realm.',
   },
 ];
 
+const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
+  upgrade: 0,
+  move: 1,
+  combat: 2,
+  capture: 3,
+  codex: 4,
+};
+
+export function isTutorialStepStage(stage: TutorialStage | null): stage is TutorialStepId {
+  return stage !== null && stage !== 'intro' && stage !== 'complete';
+}
+
 export interface TutorialCallbacks {
-  onStepChange?: (stepIndex: number | null) => void;
-  onComplete?: () => void;
+  onStageChange?: (stage: TutorialStage | null) => void;
+  onStartTutorial?: () => void;
+  onCompleteDismiss?: () => void;
+  onEndTutorial?: () => void;
+  onModalOpen?: () => void;
+  onModalClose?: () => void;
 }
 
 function esc(value: string): string {
@@ -70,126 +74,303 @@ function esc(value: string): string {
 }
 
 export class TutorialController {
-  private readonly root: HTMLElement;
+  private readonly bannerEl: HTMLElement;
+  private readonly modalEl: HTMLElement;
   private readonly callbacks: TutorialCallbacks;
-  private active = false;
-  private stepIndex = 0;
+  private stage: TutorialStage | null = null;
+  private subProgress: string | null = null;
+  private nudgeMessage: string | null = null;
+  private nudgeTimer: number | null = null;
 
   constructor(container: HTMLElement, callbacks: TutorialCallbacks = {}) {
     this.callbacks = callbacks;
-    this.root = document.createElement('aside');
-    this.root.className = 'tutorial-banner hidden';
-    this.root.setAttribute('role', 'region');
-    this.root.setAttribute('aria-label', 'Game Tutorial');
-    container.appendChild(this.root);
+
+    this.bannerEl = document.createElement('aside');
+    this.bannerEl.className = 'tutorial-banner hidden';
+    this.bannerEl.setAttribute('role', 'region');
+    this.bannerEl.setAttribute('aria-label', 'Guided Tutorial');
+    container.appendChild(this.bannerEl);
+
+    this.modalEl = document.createElement('div');
+    this.modalEl.className = 'modal-backdrop tutorial-modal hidden';
+    this.modalEl.setAttribute('role', 'dialog');
+    this.modalEl.setAttribute('aria-modal', 'true');
+    this.modalEl.setAttribute('aria-label', 'Tutorial');
+    container.appendChild(this.modalEl);
   }
 
+  /** True while the tutorial is in progress (intro or any of the 6 scripted steps). */
   public isActive(): boolean {
-    return this.active;
+    return this.stage !== null && this.stage !== 'complete';
+  }
+
+  /** True when either the Tutorial Intro or Tutorial Complete modal is open. */
+  public isModalOpen(): boolean {
+    return this.stage === 'intro' || this.stage === 'complete';
+  }
+
+  /** True when End Turn should be blocked so the player completes the current scripted step first. */
+  public isBlockingEndTurn(): boolean {
+    return isTutorialStepStage(this.stage);
+  }
+
+  public getStage(): TutorialStage | null {
+    return this.stage;
   }
 
   public getStepIndex(): number | null {
-    return this.active ? this.stepIndex : null;
+    if (!isTutorialStepStage(this.stage)) return null;
+    return STEP_INDEX_BY_ID[this.stage];
   }
 
-  public start(initialStep = 0): void {
-    const clamped = Math.max(0, Math.min(TUTORIAL_STEPS.length - 1, initialStep));
-    this.active = true;
-    this.stepIndex = clamped;
-    this.render();
-    this.root.classList.remove('hidden');
-    this.callbacks.onStepChange?.(this.stepIndex);
+  public start(initialStage: TutorialStage = 'intro', subProgress: string | null = null): void {
+    this.setStage(initialStage, subProgress);
   }
 
-  public hide(): void {
-    this.active = false;
-    this.root.classList.add('hidden');
-    this.root.innerHTML = '';
+  public setStage(nextStage: TutorialStage | null, subProgress: string | null = null): void {
+    const wasModalOpen = this.isModalOpen();
+    this.clearNudgeTimer();
+    this.nudgeMessage = null;
+    this.stage = nextStage;
+    this.subProgress = subProgress;
+
+    if (nextStage === null) {
+      this.hideElements();
+      if (wasModalOpen) {
+        this.callbacks.onModalClose?.();
+      }
+      this.callbacks.onStageChange?.(null);
+      return;
+    }
+
+    if (nextStage === 'intro') {
+      this.bannerEl.classList.add('hidden');
+      this.bannerEl.innerHTML = '';
+      this.renderIntroModal();
+      this.modalEl.classList.remove('hidden');
+      if (!wasModalOpen) {
+        this.callbacks.onModalOpen?.();
+      }
+      this.callbacks.onStageChange?.('intro');
+      return;
+    }
+
+    if (nextStage === 'complete') {
+      this.bannerEl.classList.add('hidden');
+      this.bannerEl.innerHTML = '';
+      this.renderCompleteModal();
+      this.modalEl.classList.remove('hidden');
+      if (!wasModalOpen) {
+        this.callbacks.onModalOpen?.();
+      }
+      this.callbacks.onStageChange?.('complete');
+      return;
+    }
+
+    // Active scripted step (1/6 .. 6/6)
+    this.modalEl.classList.add('hidden');
+    this.modalEl.innerHTML = '';
+    this.renderBanner(nextStage);
+    this.bannerEl.classList.remove('hidden');
+    if (wasModalOpen) {
+      this.callbacks.onModalClose?.();
+    }
+    this.callbacks.onStageChange?.(nextStage);
+  }
+
+  public setSubProgress(subProgress: string | null): void {
+    if (this.subProgress === subProgress) return;
+    this.subProgress = subProgress;
+    if (isTutorialStepStage(this.stage)) {
+      this.renderBanner(this.stage);
+    }
+  }
+
+  public nudge(message: string): void {
+    if (!isTutorialStepStage(this.stage)) return;
+    this.clearNudgeTimer();
+    this.nudgeMessage = message;
+    this.renderBanner(this.stage, true);
+    this.nudgeTimer = window.setTimeout(() => {
+      this.nudgeTimer = null;
+      this.nudgeMessage = null;
+      if (isTutorialStepStage(this.stage)) {
+        this.renderBanner(this.stage, false);
+      }
+    }, 3200);
+  }
+
+  public completeAndCelebrate(): void {
+    markTutorialCompleted();
+    this.setStage('complete');
   }
 
   public endTutorial(persistCompletion = true): void {
     if (persistCompletion) {
       markTutorialCompleted();
     }
-    const wasActive = this.active;
-    this.hide();
+    const wasActive = this.stage !== null;
+    const wasModalOpen = this.isModalOpen();
+    this.clearNudgeTimer();
+    this.nudgeMessage = null;
+    this.subProgress = null;
+    this.stage = null;
+    this.hideElements();
+    if (wasModalOpen) {
+      this.callbacks.onModalClose?.();
+    }
     if (wasActive) {
-      this.callbacks.onStepChange?.(null);
-      this.callbacks.onComplete?.();
+      this.callbacks.onStageChange?.(null);
+      this.callbacks.onEndTutorial?.();
     }
   }
 
-  /**
-   * Auto-advances the tutorial if the player performs the action taught on the current step.
-   */
-  public notifyAction(stepId: TutorialStepId): void {
-    if (!this.active) return;
-    const current = TUTORIAL_STEPS[this.stepIndex];
-    if (current && current.id === stepId) {
-      this.advance();
+  public dismissModal(): void {
+    if (this.stage === 'intro') {
+      this.setStage('upgrade');
+      this.callbacks.onStartTutorial?.();
+    } else if (this.stage === 'complete') {
+      this.setStage(null);
+      this.callbacks.onCompleteDismiss?.();
     }
   }
 
-  public advance(): void {
-    if (!this.active) return;
-    if (this.stepIndex + 1 >= TUTORIAL_STEPS.length) {
-      this.endTutorial(true);
-      return;
+  public hide(): void {
+    const wasModalOpen = this.isModalOpen();
+    this.clearNudgeTimer();
+    this.nudgeMessage = null;
+    this.subProgress = null;
+    this.stage = null;
+    this.hideElements();
+    if (wasModalOpen) {
+      this.callbacks.onModalClose?.();
     }
-    this.stepIndex += 1;
-    this.render();
-    this.callbacks.onStepChange?.(this.stepIndex);
-  }
-
-  public previous(): void {
-    if (!this.active || this.stepIndex <= 0) return;
-    this.stepIndex -= 1;
-    this.render();
-    this.callbacks.onStepChange?.(this.stepIndex);
   }
 
   public destroy(): void {
-    this.root.remove();
+    this.clearNudgeTimer();
+    this.bannerEl.remove();
+    this.modalEl.remove();
   }
 
-  private render(): void {
-    const step = TUTORIAL_STEPS[this.stepIndex];
+  private hideElements(): void {
+    this.bannerEl.classList.add('hidden');
+    this.bannerEl.innerHTML = '';
+    this.modalEl.classList.add('hidden');
+    this.modalEl.innerHTML = '';
+  }
+
+  private clearNudgeTimer(): void {
+    if (this.nudgeTimer !== null) {
+      window.clearTimeout(this.nudgeTimer);
+      this.nudgeTimer = null;
+    }
+  }
+
+  private renderBanner(stepId: TutorialStepId, pulse = false): void {
+    const idx = STEP_INDEX_BY_ID[stepId];
+    const step = TUTORIAL_STEPS[idx];
     if (!step) return;
 
     const total = TUTORIAL_STEPS.length;
-    const isFirst = this.stepIndex === 0;
-    const isLast = this.stepIndex === total - 1;
+    const progressHtml = this.subProgress
+      ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
+      : '';
+    const nudgeHtml = this.nudgeMessage
+      ? `<div class="tutorial-nudge" role="status">${esc(this.nudgeMessage)}</div>`
+      : '';
 
-    this.root.innerHTML = `
-      <div class="tutorial-card">
+    this.bannerEl.innerHTML = `
+      <div class="tutorial-card ${pulse ? 'is-nudged' : ''}" data-tutorial-step="${step.id}">
         <div class="tutorial-card-head">
           <div class="tutorial-title-group">
             <span class="tutorial-icon-badge" aria-hidden="true">${renderIcon(step.icon, 'icon icon-sm')}</span>
             <strong class="tutorial-title">${esc(step.title)}</strong>
           </div>
-          <span class="tutorial-step-pill">${this.stepIndex + 1} / ${total}</span>
+          <span class="tutorial-step-pill">${idx + 1} / ${total}</span>
         </div>
         <p class="tutorial-body">${esc(step.body)}</p>
-        <div class="tutorial-actions">
-          ${
-            !isFirst
-              ? `<button type="button" class="btn tutorial-btn-back" data-tutorial-action="prev">Back</button>`
-              : `<span class="tutorial-hint-note">End anytime in Scores</span>`
-          }
-          <button type="button" class="btn btn-cta tutorial-btn-next" data-tutorial-action="next">
-            <span>${esc(step.ctaLabel)}</span>
-            ${!isLast ? renderIcon('chevronRight', 'icon icon-xs') : ''}
-          </button>
+        ${nudgeHtml}
+        <div class="tutorial-footer-row">
+          ${progressHtml}
+          <span class="tutorial-hint-note">End anytime in Scores</span>
         </div>
       </div>
     `;
+  }
 
-    this.root
-      .querySelector<HTMLButtonElement>('[data-tutorial-action="prev"]')
-      ?.addEventListener('click', () => this.previous());
+  private renderIntroModal(): void {
+    this.modalEl.setAttribute('aria-label', 'Guided Tutorial Introduction');
+    this.modalEl.innerHTML = `
+      <div class="modal-panel tutorial-modal-panel tutorial-intro-panel">
+        <div class="tutorial-modal-kicker">
+          ${renderIcon('compass', 'icon icon-sm')}
+          <span>First Campaign Guide</span>
+        </div>
+        <h2 class="tutorial-modal-headline">Welcome to Eldermere</h2>
+        <p class="tutorial-modal-copy">
+          This short guided tutorial will walk you step-by-step through the essentials of commanding your realm:
+        </p>
+        <ul class="tutorial-intro-list">
+          <li>
+            <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('wheat', 'icon icon-xs')}</span>
+            <span>Harvesting resources &amp; upgrading your city</span>
+          </li>
+          <li>
+            <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('compass', 'icon icon-xs')}</span>
+            <span>Moving your units across the realm</span>
+          </li>
+          <li>
+            <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('swords', 'icon icon-xs')}</span>
+            <span>Fighting rival warriors &amp; capturing villages</span>
+          </li>
+          <li>
+            <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('codex', 'icon icon-xs')}</span>
+            <span>Researching technology in the Codex</span>
+          </li>
+        </ul>
+        <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="start">
+          <span>Start Tutorial</span>
+          ${renderIcon('chevronRight', 'icon icon-sm')}
+        </button>
+        <p class="tutorial-modal-footnote">You can end the tutorial anytime from the Scores menu.</p>
+      </div>
+    `;
 
-    this.root
-      .querySelector<HTMLButtonElement>('[data-tutorial-action="next"]')
-      ?.addEventListener('click', () => this.advance());
+    this.modalEl
+      .querySelector<HTMLButtonElement>('[data-tutorial-modal-action="start"]')
+      ?.addEventListener('click', () => {
+        this.dismissModal();
+      });
+  }
+
+  private renderCompleteModal(): void {
+    this.modalEl.setAttribute('aria-label', 'Tutorial Complete');
+    this.modalEl.innerHTML = `
+      <div class="modal-panel tutorial-modal-panel tutorial-complete-panel">
+        <div class="tutorial-modal-kicker is-gold">
+          ${renderIcon('trophy', 'icon icon-sm')}
+          <span>All 5 Steps Mastered</span>
+        </div>
+        <div class="tutorial-complete-crest" aria-hidden="true">
+          ${renderIcon('crown', 'icon icon-xl')}
+        </div>
+        <h2 class="tutorial-modal-headline">Tutorial Complete!</h2>
+        <p class="tutorial-modal-copy">
+          You have mastered upgrading cities, moving, combat, capturing settlements, and the Codex.
+          The tutorial is now over — keep playing the rest of this campaign to expand your realm and conquer Eldermere!
+        </p>
+        <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="continue">
+          <span>Continue Playing</span>
+          ${renderIcon('chevronRight', 'icon icon-sm')}
+        </button>
+      </div>
+    `;
+
+    this.modalEl
+      .querySelector<HTMLButtonElement>('[data-tutorial-modal-action="continue"]')
+      ?.addEventListener('click', () => {
+        this.dismissModal();
+      });
   }
 }

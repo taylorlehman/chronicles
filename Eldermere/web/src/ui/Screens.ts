@@ -34,6 +34,17 @@ export interface GameOverCallbacks {
   onPlayAgain: () => void;
 }
 
+export interface ResignationData {
+  faction: FactionId;
+  turn: number;
+  citiesCount: number;
+  score: number;
+}
+
+export interface ResignationCallbacks {
+  onReturnToTitle: () => void;
+}
+
 interface FactionPerk {
   icon: IconName;
   text: string;
@@ -679,5 +690,96 @@ export class GameOverOverlay {
     playAgainBtn?.addEventListener('click', () => {
       this.callbacks.onPlayAgain();
     });
+  }
+}
+
+export class ResignationOverlay {
+  private readonly root: HTMLElement;
+  private readonly callbacks: ResignationCallbacks;
+  private openState = false;
+
+  constructor(container: HTMLElement, callbacks: ResignationCallbacks) {
+    this.callbacks = callbacks;
+    this.root = document.createElement('div');
+    this.root.className = 'modal-backdrop resignation-screen hidden';
+    this.root.setAttribute('role', 'dialog');
+    this.root.setAttribute('aria-modal', 'true');
+    this.root.setAttribute('aria-label', 'Campaign Resigned');
+    container.appendChild(this.root);
+  }
+
+  public isOpen(): boolean {
+    return this.openState;
+  }
+
+  public show(data: ResignationData): void {
+    this.openState = true;
+    this.render(data);
+    this.root.classList.remove('hidden');
+  }
+
+  public hide(): void {
+    this.openState = false;
+    this.root.classList.add('hidden');
+    this.root.innerHTML = '';
+  }
+
+  public destroy(): void {
+    this.root.remove();
+  }
+
+  private render(data: ResignationData): void {
+    const fDef = FACTION_DEFINITIONS[data.faction];
+    const heraldry = FACTION_HERALDRY[data.faction];
+
+    this.root.innerHTML = `
+      <div class="modal-panel resignation-panel" style="--resign-heraldry: ${heraldry};">
+        <div class="resignation-kicker">
+          ${renderIcon('banner', 'icon icon-sm')}
+          <span>Campaign Resigned</span>
+        </div>
+
+        <div class="resignation-crest-wrap" aria-hidden="true">
+          <span class="resignation-crest-medallion" style="background: ${heraldry};">
+            ${renderFactionCrest(data.faction, 'icon resignation-crest-svg')}
+          </span>
+        </div>
+
+        <h2 class="resignation-headline">You Have Resigned</h2>
+        <p class="resignation-realm-line">
+          ${esc(fDef.name)} &middot; ${esc(fDef.realm)}
+        </p>
+        <p class="resignation-copy">
+          Your banners have been lowered and the chronicle of this campaign has closed.
+        </p>
+
+        <div class="resignation-stats-grid" role="list" aria-label="Campaign Summary">
+          <div class="resignation-stat-card" role="listitem">
+            <span class="resignation-stat-label">Turn Reached</span>
+            <strong class="resignation-stat-val">${data.turn}</strong>
+          </div>
+          <div class="resignation-stat-card" role="listitem">
+            <span class="resignation-stat-label">Cities</span>
+            <strong class="resignation-stat-val">${data.citiesCount}</strong>
+          </div>
+          <div class="resignation-stat-card" role="listitem">
+            <span class="resignation-stat-label">Glory Score</span>
+            <strong class="resignation-stat-val">${data.score.toLocaleString()}</strong>
+          </div>
+        </div>
+
+        <button type="button" class="btn btn-cta resignation-cta-btn" data-action="return-title">
+          <span>Return to Title</span>
+          ${renderIcon('chevronRight', 'icon icon-sm')}
+        </button>
+      </div>
+    `;
+
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="return-title"]')
+      ?.addEventListener('click', () => {
+        this.hide();
+        this.callbacks.onReturnToTitle();
+      });
   }
 }

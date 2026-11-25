@@ -7,6 +7,7 @@ import {
   canUnitCapture,
   canUnitExploreRuins,
   createGame,
+  createTutorialGame,
   getActivePlayer,
   getCityTrainOptions,
   getCityUnitCap,
@@ -39,6 +40,7 @@ import {
   type TechId,
   type TerrainType,
   type Tile,
+  type TutorialScenarioCoords,
   type Unit,
 } from '../game';
 import {
@@ -63,10 +65,15 @@ import { CityRewardModal } from './CityRewardModal';
 import { DefeatNoticeModal } from './DefeatNoticeModal';
 import { FactionDossierModal, type FactionDossierModalViewModel } from './FactionDossierModal';
 import { LeaderboardModal, type LeaderboardModalViewModel } from './LeaderboardModal';
-import { GameOverOverlay, TitleScreen, type StartGameOptions } from './Screens';
+import {
+  GameOverOverlay,
+  ResignationOverlay,
+  TitleScreen,
+  type StartGameOptions,
+} from './Screens';
 import { TechModal, type TechModalViewModel } from './TechModal';
 import { TopBar } from './TopBar';
-import { TutorialController } from './TutorialController';
+import { TutorialController, type TutorialStage } from './TutorialController';
 import { notifyAndroidGameReady, triggerAndroidHaptic } from './androidBridge';
 import { renderIcon } from './icons';
 import {
@@ -97,6 +104,7 @@ export class AppController {
 
   private readonly titleScreen: TitleScreen;
   private readonly gameOverOverlay: GameOverOverlay;
+  private readonly resignationOverlay: ResignationOverlay;
   private readonly topBar: TopBar;
   private readonly actionBar: ActionBar;
   private readonly techModal: TechModal;
@@ -143,6 +151,7 @@ export class AppController {
   private titleSettleTimer: number | null = null;
   private isTitleDioramaActive = false;
   private titleShowcaseState: GameState | null = null;
+  private tutorialScenario: TutorialScenarioCoords | null = null;
 
   constructor(
     canvasContainer: HTMLElement,
@@ -180,6 +189,10 @@ export class AppController {
 
     this.gameOverOverlay = new GameOverOverlay(this.hudRoot, {
       onPlayAgain: () => this.returnToTitle(),
+    });
+
+    this.resignationOverlay = new ResignationOverlay(this.hudRoot, {
+      onReturnToTitle: () => this.returnToTitle(),
     });
 
     this.topBar = new TopBar(this.hudRoot, {
@@ -233,23 +246,45 @@ export class AppController {
       },
       onEndTutorial: () => {
         triggerAndroidHaptic('tap');
+        this.tutorialScenario = null;
         this.tutorial.endTutorial(true);
         this.persistActiveCampaign();
         const vm = this.buildLeaderboardViewModel();
         if (vm) this.leaderboardModal.update(vm);
       },
-      onResign: () => this.returnToTitle(),
+      onResign: () => this.handleResignCampaign(),
       onClose: () => {
         this.resumeSceneAfterOpaqueSheet();
       },
     });
 
     this.tutorial = new TutorialController(this.hudRoot, {
-      onStepChange: () => {
+      onStageChange: () => {
         this.persistActiveCampaign();
       },
-      onComplete: () => {
+      onStartTutorial: () => {
+        triggerAndroidHaptic('tap');
+        this.focusTutorialCameraForStage('upgrade');
+        this.syncTutorialProgress();
+        this.resumeSceneAfterOpaqueSheet();
+      },
+      onCompleteDismiss: () => {
+        triggerAndroidHaptic('tap');
+        this.tutorialScenario = null;
         this.persistActiveCampaign();
+        this.resumeSceneAfterOpaqueSheet();
+        this.refreshHUD();
+      },
+      onEndTutorial: () => {
+        this.tutorialScenario = null;
+        this.persistActiveCampaign();
+        this.refreshHUD();
+      },
+      onModalOpen: () => {
+        this.pauseSceneBehindOpaqueSheet();
+      },
+      onModalClose: () => {
+        this.resumeSceneAfterOpaqueSheet();
       },
     });
 
@@ -278,6 +313,17 @@ export class AppController {
   }
 
   private handleAndroidBack(): boolean {
+    if (this.resignationOverlay.isOpen()) {
+      this.resignationOverlay.hide();
+      this.returnToTitle();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
+    if (this.tutorial.isModalOpen()) {
+      this.tutorial.dismissModal();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
     if (this.defeatNoticeModal.isOpen()) {
       this.defeatNoticeModal.close();
       triggerAndroidHaptic('tap');
@@ -300,6 +346,7 @@ export class AppController {
     }
     if (this.cityRewardModal.isOpen()) {
       this.cityRewardModal.close();
+      this.resumeSceneAfterOpaqueSheet();
       triggerAndroidHaptic('tap');
       return true;
     }
@@ -315,6 +362,8 @@ export class AppController {
     if (!window.EldermereAndroid) return false;
     return (
       this.isTitleDioramaActive ||
+      this.tutorial.isModalOpen() ||
+      this.resignationOverlay.isOpen() ||
       this.techModal.isOpen() ||
       this.leaderboardModal.isOpen() ||
       this.factionDossierModal.isOpen() ||
@@ -343,7 +392,13 @@ export class AppController {
       clearSavedCampaign();
       return;
     }
-    saveCampaign(this.state, this.humanPlayerId, this.tutorial.getStepIndex());
+    const stageToSave = this.tutorial.getStage();
+    saveCampaign(
+      this.state,
+      this.humanPlayerId,
+      stageToSave === 'complete' ? null : stageToSave,
+      stageToSave === 'complete' || stageToSave === null ? null : this.tutorialScenario,
+    );
   }
 
   private applyFactionTheme(faction: FactionId): void {
@@ -391,6 +446,8 @@ export class AppController {
     if (tileWasClicked || wasMultiTouch || this.isBusy || this.isAITurnRunning) return;
     if (!this.state || this.state.phase !== 'playing') return;
     if (
+      this.tutorial.isModalOpen() ||
+      this.resignationOverlay.isOpen() ||
       this.techModal.isOpen() ||
       this.cityRewardModal.isOpen() ||
       this.defeatNoticeModal.isOpen() ||
@@ -493,6 +550,18 @@ export class AppController {
 
   public startGame(options: StartGameOptions): void {
     triggerAndroidHaptic('select');
+    if (!isTutorialCompleted()) {
+      const { state, scenario } = createTutorialGame({
+        humanFaction: options.humanFaction,
+        difficulty: options.difficulty,
+        mapSize: options.mapSize,
+        maxTurns: 0,
+      });
+      const humanPlayer = state.players.find((p) => p.isHuman) ?? state.players[0];
+      this.mountActiveGame(state, humanPlayer.id, 'intro', scenario);
+      return;
+    }
+
     const seed = (Date.now() ^ Math.floor(Math.random() * 0x7fffffff)) >>> 0;
     const state = createGame({
       humanFaction: options.humanFaction,
@@ -502,8 +571,7 @@ export class AppController {
       seed,
     });
     const humanPlayer = state.players.find((p) => p.isHuman) ?? state.players[0];
-    const startTutorialStep = isTutorialCompleted() ? null : 0;
-    this.mountActiveGame(state, humanPlayer.id, startTutorialStep);
+    this.mountActiveGame(state, humanPlayer.id, null, null);
   }
 
   public resumeSavedCampaign(): void {
@@ -513,15 +581,21 @@ export class AppController {
       return;
     }
     triggerAndroidHaptic('select');
-    const tutorialStep =
-      !isTutorialCompleted() && saved.tutorialStep !== null ? saved.tutorialStep : null;
-    this.mountActiveGame(saved.state, saved.humanPlayerId, tutorialStep);
+    const tutorialStage: TutorialStage | null =
+      !isTutorialCompleted() &&
+      saved.tutorialStage !== null &&
+      saved.tutorialStage !== 'complete'
+        ? saved.tutorialStage
+        : null;
+    const tutorialScenario = tutorialStage !== null ? saved.tutorialScenario : null;
+    this.mountActiveGame(saved.state, saved.humanPlayerId, tutorialStage, tutorialScenario);
   }
 
   private mountActiveGame(
     state: GameState,
     humanPlayerId: PlayerId,
-    tutorialStep: number | null,
+    tutorialStage: TutorialStage | null,
+    tutorialScenario: TutorialScenarioCoords | null,
   ): void {
     this.disposeSession();
     this.sessionToken += 1;
@@ -530,6 +604,7 @@ export class AppController {
     const humanPlayer = getPlayer(state, humanPlayerId) ?? state.players[0];
     this.humanPlayerId = humanPlayer.id;
     this.readyUnitCycleIndex = 0;
+    this.tutorialScenario = tutorialScenario;
 
     this.applyFactionTheme(humanPlayer.faction);
 
@@ -558,7 +633,12 @@ export class AppController {
         void this.handleEndTurn();
       },
       onDeselectHotkey: () => {
-        if (this.defeatNoticeModal.isOpen()) {
+        if (this.resignationOverlay.isOpen()) {
+          this.resignationOverlay.hide();
+          this.returnToTitle();
+        } else if (this.tutorial.isModalOpen()) {
+          this.tutorial.dismissModal();
+        } else if (this.defeatNoticeModal.isOpen()) {
           this.defeatNoticeModal.close();
         } else if (this.techModal.isOpen()) {
           this.techModal.close();
@@ -597,14 +677,19 @@ export class AppController {
       animQueue.update(dt);
       badges.update(sceneManager.camera, dt);
     });
+    sceneManager.renderOnce();
     sceneManager.start();
 
     this.titleScreen.hide();
     this.gameOverOverlay.hide();
+    this.resignationOverlay.hide();
     this.topBar.show();
     this.actionBar.show();
-    if (tutorialStep !== null) {
-      this.tutorial.start(tutorialStep);
+    if (tutorialStage !== null) {
+      this.tutorial.start(tutorialStage, this.computeTutorialSubProgress(tutorialStage));
+      if (tutorialStage !== 'intro') {
+        this.focusTutorialCameraForStage(tutorialStage);
+      }
     } else {
       this.tutorial.hide();
     }
@@ -612,9 +697,45 @@ export class AppController {
     this.persistActiveCampaign();
   }
 
+  private handleResignCampaign(): void {
+    if (!this.state || !this.humanPlayerId) {
+      this.returnToTitle();
+      return;
+    }
+    const human = getPlayer(this.state, this.humanPlayerId);
+    const faction: FactionId = human?.faction ?? this.titleScreen.getSelectedFaction();
+    const turn = this.state.turn;
+    const citiesCount = getPlayerCities(this.state, this.humanPlayerId).length;
+    const score = human?.score ?? 0;
+
+    clearSavedCampaign();
+    this.tutorialScenario = null;
+    this.tutorial.hide();
+    this.topBar.hide();
+    this.actionBar.hide();
+    this.techModal.close();
+    this.cityRewardModal.close();
+    this.defeatNoticeModal.close();
+    this.factionDossierModal.close();
+    this.leaderboardModal.close();
+    this.hideRewardToast();
+    this.clearSelection();
+    this.input?.setInputLocked(true);
+
+    this.pauseSceneBehindOpaqueSheet();
+    this.resignationOverlay.show({
+      faction,
+      turn,
+      citiesCount,
+      score,
+    });
+  }
+
   public returnToTitle(): void {
     clearSavedCampaign();
+    this.tutorialScenario = null;
     this.tutorial.hide();
+    this.resignationOverlay.hide();
     this.topBar.hide();
     this.actionBar.hide();
     this.techModal.close();
@@ -646,6 +767,7 @@ export class AppController {
     this.tutorial.destroy();
     this.titleScreen.destroy();
     this.gameOverOverlay.destroy();
+    this.resignationOverlay.destroy();
     this.topBar.destroy();
     this.actionBar.destroy();
     this.techModal.destroy();
@@ -762,6 +884,8 @@ export class AppController {
     if (!this.state || this.isBusy || this.isAITurnRunning) return;
     if (this.state.phase !== 'playing') return;
     if (
+      this.tutorial.isModalOpen() ||
+      this.resignationOverlay.isOpen() ||
       this.techModal.isOpen() ||
       this.cityRewardModal.isOpen() ||
       this.defeatNoticeModal.isOpen() ||
@@ -886,6 +1010,24 @@ export class AppController {
       this.validMoves = getValidMoves(this.state, unitOnTile.id);
       this.validAttacks = getValidAttackTargets(this.state, unitOnTile.id);
 
+      // Strict tutorial gating: only show move/attack rings that advance the current tutorial step
+      if (this.tutorial.isActive()) {
+        this.validMoves = this.validMoves.filter((m) =>
+          this.isActionAllowedByTutorial({ type: 'MOVE_UNIT', unitId: unitOnTile.id, to: m }),
+        );
+        this.validAttacks = this.validAttacks.filter((a) => {
+          const targetUnit = this.getUnitAtCoord(a);
+          return Boolean(
+            targetUnit &&
+              this.isActionAllowedByTutorial({
+                type: 'ATTACK_UNIT',
+                attackerId: unitOnTile.id,
+                defenderId: targetUnit.id,
+              }),
+          );
+        });
+      }
+
       for (const targetCoord of this.validAttacks) {
         const targetUnit = this.getUnitAtCoord(targetCoord);
         let lethal = false;
@@ -947,6 +1089,12 @@ export class AppController {
     if (!this.state || this.isBusy || this.isAITurnRunning) return;
     if (!this.isHumanTurn()) return;
 
+    if (!this.isActionAllowedByTutorial(action)) {
+      triggerAndroidHaptic('tap');
+      this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+      return;
+    }
+
     const token = this.sessionToken;
     this.isBusy = true;
     this.input?.setInputLocked(true);
@@ -995,21 +1143,7 @@ export class AppController {
       }
 
       this.refreshHUD();
-      if (action.type === 'MOVE_UNIT') {
-        this.tutorial.notifyAction('move');
-      } else if (
-        action.type === 'HARVEST_TILE' ||
-        action.type === 'BUILD_IMPROVEMENT' ||
-        action.type === 'CHOOSE_CITY_REWARD'
-      ) {
-        this.tutorial.notifyAction('upgrade');
-      } else if (action.type === 'RESEARCH_TECH') {
-        this.tutorial.notifyAction('codex');
-      } else if (action.type === 'CAPTURE_CITY') {
-        this.tutorial.notifyAction('capture');
-      } else if (action.type === 'ATTACK_UNIT') {
-        this.tutorial.notifyAction('combat');
-      }
+      this.advanceTutorialAfterAction(action, nextState);
       await this.showEliminationNotices(events, nextState, token);
       if (token !== this.sessionToken) return;
       this.checkPostActionState();
@@ -1024,6 +1158,7 @@ export class AppController {
   }
 
   private async handleCityRewardChoice(cityId: string, reward: CityRewardChoice): Promise<void> {
+    this.resumeSceneAfterOpaqueSheet();
     await this.handleHumanAction({
       type: 'CHOOSE_CITY_REWARD',
       cityId,
@@ -1031,16 +1166,221 @@ export class AppController {
     });
   }
 
+  private focusTutorialCameraForStage(stage: TutorialStage): void {
+    if (!this.state || !this.sceneManager) return;
+    const scenario = this.tutorialScenario;
+    if (!scenario) return;
+
+    let target: Coord | null = null;
+    if (stage === 'upgrade') {
+      target = scenario.capitalCoord;
+    } else if (stage === 'move') {
+      target = {
+        x: (scenario.capitalCoord.x + scenario.moveTargetCoord.x) * 0.5,
+        y: (scenario.capitalCoord.y + scenario.moveTargetCoord.y) * 0.5,
+      };
+    } else if (stage === 'combat' || stage === 'capture') {
+      target = scenario.villageCoord;
+    }
+
+    if (target) {
+      this.sceneManager.focusOnWorld(tileToWorld(target.x, target.y, this.state.mapSize, 0), false);
+    }
+  }
+
+  private isActionAllowedByTutorial(action: GameAction): boolean {
+    if (!this.tutorial.isActive()) return true;
+    const stage = this.tutorial.getStage();
+    const scenario = this.tutorialScenario;
+    if (!stage || stage === 'intro') return false;
+
+    if (stage === 'upgrade') {
+      if (action.type === 'CHOOSE_CITY_REWARD') return true;
+      if (action.type === 'HARVEST_TILE') {
+        if (!scenario) return true;
+        return scenario.resourceCoords.some(
+          (rc) => rc.x === action.coord.x && rc.y === action.coord.y,
+        );
+      }
+      return false;
+    }
+
+    if (stage === 'move') {
+      if (action.type !== 'MOVE_UNIT') return false;
+      if (!scenario) return true;
+      return (
+        action.unitId === scenario.starterUnitId &&
+        action.to.x === scenario.moveTargetCoord.x &&
+        action.to.y === scenario.moveTargetCoord.y
+      );
+    }
+
+    if (stage === 'combat') {
+      if (action.type !== 'ATTACK_UNIT') return false;
+      if (!scenario) return true;
+      return action.attackerId === scenario.starterUnitId && action.defenderId === scenario.enemyUnitId;
+    }
+
+    if (stage === 'capture') {
+      if (action.type !== 'CAPTURE_CITY') return false;
+      if (!scenario) return true;
+      return action.unitId === scenario.starterUnitId;
+    }
+
+    if (stage === 'codex') {
+      return action.type === 'RESEARCH_TECH';
+    }
+
+    return false;
+  }
+
+  private getTutorialNudgeForCurrentStage(): string {
+    const stage = this.tutorial.getStage();
+    switch (stage) {
+      case 'upgrade':
+        return 'Harvest both resource tiles in your borders and pick a City Reward first!';
+      case 'move':
+        return 'Tap your unit at your capital and move onto the glowing ring to the east!';
+      case 'combat':
+        return 'Tap the red target ring on the rival warrior guarding the Village!';
+      case 'capture':
+        return 'Tap the glowing Capture button on the Village to claim your second city!';
+      case 'codex':
+        return 'Tap the Codex medallion in the bottom-left and research a technology!';
+      default:
+        return 'Complete the current tutorial step to continue!';
+    }
+  }
+
+  private computeTutorialSubProgress(stage: TutorialStage | null): string | null {
+    if (!this.state || !stage) return null;
+
+    if (stage === 'upgrade') {
+      const capital = getPlayerCities(this.state, this.humanPlayerId).find((c) => c.isCapital);
+      if (capital && capital.pendingLevelRewards.length > 0) {
+        return 'Choose City Reward!';
+      }
+      if (this.tutorialScenario) {
+        let harvested = 0;
+        for (const coord of this.tutorialScenario.resourceCoords) {
+          const tile = getTile(this.state, coord.x, coord.y);
+          if (tile && !tile.resource) {
+            harvested += 1;
+          }
+        }
+        return `${harvested}/2 harvested`;
+      }
+      return null;
+    }
+
+    return null;
+  }
+
+  private syncTutorialProgress(): void {
+    const stage = this.tutorial.getStage();
+    if (!stage) return;
+    this.tutorial.setSubProgress(this.computeTutorialSubProgress(stage));
+  }
+
+  private advanceTutorialAfterAction(action: GameAction, nextState: GameState): void {
+    const stage = this.tutorial.getStage();
+    if (!stage || stage === 'intro' || stage === 'complete') return;
+
+    if (stage === 'upgrade') {
+      if (action.type === 'HARVEST_TILE') {
+        this.syncTutorialProgress();
+      } else if (action.type === 'CHOOSE_CITY_REWARD') {
+        const capital = getPlayerCities(nextState, this.humanPlayerId).find((c) => c.isCapital);
+        if (capital && capital.level >= 2) {
+          this.tutorial.setStage('move', null);
+          this.focusTutorialCameraForStage('move');
+          if (this.tutorialScenario) {
+            this.selectCoord(this.tutorialScenario.capitalCoord, 'unit');
+          }
+        } else {
+          this.syncTutorialProgress();
+        }
+      }
+      return;
+    }
+
+    if (stage === 'move') {
+      if (action.type === 'MOVE_UNIT') {
+        this.tutorial.setStage('combat', null);
+        this.focusTutorialCameraForStage('combat');
+        if (this.tutorialScenario) {
+          this.selectCoord(this.tutorialScenario.moveTargetCoord, 'unit');
+        }
+      }
+      return;
+    }
+
+    if (stage === 'combat') {
+      if (action.type === 'ATTACK_UNIT') {
+        const scenario = this.tutorialScenario;
+        if (scenario) {
+          const starter = nextState.units[scenario.starterUnitId];
+          const vTile = getTile(nextState, scenario.villageCoord.x, scenario.villageCoord.y);
+          if (starter && vTile) {
+            if (starter.x !== scenario.villageCoord.x || starter.y !== scenario.villageCoord.y) {
+              const oldTile = getTile(nextState, starter.x, starter.y);
+              if (oldTile && oldTile.unitId === starter.id) {
+                oldTile.unitId = null;
+              }
+              starter.x = scenario.villageCoord.x;
+              starter.y = scenario.villageCoord.y;
+              vTile.unitId = starter.id;
+            }
+            starter.canCapture = true;
+            starter.actedThisTurn = false;
+            starter.hasMoved = false;
+            starter.hasAttacked = false;
+            this.board?.syncState(nextState, this.humanPlayerId);
+            this.badges?.syncState(nextState, this.humanPlayerId, null);
+          }
+        }
+        this.tutorial.setStage('capture', null);
+        this.focusTutorialCameraForStage('capture');
+        if (scenario) {
+          this.selectCoord(scenario.villageCoord, 'unit');
+        }
+      }
+      return;
+    }
+
+    if (stage === 'capture') {
+      if (action.type === 'CAPTURE_CITY') {
+        this.clearSelection();
+        this.tutorial.setStage('codex', null);
+      }
+      return;
+    }
+
+    if (stage === 'codex') {
+      if (action.type === 'RESEARCH_TECH') {
+        this.techModal.close();
+        this.tutorial.completeAndCelebrate();
+      }
+    }
+  }
+
   private async handleEndTurn(): Promise<void> {
     if (!this.state || this.isBusy || this.isAITurnRunning) return;
     if (!this.isHumanTurn()) return;
+    if (this.tutorial.isModalOpen() || this.resignationOverlay.isOpen()) return;
 
     if (this.openNextPendingCityReward()) {
       return;
     }
 
+    // Strict tutorial gating: block End Turn during all 5 scripted tutorial steps
+    if (this.tutorial.isBlockingEndTurn()) {
+      triggerAndroidHaptic('tap');
+      this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+      return;
+    }
+
     triggerAndroidHaptic('tap');
-    this.tutorial.notifyAction('end_turn');
 
     const token = this.sessionToken;
     this.techModal.close();
@@ -1066,6 +1406,11 @@ export class AppController {
       await this.showEliminationNotices(endRes.events, this.state, token);
       if (token !== this.sessionToken || !this.state) return;
 
+      const frozenTutorialEnemyId =
+        this.tutorial.isActive() && this.tutorialScenario
+          ? this.tutorialScenario.enemyUnitId
+          : null;
+
       let safetyTurns = 0;
       let boardNeedsSync = false;
       while (
@@ -1081,10 +1426,17 @@ export class AppController {
         if (token !== this.sessionToken || !this.state) return;
 
         const plannedActions = planAITurn(this.state, aiPlayer.id, this.state.config.difficulty);
+        const filteredActions = frozenTutorialEnemyId
+          ? plannedActions.filter((a) => {
+              if ('unitId' in a && a.unitId === frozenTutorialEnemyId) return false;
+              if ('attackerId' in a && a.attackerId === frozenTutorialEnemyId) return false;
+              return true;
+            })
+          : plannedActions;
         const actions =
-          plannedActions.length > 0 && plannedActions[plannedActions.length - 1].type === 'END_TURN'
-            ? plannedActions
-            : [...plannedActions, { type: 'END_TURN' as const }];
+          filteredActions.length > 0 && filteredActions[filteredActions.length - 1].type === 'END_TURN'
+            ? filteredActions
+            : [...filteredActions, { type: 'END_TURN' as const }];
 
         for (const aiAction of actions) {
           if (token !== this.sessionToken || !this.state) return;
@@ -1126,6 +1478,13 @@ export class AppController {
       this.readyUnitCycleIndex = 0;
       this.board?.syncState(this.state, this.humanPlayerId);
       this.badges?.syncState(this.state, this.humanPlayerId, null);
+      if (this.state.phase === 'playing' && this.isHumanTurn()) {
+        const curStage = this.tutorial.getStage();
+        if (curStage && curStage !== 'intro' && curStage !== 'complete') {
+          this.syncTutorialProgress();
+          this.focusTutorialCameraForStage(curStage);
+        }
+      }
       this.refreshHUD();
       this.checkPostActionState();
     } finally {
@@ -1270,8 +1629,12 @@ export class AppController {
 
   private openTechModal(): void {
     if (!this.state) return;
+    if (this.tutorial.isActive() && this.tutorial.getStage() !== 'codex') {
+      triggerAndroidHaptic('tap');
+      this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+      return;
+    }
     triggerAndroidHaptic('tap');
-    this.tutorial.notifyAction('codex');
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     const vm = this.buildTechModalViewModel();
@@ -1563,6 +1926,11 @@ export class AppController {
         : 0;
     const isOwnedByHuman = unit.ownerId === this.humanPlayerId;
 
+    const rawUnitActions = isOwnedByHuman ? getUnitActionOptions(this.state, unit.id) : [];
+    const filteredUnitActions = this.tutorial.isActive()
+      ? rawUnitActions.filter((opt) => Boolean(opt.action && this.isActionAllowedByTutorial(opt.action)))
+      : rawUnitActions;
+
     return {
       unit,
       owner,
@@ -1570,7 +1938,7 @@ export class AppController {
       effectiveAttack: getEffectiveAttack(this.state, unit),
       effectiveDefense: getEffectiveDefense(this.state, unit),
       effectiveMovement: baseDef.movement + roadBonus + rohirrimBonus,
-      actions: isOwnedByHuman ? getUnitActionOptions(this.state, unit.id) : [],
+      actions: filteredUnitActions,
     };
   }
 
@@ -1597,6 +1965,11 @@ export class AppController {
       (owner.techs.includes('humans_stewards_citadel') ? 1 : 0) +
       (owner.techs.includes('dwarves_deep_vaults') ? 1 : 0);
 
+    const rawTrainOptions = isOwnedByHuman ? getCityTrainOptions(this.state, city.id) : [];
+    const filteredTrainOptions = this.tutorial.isActive()
+      ? rawTrainOptions.filter((opt) => Boolean(opt.action && this.isActionAllowedByTutorial(opt.action)))
+      : rawTrainOptions;
+
     return {
       city,
       owner,
@@ -1606,7 +1979,7 @@ export class AppController {
       income,
       popNeeded: city.level + 1,
       occupiedByUnit,
-      trainOptions: isOwnedByHuman ? getCityTrainOptions(this.state, city.id) : [],
+      trainOptions: filteredTrainOptions,
     };
   }
 
@@ -1625,7 +1998,10 @@ export class AppController {
       if (city?.hasWalls) defenseBonus = 2.0;
     }
 
-    const actions = getTileActionOptions(state, human.id, tile.x, tile.y);
+    const rawActions = getTileActionOptions(state, human.id, tile.x, tile.y);
+    const actions = this.tutorial.isActive()
+      ? rawActions.filter((opt) => Boolean(opt.action && this.isActionAllowedByTutorial(opt.action)))
+      : rawActions;
 
     return {
       tile,

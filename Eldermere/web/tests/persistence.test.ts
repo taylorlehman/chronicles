@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createGame } from '../src/game';
+import { createGame, createTutorialGame } from '../src/game';
 import { TUTORIAL_STEPS } from '../src/ui/TutorialController';
 import {
   clearSavedCampaign,
@@ -42,18 +42,17 @@ describe('Campaign Persistence & Guided Tutorial', () => {
     installMemoryLocalStorage();
   });
 
-  it('saves, summarizes, loads, and clears an active campaign cleanly', () => {
-    const state = createGame({
+  it('saves, summarizes, loads, and clears an active tutorial campaign with scenario coords', () => {
+    const { state, scenario } = createTutorialGame({
       humanFaction: 'elves',
       difficulty: 'normal',
       mapSize: 16,
       maxTurns: 0,
-      seed: 4242,
     });
     const human = state.players.find((p) => p.isHuman)!;
 
     expect(loadSavedCampaign()).toBeNull();
-    expect(saveCampaign(state, human.id, 2)).toBe(true);
+    expect(saveCampaign(state, human.id, 'upgrade', scenario)).toBe(true);
 
     const summary = getSavedCampaignSummary();
     expect(summary).not.toBeNull();
@@ -64,7 +63,8 @@ describe('Campaign Persistence & Guided Tutorial', () => {
     const loaded = loadSavedCampaign();
     expect(loaded).not.toBeNull();
     expect(loaded?.humanPlayerId).toBe(human.id);
-    expect(loaded?.tutorialStep).toBe(2);
+    expect(loaded?.tutorialStage).toBe('upgrade');
+    expect(loaded?.tutorialScenario).toEqual(scenario);
     expect(loaded?.state.tiles.length).toBe(256);
 
     clearSavedCampaign();
@@ -80,19 +80,19 @@ describe('Campaign Persistence & Guided Tutorial', () => {
       seed: 1337,
     });
     const human = state.players.find((p) => p.isHuman)!;
-    expect(saveCampaign(state, human.id, 0)).toBe(true);
+    expect(saveCampaign(state, human.id, 'move', null)).toBe(true);
 
     state.phase = 'game_over';
-    expect(saveCampaign(state, human.id, null)).toBe(false);
+    expect(saveCampaign(state, human.id, null, null)).toBe(false);
     expect(loadSavedCampaign()).toBeNull();
   });
 
-  it('tracks first-time tutorial completion and covers all 5 core gameplay concepts', () => {
+  it('tracks first-time tutorial completion and sequences all 5 scripted tutorial steps', () => {
     expect(isTutorialCompleted()).toBe(false);
     markTutorialCompleted();
     expect(isTutorialCompleted()).toBe(true);
 
     const ids = TUTORIAL_STEPS.map((s) => s.id);
-    expect(ids).toEqual(['move', 'upgrade', 'codex', 'capture', 'combat', 'end_turn']);
+    expect(ids).toEqual(['upgrade', 'move', 'combat', 'capture', 'codex']);
   });
 });

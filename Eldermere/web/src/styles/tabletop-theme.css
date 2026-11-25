@@ -1110,7 +1110,7 @@ html.android-webview .tt-faction-showcase {
   color: var(--ui-ink);
 }
 
-.tutorial-actions {
+.tutorial-footer-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1118,31 +1118,285 @@ html.android-webview .tt-faction-showcase {
   padding-top: 2px;
 }
 
+.tutorial-progress-pill {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--ui-accent);
+  border: 1.5px solid var(--ui-rim);
+  font-size: 11.5px;
+  font-weight: 900;
+  color: var(--ui-cta-text);
+}
+
 .tutorial-hint-note {
   font-size: 11.5px;
   font-weight: 700;
   color: var(--ui-ink-muted);
+  margin-left: auto;
 }
 
-.tutorial-btn-back {
-  padding: 5px 12px;
-  background: var(--ui-surface-recessed);
-  border: 2px solid var(--ui-border-color);
+.tutorial-nudge {
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: rgba(217, 119, 6, 0.16);
+  border: 1.5px solid var(--ui-rim);
   color: var(--ui-ink);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
+  line-height: 1.25;
 }
 
-.tutorial-btn-next {
-  padding: 6px 14px;
-  font-size: 13.5px;
-  font-weight: 900;
+.tutorial-card.is-nudged {
+  border-color: var(--ui-gold);
+}
+
+/* Tutorial Intro & Tutorial Complete Modals */
+.tutorial-modal {
+  z-index: 80;
+}
+
+.tutorial-modal-panel {
+  width: min(410px, calc(100vw - 28px));
+  padding: 20px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.tutorial-modal-kicker {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--ui-surface-recessed);
+  border: 1.5px solid var(--ui-border-color);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ui-ink-muted);
 }
 
-/* Score Menu Footer Actions (End Tutorial + Resign) */
+.tutorial-modal-kicker.is-gold {
+  background: var(--ui-accent);
+  border-color: var(--ui-rim);
+  color: var(--ui-cta-text);
+}
+
+.tutorial-modal-headline {
+  margin: 0;
+  font-family: var(--font-ui) !important;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--ui-ink);
+}
+
+.tutorial-modal-copy {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--ui-ink);
+}
+
+.tutorial-intro-list {
+  list-style: none;
+  margin: 0;
+  padding: 10px 12px;
+  width: 100%;
+  background: var(--ui-surface-recessed);
+  border: 2px solid var(--ui-border-color);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.tutorial-intro-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--ui-ink);
+}
+
+.tutorial-intro-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border-radius: 50%;
+  background: var(--ui-accent);
+  border: 1.5px solid var(--ui-rim);
+  color: var(--ui-cta-text);
+  display: grid;
+  place-items: center;
+}
+
+.tutorial-complete-crest {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #f5b833 0%, #c98314 100%);
+  border: 3px solid var(--ui-rim);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+}
+
+.tutorial-modal-cta {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 18px;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.tutorial-modal-footnote {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ui-ink-muted);
+}
+
+/* Dedicated Campaign Resigned Screen */
+.resignation-screen {
+  z-index: 85;
+}
+
+.resignation-panel {
+  width: min(410px, calc(100vw - 28px));
+  padding: 22px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.resignation-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--ui-surface-recessed);
+  border: 1.5px solid var(--ui-border-color);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ui-ink-muted);
+}
+
+.resignation-crest-wrap {
+  display: flex;
+  justify-content: center;
+}
+
+.resignation-crest-medallion {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 3.5px solid var(--ui-rim);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+}
+
+.resignation-crest-svg {
+  width: 36px;
+  height: 36px;
+}
+
+.resignation-headline {
+  margin: 0;
+  font-family: var(--font-ui) !important;
+  font-size: 25px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--ui-ink);
+}
+
+.resignation-realm-line {
+  margin: -4px 0 0;
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--ui-ink-muted);
+}
+
+.resignation-copy {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.38;
+  color: var(--ui-ink);
+}
+
+.resignation-stats-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.resignation-stat-card {
+  padding: 10px 6px;
+  background: var(--ui-surface-recessed);
+  border: 2px solid var(--ui-border-color);
+  border-radius: 11px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.resignation-stat-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ui-ink-muted);
+}
+
+.resignation-stat-val {
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--ui-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.resignation-cta-btn {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 18px;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* Score Menu Footer Actions (End Tutorial OR Resign) */
 .lb-footer-actions {
   display: flex;
   align-items: center;
@@ -1152,19 +1406,35 @@ html.android-webview .tt-faction-showcase {
 }
 
 .lb-end-tutorial-btn {
-  padding: 7px 14px;
+  padding: 8px 16px;
   background: var(--ui-surface-recessed);
   border: 2px solid var(--ui-border-color);
   color: var(--ui-ink);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 800;
   cursor: pointer;
 }
 
 html.android-webview .tutorial-card,
+html.android-webview .tutorial-modal,
+html.android-webview .tutorial-modal-panel,
+html.android-webview .tutorial-intro-list,
+html.android-webview .tutorial-complete-crest,
+html.android-webview .tutorial-modal-cta,
+html.android-webview .resignation-screen,
+html.android-webview .resignation-panel,
+html.android-webview .resignation-crest-medallion,
+html.android-webview .resignation-stat-card,
+html.android-webview .resignation-cta-btn,
 html.android-webview .tt-resume-card,
 html.android-webview .tt-resume-btn {
   box-shadow: none !important;
   animation: none !important;
   transition: none !important;
+}
+
+html.android-webview .tutorial-modal-panel,
+html.android-webview .resignation-panel {
+  background: var(--ui-surface-solid) !important;
+  border-bottom: 4px solid var(--ui-border-strong) !important;
 }

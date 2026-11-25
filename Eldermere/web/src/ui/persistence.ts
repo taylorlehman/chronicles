@@ -1,15 +1,27 @@
-import { getPlayer, getPlayerCities } from '../game';
+import { getPlayer, getPlayerCities, type TutorialScenarioCoords } from '../game';
 import type { Difficulty, FactionId, GameState, MapSize, PlayerId } from '../game/types';
+import type { TutorialStage } from './TutorialController';
 
 export const SAVED_CAMPAIGN_KEY = 'eldermere_saved_campaign_v1';
 export const TUTORIAL_DONE_KEY = 'eldermere_tutorial_done_v1';
+
+const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
+  'intro',
+  'upgrade',
+  'move',
+  'combat',
+  'capture',
+  'codex',
+  'complete',
+];
 
 export interface SavedCampaignRecord {
   version: 1;
   savedAt: number;
   humanPlayerId: PlayerId;
   state: GameState;
-  tutorialStep: number | null;
+  tutorialStage: TutorialStage | null;
+  tutorialScenario: TutorialScenarioCoords | null;
 }
 
 export interface SavedCampaignSummary {
@@ -33,10 +45,41 @@ function getStorage(): Storage | null {
   return null;
 }
 
+function isValidTutorialStage(value: unknown): value is TutorialStage {
+  return typeof value === 'string' && (VALID_TUTORIAL_STAGES as readonly string[]).includes(value);
+}
+
+function isValidCoord(value: unknown): value is { x: number; y: number } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { x?: unknown }).x === 'number' &&
+    typeof (value as { y?: unknown }).y === 'number'
+  );
+}
+
+function isValidTutorialScenario(value: unknown): value is TutorialScenarioCoords {
+  if (typeof value !== 'object' || value === null) return false;
+  const s = value as Partial<TutorialScenarioCoords>;
+  return (
+    isValidCoord(s.capitalCoord) &&
+    isValidCoord(s.moveTargetCoord) &&
+    isValidCoord(s.villageCoord) &&
+    Array.isArray(s.resourceCoords) &&
+    s.resourceCoords.length === 2 &&
+    isValidCoord(s.resourceCoords[0]) &&
+    isValidCoord(s.resourceCoords[1]) &&
+    isValidCoord(s.enemyCoord) &&
+    typeof s.enemyUnitId === 'string' &&
+    typeof s.starterUnitId === 'string'
+  );
+}
+
 export function saveCampaign(
   state: GameState,
   humanPlayerId: PlayerId,
-  tutorialStep: number | null = null,
+  tutorialStage: TutorialStage | null = null,
+  tutorialScenario: TutorialScenarioCoords | null = null,
 ): boolean {
   if (state.phase !== 'playing') {
     clearSavedCampaign();
@@ -50,7 +93,8 @@ export function saveCampaign(
     savedAt: Date.now(),
     humanPlayerId,
     state,
-    tutorialStep,
+    tutorialStage,
+    tutorialScenario,
   };
   try {
     storage.setItem(SAVED_CAMPAIGN_KEY, JSON.stringify(record));
@@ -88,7 +132,10 @@ export function loadSavedCampaign(): SavedCampaignRecord | null {
       savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
       humanPlayerId: parsed.humanPlayerId,
       state: parsed.state,
-      tutorialStep: typeof parsed.tutorialStep === 'number' ? parsed.tutorialStep : null,
+      tutorialStage: isValidTutorialStage(parsed.tutorialStage) ? parsed.tutorialStage : null,
+      tutorialScenario: isValidTutorialScenario(parsed.tutorialScenario)
+        ? parsed.tutorialScenario
+        : null,
     };
   } catch {
     return null;

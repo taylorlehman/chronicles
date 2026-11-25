@@ -62,3 +62,11 @@ export {
 
 // Core Simulation Engine
 export { applyAction, cloneState, createGame } from './engine';
+
+// Curated Tutorial Scenario
+export {
+  createTutorialGame,
+  type TutorialGameOptions,
+  type TutorialGameResult,
+  type TutorialScenarioCoords,
+} from './tutorialMap';
