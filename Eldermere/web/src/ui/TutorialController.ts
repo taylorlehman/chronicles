@@ -1,8 +1,18 @@
-import { renderIcon, type IconName } from './icons';
+import type { FactionId } from '../game/types';
+import { renderActionIcon, renderIcon, type IconName } from './icons';
 import { markTutorialCompleted } from './persistence';
+import { render3DThumbImg } from './thumbs';
 
-export type TutorialStepId = 'upgrade' | 'move' | 'combat' | 'capture' | 'codex';
+export type TutorialStepId = 'upgrade' | 'move' | 'combat' | 'capture' | 'codex' | 'end_turn';
 export type TutorialStage = 'intro' | TutorialStepId | 'complete';
+
+export interface TutorialBannerContext {
+  resourceThumbKey?: string;   // e.g. 'resource_berries', 'resource_game', 'resource_metal' (or 'berries', 'game', 'ore')
+  resourceLabel?: string;      // e.g. 'Berries', 'Wild Game', 'Ore Vein'
+  targetTechId?: string;
+  targetTechName?: string;     // e.g. 'Farming'
+  faction?: FactionId;         // Optional faction for biome-matched 3D resource thumbnail
+}
 
 export interface TutorialStep {
   id: TutorialStepId;
@@ -16,7 +26,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     id: 'upgrade',
     icon: 'wheat',
     title: 'Upgrade Your City',
-    body: 'Tap the two resource tiles inside your borders and harvest both to level up your capital, then pick a City Reward!',
+    body: 'Tap the two resource tiles inside your borders and harvest both to level up your capital, pick a City Reward, and boost the Stars (★) you earn every turn!',
   },
   {
     id: 'move',
@@ -42,6 +52,12 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     title: 'Unlock Technology',
     body: 'Tap the Codex medallion in the bottom-left and research a new technology to strengthen your realm.',
   },
+  {
+    id: 'end_turn',
+    icon: 'endTurnHumans',
+    title: 'End Your Turn',
+    body: 'Eldermere is a turn-based game: tapping End Turn lets rival realms move and grants you fresh Stars (★) from your cities each turn. Tap End Turn now to finish the tutorial!',
+  },
 ];
 
 const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
@@ -50,7 +66,14 @@ const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
   combat: 2,
   capture: 3,
   codex: 4,
+  end_turn: 5,
 };
+
+function normalizeResourceThumbKey(key: string): string {
+  const normalized = key.trim().toLowerCase().replace(/^resource_/, '');
+  if (normalized === 'metal') return 'ore';
+  return normalized;
+}
 
 export function isTutorialStepStage(stage: TutorialStage | null): stage is TutorialStepId {
   return stage !== null && stage !== 'intro' && stage !== 'complete';
@@ -79,6 +102,7 @@ export class TutorialController {
   private readonly callbacks: TutorialCallbacks;
   private stage: TutorialStage | null = null;
   private subProgress: string | null = null;
+  private context: TutorialBannerContext = {};
   private nudgeMessage: string | null = null;
   private nudgeTimer: number | null = null;
 
@@ -109,9 +133,9 @@ export class TutorialController {
     return this.stage === 'intro' || this.stage === 'complete';
   }
 
-  /** True when End Turn should be blocked so the player completes the current scripted step first. */
+  /** True when End Turn should be blocked so the player completes steps 1-5 before ending the turn. */
   public isBlockingEndTurn(): boolean {
-    return isTutorialStepStage(this.stage);
+    return isTutorialStepStage(this.stage) && this.stage !== 'end_turn';
   }
 
   public getStage(): TutorialStage | null {
@@ -186,6 +210,13 @@ export class TutorialController {
     }
   }
 
+  public setContext(ctx: TutorialBannerContext): void {
+    this.context = { ...ctx };
+    if (isTutorialStepStage(this.stage)) {
+      this.renderBanner(this.stage);
+    }
+  }
+
   public nudge(message: string): void {
     if (!isTutorialStepStage(this.stage)) return;
     this.clearNudgeTimer();
@@ -214,6 +245,7 @@ export class TutorialController {
     this.clearNudgeTimer();
     this.nudgeMessage = null;
     this.subProgress = null;
+    this.context = {};
     this.stage = null;
     this.hideElements();
     if (wasModalOpen) {
@@ -240,6 +272,7 @@ export class TutorialController {
     this.clearNudgeTimer();
     this.nudgeMessage = null;
     this.subProgress = null;
+    this.context = {};
     this.stage = null;
     this.hideElements();
     if (wasModalOpen) {
@@ -273,6 +306,26 @@ export class TutorialController {
     if (!step) return;
 
     const total = TUTORIAL_STEPS.length;
+    let bodyText = step.body;
+    if (stepId === 'codex' && this.context.targetTechName) {
+      bodyText = `Tap the Codex medallion in the bottom-left and research "${this.context.targetTechName}" (highlighted in gold) to strengthen your realm.`;
+    }
+
+    let resourceCalloutHtml = '';
+    if (stepId === 'upgrade' && this.context.resourceThumbKey) {
+      const thumbKey = normalizeResourceThumbKey(this.context.resourceThumbKey);
+      const label = this.context.resourceLabel?.trim() || 'Resource';
+      const faction = this.context.faction ?? 'humans';
+      const thumbImg = render3DThumbImg(thumbKey, faction, 'tutorial-resource-thumb', label);
+      const thumbVisual = thumbImg || renderActionIcon(thumbKey, 'icon icon-sm');
+      resourceCalloutHtml = `
+        <div class="tutorial-resource-callout">
+          <span class="tutorial-resource-thumb-wrap" aria-hidden="true">${thumbVisual}</span>
+          <span class="tutorial-resource-label">Gather: <strong>${esc(label)}</strong> (&times;2)</span>
+        </div>
+      `;
+    }
+
     const progressHtml = this.subProgress
       ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
       : '';
@@ -289,7 +342,8 @@ export class TutorialController {
           </div>
           <span class="tutorial-step-pill">${idx + 1} / ${total}</span>
         </div>
-        <p class="tutorial-body">${esc(step.body)}</p>
+        <p class="tutorial-body">${esc(bodyText)}</p>
+        ${resourceCalloutHtml}
         ${nudgeHtml}
         <div class="tutorial-footer-row">
           ${progressHtml}
@@ -311,6 +365,13 @@ export class TutorialController {
         <p class="tutorial-modal-copy">
           This short guided tutorial will walk you step-by-step through the essentials of commanding your realm:
         </p>
+        <div class="tutorial-stars-callout">
+          <span class="tutorial-stars-icon" aria-hidden="true">${renderIcon('star', 'icon icon-sm icon-star')}</span>
+          <div class="tutorial-stars-copy">
+            <strong>Stars (★) Fuel Your Realm</strong>
+            <span>Spend Stars to harvest resources, train units, and research technologies. Upgrading and capturing cities increases the Stars you earn every turn.</span>
+          </div>
+        </div>
         <ul class="tutorial-intro-list">
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('wheat', 'icon icon-xs')}</span>
@@ -326,7 +387,7 @@ export class TutorialController {
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('codex', 'icon icon-xs')}</span>
-            <span>Researching technology in the Codex</span>
+            <span>Researching lore &amp; ending your turn</span>
           </li>
         </ul>
         <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="start">
@@ -350,15 +411,15 @@ export class TutorialController {
       <div class="modal-panel tutorial-modal-panel tutorial-complete-panel">
         <div class="tutorial-modal-kicker is-gold">
           ${renderIcon('trophy', 'icon icon-sm')}
-          <span>All 5 Steps Mastered</span>
+          <span>All 6 Steps Mastered</span>
         </div>
         <div class="tutorial-complete-crest" aria-hidden="true">
           ${renderIcon('crown', 'icon icon-xl')}
         </div>
         <h2 class="tutorial-modal-headline">Tutorial Complete!</h2>
         <p class="tutorial-modal-copy">
-          You have mastered upgrading cities, moving, combat, capturing settlements, and the Codex.
-          The tutorial is now over — keep playing the rest of this campaign to expand your realm and conquer Eldermere!
+          You have mastered upgrading cities, moving, combat, capturing settlements, researching in the Codex, and turn-based play.
+          The tutorial is now over — keep taking turns to earn fresh Stars, expand your realm, and conquer Eldermere!
         </p>
         <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="continue">
           <span>Continue Playing</span>

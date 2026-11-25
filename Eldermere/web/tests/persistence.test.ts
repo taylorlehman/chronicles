@@ -87,12 +87,12 @@ describe('Campaign Persistence & Guided Tutorial', () => {
     expect(loadSavedCampaign()).toBeNull();
   });
 
-  it('tracks first-time tutorial completion and sequences all 5 scripted tutorial steps', () => {
+  it('tracks first-time tutorial completion and sequences all 6 scripted tutorial steps', () => {
     expect(isTutorialCompleted()).toBe(false);
     markTutorialCompleted();
     expect(isTutorialCompleted()).toBe(true);
 
     const ids = TUTORIAL_STEPS.map((s) => s.id);
-    expect(ids).toEqual(['upgrade', 'move', 'combat', 'capture', 'codex']);
+    expect(ids).toEqual(['upgrade', 'move', 'combat', 'capture', 'codex', 'end_turn']);
   });
 });

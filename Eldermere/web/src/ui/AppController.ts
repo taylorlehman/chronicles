@@ -37,6 +37,7 @@ import {
   type GameState,
   type PlayerId,
   type PlayerState,
+  type ResourceType,
   type TechId,
   type TerrainType,
   type Tile,
@@ -73,7 +74,11 @@ import {
 } from './Screens';
 import { TechModal, type TechModalViewModel } from './TechModal';
 import { TopBar } from './TopBar';
-import { TutorialController, type TutorialStage } from './TutorialController';
+import {
+  TutorialController,
+  type TutorialBannerContext,
+  type TutorialStage,
+} from './TutorialController';
 import { notifyAndroidGameReady, triggerAndroidHaptic } from './androidBridge';
 import { renderIcon } from './icons';
 import {
@@ -152,6 +157,7 @@ export class AppController {
   private isTitleDioramaActive = false;
   private titleShowcaseState: GameState | null = null;
   private tutorialScenario: TutorialScenarioCoords | null = null;
+  private pendingEndTurnAfterTutorial = false;
 
   constructor(
     canvasContainer: HTMLElement,
@@ -246,6 +252,7 @@ export class AppController {
       },
       onEndTutorial: () => {
         triggerAndroidHaptic('tap');
+        this.pendingEndTurnAfterTutorial = false;
         this.tutorialScenario = null;
         this.tutorial.endTutorial(true);
         this.persistActiveCampaign();
@@ -264,18 +271,25 @@ export class AppController {
       },
       onStartTutorial: () => {
         triggerAndroidHaptic('tap');
+        this.syncTutorialContext();
         this.focusTutorialCameraForStage('upgrade');
         this.syncTutorialProgress();
         this.resumeSceneAfterOpaqueSheet();
       },
       onCompleteDismiss: () => {
         triggerAndroidHaptic('tap');
+        const shouldFinishTurn = this.pendingEndTurnAfterTutorial;
+        this.pendingEndTurnAfterTutorial = false;
         this.tutorialScenario = null;
         this.persistActiveCampaign();
         this.resumeSceneAfterOpaqueSheet();
         this.refreshHUD();
+        if (shouldFinishTurn) {
+          void this.handleEndTurn();
+        }
       },
       onEndTutorial: () => {
+        this.pendingEndTurnAfterTutorial = false;
         this.tutorialScenario = null;
         this.persistActiveCampaign();
         this.refreshHUD();
@@ -686,6 +700,7 @@ export class AppController {
     this.topBar.show();
     this.actionBar.show();
     if (tutorialStage !== null) {
+      this.syncTutorialContext();
       this.tutorial.start(tutorialStage, this.computeTutorialSubProgress(tutorialStage));
       if (tutorialStage !== 'intro') {
         this.focusTutorialCameraForStage(tutorialStage);
@@ -709,6 +724,7 @@ export class AppController {
     const score = human?.score ?? 0;
 
     clearSavedCampaign();
+    this.pendingEndTurnAfterTutorial = false;
     this.tutorialScenario = null;
     this.tutorial.hide();
     this.topBar.hide();
@@ -733,6 +749,7 @@ export class AppController {
 
   public returnToTitle(): void {
     clearSavedCampaign();
+    this.pendingEndTurnAfterTutorial = false;
     this.tutorialScenario = null;
     this.tutorial.hide();
     this.resignationOverlay.hide();
@@ -787,6 +804,7 @@ export class AppController {
     this.defeatNoticeModal.close();
     this.isBusy = false;
     this.isAITurnRunning = false;
+    this.pendingEndTurnAfterTutorial = false;
     this.selectedCoord = null;
     this.selectedUnitId = null;
     this.selectionLayer = 'unit';
@@ -1228,7 +1246,13 @@ export class AppController {
     }
 
     if (stage === 'codex') {
-      return action.type === 'RESEARCH_TECH';
+      if (action.type !== 'RESEARCH_TECH') return false;
+      const targetTechId = this.getTutorialTargetTechId();
+      return !targetTechId || action.techId === targetTechId;
+    }
+
+    if (stage === 'end_turn') {
+      return action.type === 'END_TURN';
     }
 
     return false;
@@ -1245,11 +1269,78 @@ export class AppController {
         return 'Tap the red target ring on the rival warrior guarding the Village!';
       case 'capture':
         return 'Tap the glowing Capture button on the Village to claim your second city!';
-      case 'codex':
-        return 'Tap the Codex medallion in the bottom-left and research a technology!';
+      case 'codex': {
+        const targetTechId = this.getTutorialTargetTechId();
+        const targetTechName = targetTechId ? TECH_DEFINITIONS[targetTechId]?.name : null;
+        return targetTechName
+          ? `Tap the Codex medallion in the bottom-left and research ${targetTechName}!`
+          : 'Tap the Codex medallion in the bottom-left and research a technology!';
+      }
+      case 'end_turn':
+        return 'Eldermere is turn-based — tap End Turn in the bottom-right to finish the tutorial!';
       default:
         return 'Complete the current tutorial step to continue!';
     }
+  }
+
+  private getTutorialResourceInfo(
+    state: GameState,
+    human: PlayerState,
+  ): { resourceThumbKey: string; resourceLabel: string } {
+    let resource: ResourceType | null = null;
+    if (this.tutorialScenario) {
+      for (const coord of this.tutorialScenario.resourceCoords) {
+        const tile = getTile(state, coord.x, coord.y);
+        if (tile?.resource) {
+          resource = tile.resource;
+          break;
+        }
+      }
+    }
+    if (!resource) {
+      resource = human.faction === 'dwarves' ? 'ore' : 'berries';
+    }
+
+    switch (resource) {
+      case 'game':
+        return { resourceThumbKey: 'game', resourceLabel: 'Wild Game' };
+      case 'ore':
+        return { resourceThumbKey: 'ore', resourceLabel: 'Ore Vein' };
+      case 'mithril':
+        return { resourceThumbKey: 'mithril', resourceLabel: 'Mithril Vein' };
+      case 'berries':
+      default:
+        return { resourceThumbKey: 'berries', resourceLabel: 'Berries' };
+    }
+  }
+
+  private getTutorialTargetTechId(): TechId | null {
+    if (!this.state) return null;
+    const human = getPlayer(this.state, this.humanPlayerId);
+    if (!human) return null;
+
+    const factionTechs = getFactionTechs(human.faction);
+    const target = factionTechs.find((t) => canResearchTech(this.state!, human.id, t.id));
+    return target?.id ?? null;
+  }
+
+  private syncTutorialContext(): void {
+    if (!this.state) return;
+    const human = getPlayer(this.state, this.humanPlayerId);
+    if (!human) return;
+
+    const { resourceThumbKey, resourceLabel } = this.getTutorialResourceInfo(this.state, human);
+    const targetTechId = this.getTutorialTargetTechId();
+    const targetTechName = targetTechId ? TECH_DEFINITIONS[targetTechId]?.name : undefined;
+
+    const ctx: TutorialBannerContext = {
+      faction: human.faction,
+      resourceThumbKey,
+      resourceLabel,
+      targetTechId: targetTechId ?? undefined,
+      targetTechName,
+    };
+    this.tutorial.setContext(ctx);
   }
 
   private computeTutorialSubProgress(stage: TutorialStage | null): string | null {
@@ -1288,6 +1379,7 @@ export class AppController {
 
     if (stage === 'upgrade') {
       if (action.type === 'HARVEST_TILE') {
+        this.syncTutorialContext();
         this.syncTutorialProgress();
       } else if (action.type === 'CHOOSE_CITY_REWARD') {
         const capital = getPlayerCities(nextState, this.humanPlayerId).find((c) => c.isCapital);
@@ -1351,6 +1443,7 @@ export class AppController {
     if (stage === 'capture') {
       if (action.type === 'CAPTURE_CITY') {
         this.clearSelection();
+        this.syncTutorialContext();
         this.tutorial.setStage('codex', null);
       }
       return;
@@ -1359,7 +1452,9 @@ export class AppController {
     if (stage === 'codex') {
       if (action.type === 'RESEARCH_TECH') {
         this.techModal.close();
-        this.tutorial.completeAndCelebrate();
+        this.clearSelection();
+        this.tutorial.setStage('end_turn', null);
+        this.refreshHUD();
       }
     }
   }
@@ -1373,10 +1468,22 @@ export class AppController {
       return;
     }
 
-    // Strict tutorial gating: block End Turn during all 5 scripted tutorial steps
+    // Strict tutorial gating: block End Turn during steps 1-5
     if (this.tutorial.isBlockingEndTurn()) {
       triggerAndroidHaptic('tap');
       this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+      return;
+    }
+
+    // Step 6 (End Turn): show Tutorial Complete! immediately, then run End Turn on Continue Playing
+    if (this.tutorial.isActive() && this.tutorial.getStage() === 'end_turn') {
+      triggerAndroidHaptic('victory');
+      this.techModal.close();
+      this.factionDossierModal.close();
+      this.leaderboardModal.close();
+      this.clearSelection();
+      this.pendingEndTurnAfterTutorial = true;
+      this.tutorial.completeAndCelebrate();
       return;
     }
 
@@ -1769,11 +1876,17 @@ export class AppController {
       techCosts[tech.id] = getTechCost(this.state, human.id, tech.id);
     }
 
+    const tutorialTargetTechId =
+      this.tutorial.isActive() && this.tutorial.getStage() === 'codex'
+        ? this.getTutorialTargetTechId()
+        : null;
+
     return {
       player: human,
       cityCount: getPlayerCities(this.state, human.id).length,
       isHumanTurn: this.isHumanTurn(),
       techCosts,
+      tutorialTargetTechId,
     };
   }
 
@@ -1826,6 +1939,9 @@ export class AppController {
       canResearchTech(this.state!, human.id, t.id),
     ).length;
     const remainingUnitsCount = this.getReadyHumanUnits().length;
+    const isTutorialEndTurnStep =
+      this.tutorial.isActive() && this.tutorial.getStage() === 'end_turn';
+    const allUnitsActed = remainingUnitsCount === 0 || isTutorialEndTurnStep;
     const combatPreview = this.buildCombatPreview();
 
     if (!this.selectedCoord) {
@@ -1836,7 +1952,7 @@ export class AppController {
         hasAffordableTech: affordableTechCount > 0,
         affordableTechCount,
         remainingUnitsCount,
-        allUnitsActed: remainingUnitsCount === 0,
+        allUnitsActed,
         selectionLayer: 'unit',
         canToggleLayer: false,
         altLayerLabel: 'Tile',
@@ -1866,7 +1982,7 @@ export class AppController {
       hasAffordableTech: affordableTechCount > 0,
       affordableTechCount,
       remainingUnitsCount,
-      allUnitsActed: remainingUnitsCount === 0,
+      allUnitsActed,
       selectionLayer: this.selectionLayer,
       canToggleLayer,
       altLayerLabel,

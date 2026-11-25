@@ -67,9 +67,9 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
     },
   );
 
-  describe.each<FactionId>(ALL_FACTIONS)('Full 5-step scripted tutorial sequence for %s', (faction) => {
+  describe.each<FactionId>(ALL_FACTIONS)('Full 6-step scripted tutorial sequence for %s', (faction) => {
     it.each<MapSize>([16, 18])(
-      'executes Upgrade -> Move -> Fight Orc on Village -> Capture -> Codex legally on %ix%i',
+      'executes Upgrade -> Move -> Fight Orc on Village -> Capture -> Codex -> End Turn legally on %ix%i',
       (mapSize) => {
         const { state: initialState, scenario } = createTutorialGame({
           humanFaction: faction,
@@ -79,6 +79,7 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
 
         let state = initialState;
         const human = state.players[0];
+        const initialIncome = human.goldPerTurn;
         expect(human.faction).toBe(faction);
         expect(human.isHuman).toBe(true);
         expect(human.gold).toBe(10);
@@ -218,21 +219,37 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
         state = captureRes.state;
         expect(getPlayerCities(state, human.id)).toHaveLength(2);
 
-        // Step 5: Research an affordable Tier-1 tech in the Codex
-        const affordableT1 = getFactionTechs(faction).find(
-          (t) => t.tier === 1 && canResearchTech(state, human.id, t.id),
+        // Step 5: Deterministic tutorial target tech (Pillar 0 Branch A) is affordable in the Codex
+        const targetTech = getFactionTechs(faction).find((t) =>
+          canResearchTech(state, human.id, t.id),
         );
-        expect(affordableT1).toBeDefined();
+        expect(targetTech).toBeDefined();
+        expect(targetTech!.pillarIndex).toBe(0);
+        expect(targetTech!.tier).toBe(2);
 
         const techRes = applyAction(state, {
           type: 'RESEARCH_TECH',
-          techId: affordableT1!.id,
+          techId: targetTech!.id,
         });
         expect(
-          techRes.events.some((e) => e.type === 'TECH_RESEARCHED' && e.techId === affordableT1!.id),
+          techRes.events.some((e) => e.type === 'TECH_RESEARCHED' && e.techId === targetTech!.id),
         ).toBe(true);
         state = techRes.state;
-        expect(state.players[0].techs).toContain(affordableT1!.id);
+        expect(state.players[0].techs).toContain(targetTech!.id);
+
+        // Step 6: End Turn cycles through rival turns and starts Turn 2 with higher Star income
+        const goldBeforeEndTurn = state.players[0].gold;
+        const incomeAfterUpgrades = state.players[0].goldPerTurn;
+        expect(incomeAfterUpgrades).toBeGreaterThan(initialIncome);
+
+        for (let i = 0; i < state.players.length; i++) {
+          const endRes = applyAction(state, { type: 'END_TURN' });
+          state = endRes.state;
+        }
+        expect(state.turn).toBe(2);
+        expect(state.players[state.activePlayerIndex].id).toBe(human.id);
+        expect(state.players[0].goldPerTurn).toBeGreaterThan(initialIncome);
+        expect(state.players[0].gold).toBe(goldBeforeEndTurn + state.players[0].goldPerTurn);
       },
     );
   });

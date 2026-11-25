@@ -1151,6 +1151,129 @@ html.android-webview .tt-faction-showcase {
   border-color: var(--ui-gold);
 }
 
+/* Inline resource preview chip inside Upgrade Your City tutorial banner */
+.tutorial-resource-callout {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  padding: 4px 10px 4px 5px;
+  border-radius: 10px;
+  background: var(--ui-surface-recessed);
+  border: 1.5px solid var(--ui-rim);
+  color: var(--ui-ink);
+}
+
+.tutorial-resource-thumb-wrap {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 7px;
+  background: var(--ui-surface-solid);
+  border: 1.5px solid var(--ui-border-color);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.tutorial-resource-thumb {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  display: block;
+}
+
+.tutorial-resource-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ui-ink);
+}
+
+.tutorial-resource-label strong {
+  font-weight: 900;
+  color: var(--ui-ink);
+}
+
+/* Stars economy callout in Tutorial Intro modal */
+.tutorial-stars-callout {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  background: rgba(217, 119, 6, 0.14);
+  border: 2px solid var(--ui-gold);
+  text-align: left;
+  color: var(--ui-ink);
+}
+
+.tutorial-stars-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: var(--ui-surface-solid);
+  border: 1.5px solid var(--ui-gold);
+  color: var(--ui-gold);
+  display: grid;
+  place-items: center;
+}
+
+.tutorial-stars-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tutorial-stars-copy strong {
+  font-size: 13.5px;
+  font-weight: 900;
+  line-height: 1.2;
+  color: var(--ui-ink);
+}
+
+.tutorial-stars-copy span {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--ui-ink);
+}
+
+/* Tutorial Codex Target Highlight & Dimmed Sibling Cards */
+.tech-card.is-tutorial-target {
+  border: 2.5px solid var(--ui-gold) !important;
+  background: var(--ui-surface-elevated);
+  box-shadow: 0 0 0 2px var(--ui-gold);
+  opacity: 1 !important;
+}
+
+.tech-tutorial-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ui-gold);
+  border: 1px solid var(--ui-rim);
+  color: #1f1606;
+  font-size: 9.5px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1.25;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.tech-card.is-tutorial-locked {
+  opacity: 0.36 !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
 /* Tutorial Intro & Tutorial Complete Modals */
 .tutorial-modal {
   z-index: 80;
@@ -1416,11 +1539,18 @@ html.android-webview .tt-faction-showcase {
 }
 
 html.android-webview .tutorial-card,
+html.android-webview .tutorial-resource-callout,
+html.android-webview .tutorial-resource-thumb-wrap,
+html.android-webview .tutorial-stars-callout,
+html.android-webview .tutorial-stars-icon,
 html.android-webview .tutorial-modal,
 html.android-webview .tutorial-modal-panel,
 html.android-webview .tutorial-intro-list,
 html.android-webview .tutorial-complete-crest,
 html.android-webview .tutorial-modal-cta,
+html.android-webview .tech-card.is-tutorial-target,
+html.android-webview .tech-card.is-tutorial-locked,
+html.android-webview .tech-tutorial-badge,
 html.android-webview .resignation-screen,
 html.android-webview .resignation-panel,
 html.android-webview .resignation-crest-medallion,
@@ -1431,6 +1561,10 @@ html.android-webview .tt-resume-btn {
   box-shadow: none !important;
   animation: none !important;
   transition: none !important;
+}
+
+html.android-webview .tech-card.is-tutorial-target {
+  border: 2.5px solid var(--ui-gold) !important;
 }
 
 html.android-webview .tutorial-modal-panel,

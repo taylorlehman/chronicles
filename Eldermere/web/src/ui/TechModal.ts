@@ -14,6 +14,8 @@ export interface TechModalViewModel {
   isHumanTurn: boolean;
   /** Optional precomputed dynamic Star cost per tech ID (falls back to standard formula if omitted). */
   techCosts?: Partial<Record<TechId, number>>;
+  /** When set during the guided tutorial, highlights this tech and locks all others. */
+  tutorialTargetTechId?: TechId | null;
 }
 
 export interface TechModalCallbacks {
@@ -113,6 +115,12 @@ export class TechModal {
     this.openState = true;
     this.pendingTechId = null;
     this.lastVm = vm;
+    if (vm.tutorialTargetTechId) {
+      const targetTech = TECH_DEFINITIONS[vm.tutorialTargetTechId];
+      if (targetTech && targetTech.faction === vm.player.faction) {
+        this.activePillarIndex = targetTech.pillarIndex as PillarIndex;
+      }
+    }
     this.render(vm);
     this.root.classList.remove('hidden');
     this.restoreCarouselPosition(false);
@@ -150,6 +158,7 @@ export class TechModal {
 
   private render(vm: TechModalViewModel): void {
     const { player, cityCount, isHumanTurn, techCosts } = vm;
+    const tutorialTargetTechId = vm.tutorialTargetTechId ?? null;
     const factionDef = FACTION_DEFINITIONS[player.faction];
     const heraldry = FACTION_HERALDRY[player.faction];
     const factionTechs = getFactionTechs(player.faction);
@@ -175,6 +184,7 @@ export class TechModal {
           isHumanTurn &&
           techs.some(
             (t) =>
+              (!tutorialTargetTechId || t.id === tutorialTargetTechId) &&
               !researchedSet.has(t.id) &&
               hasAllPrerequisites(t, researchedSet) &&
               player.gold >= getCost(t),
@@ -224,7 +234,16 @@ export class TechModal {
     `;
 
     const pillarsHtml = pillars
-      .map((pillar) => this.renderPillar(pillar, getCost, player, researchedSet, isHumanTurn))
+      .map((pillar) =>
+        this.renderPillar(
+          pillar,
+          getCost,
+          player,
+          researchedSet,
+          isHumanTurn,
+          tutorialTargetTechId,
+        ),
+      )
       .join('');
 
     // Validate pending confirmation tech is still researchable
@@ -234,6 +253,7 @@ export class TechModal {
       if (
         candidate &&
         candidate.faction === player.faction &&
+        (!tutorialTargetTechId || candidate.id === tutorialTargetTechId) &&
         !researchedSet.has(candidate.id) &&
         hasAllPrerequisites(candidate, researchedSet) &&
         isHumanTurn &&
@@ -345,27 +365,28 @@ export class TechModal {
     player: PlayerState,
     researchedSet: ReadonlySet<TechId>,
     isHumanTurn: boolean,
+    tutorialTargetTechId: TechId | null,
   ): string {
     const { root, branchA, branchB, capstone } = pillar;
     const isPillarComplete = pillar.researchedCount === pillar.techs.length;
 
     const rootHtml = root
-      ? `<div class="tech-tree-row-center">${this.renderTechCard(root, getCost(root), player, researchedSet, isHumanTurn, 'wide')}</div>`
+      ? `<div class="tech-tree-row-center">${this.renderTechCard(root, getCost(root), player, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
       : '';
 
     const forkConnectorHtml = this.renderForkConnector(root, branchA, branchB, researchedSet);
 
     const branchRowHtml = `
       <div class="tech-tree-row-split">
-        ${branchA ? this.renderTechCard(branchA, getCost(branchA), player, researchedSet, isHumanTurn, 'branch') : '<div class="tech-slot-empty"></div>'}
-        ${branchB ? this.renderTechCard(branchB, getCost(branchB), player, researchedSet, isHumanTurn, 'branch') : '<div class="tech-slot-empty"></div>'}
+        ${branchA ? this.renderTechCard(branchA, getCost(branchA), player, researchedSet, isHumanTurn, 'branch', tutorialTargetTechId) : '<div class="tech-slot-empty"></div>'}
+        ${branchB ? this.renderTechCard(branchB, getCost(branchB), player, researchedSet, isHumanTurn, 'branch', tutorialTargetTechId) : '<div class="tech-slot-empty"></div>'}
       </div>
     `;
 
     const capstoneConnectorHtml = this.renderCapstoneConnector(branchA, branchB, capstone, researchedSet);
 
     const capstoneHtml = capstone
-      ? `<div class="tech-tree-row-center">${this.renderTechCard(capstone, getCost(capstone), player, researchedSet, isHumanTurn, 'wide')}</div>`
+      ? `<div class="tech-tree-row-center">${this.renderTechCard(capstone, getCost(capstone), player, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
       : '';
 
     return `
@@ -486,12 +507,15 @@ export class TechModal {
     researchedSet: ReadonlySet<TechId>,
     isHumanTurn: boolean,
     layout: 'wide' | 'branch',
+    tutorialTargetTechId: TechId | null,
   ): string {
     const isResearched = researchedSet.has(tech.id);
+    const isTutorialTarget = Boolean(tutorialTargetTechId && tech.id === tutorialTargetTechId);
+    const isTutorialLocked = Boolean(tutorialTargetTechId && tech.id !== tutorialTargetTechId);
     const missingPrereqs = tech.prerequisites.filter((id) => !researchedSet.has(id));
     const hasPrereq = missingPrereqs.length === 0;
     const isAffordable = player.gold >= cost;
-    const canResearch = !isResearched && hasPrereq && isAffordable && isHumanTurn;
+    const canResearch = !isResearched && !isTutorialLocked && hasPrereq && isAffordable && isHumanTurn;
     const shortfall = Math.max(0, cost - player.gold);
     const missingPrereqNames = missingPrereqs.map((id) => TECH_DEFINITIONS[id]?.name ?? id);
 
@@ -539,6 +563,14 @@ export class TechModal {
       tech.tier === 3
         ? `${renderIcon('crown', 'icon icon-xs icon-star')}<span>III &middot; Capstone</span>`
         : `<span>Tier ${toRoman(tech.tier)}</span>`;
+    const tutorialBadgeHtml = isTutorialTarget
+      ? '<span class="tech-tutorial-badge">TUTORIAL</span>'
+      : '';
+    const tutorialClass = isTutorialTarget
+      ? ' is-tutorial-target'
+      : isTutorialLocked
+        ? ' is-tutorial-locked'
+        : '';
     const tierClass = `tier-${tech.tier}${tech.slot === 'capstone' ? ' is-capstone' : ''}`;
     const layoutClass = `tech-card--${layout}`;
 
@@ -550,7 +582,7 @@ export class TechModal {
             <div class="tech-card-main">
               <div class="tech-card-head">
                 <div class="tech-card-titles">
-                  <div class="tech-tier-tag">${tierBadge}</div>
+                  <div class="tech-tier-tag">${tierBadge}${tutorialBadgeHtml}</div>
                   <div class="tech-name">${esc(tech.name)}</div>
                 </div>
                 <span class="tech-status-pill ${pillClass}">${pillHtml}</span>
@@ -564,7 +596,7 @@ export class TechModal {
           <div class="tech-card-branch-top">
             ${thumbHtml}
             <div class="tech-card-branch-meta">
-              <div class="tech-tier-tag">${tierBadge}</div>
+              <div class="tech-tier-tag">${tierBadge}${tutorialBadgeHtml}</div>
               <span class="tech-status-pill ${pillClass}">${pillHtml}</span>
             </div>
           </div>
@@ -574,14 +606,14 @@ export class TechModal {
         `;
 
     if (isResearched) {
-      return `<div class="tech-card ${layoutClass} ${tierClass} ${stateClass}">${innerHtml}</div>`;
+      return `<div class="tech-card ${layoutClass} ${tierClass} ${stateClass}${tutorialClass}">${innerHtml}</div>`;
     }
 
     const isPending = this.pendingTechId === tech.id;
     return `
       <button
         type="button"
-        class="tech-card ${layoutClass} ${tierClass} ${stateClass} ${isPending ? 'is-pending' : ''}"
+        class="tech-card ${layoutClass} ${tierClass} ${stateClass}${tutorialClass} ${isPending ? 'is-pending' : ''}"
         data-research-tech="${tech.id}"
         ${canResearch ? '' : 'disabled'}
       >
