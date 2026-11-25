@@ -1828,12 +1828,70 @@ html.android-webview .tech-confirm-card {
 }
 
 /* --------------------------------------------------------------------------
-   8) TOPBAR AGE METER & SUPERPOWER BUTTON, AGE-UP MODAL, CODEX GESTURES
+   8) TOPBAR ESCALATING AGE / RELIC GAUGE & SATISFYING SUPERPOWER MEDALLION
    -------------------------------------------------------------------------- */
+:root {
+  --sp-grad-low: linear-gradient(90deg, rgba(37, 99, 235, 0.16) 0%, rgba(245, 184, 51, 0.34) 100%);
+  --sp-grad-mid: linear-gradient(90deg, rgba(37, 99, 235, 0.28) 0%, rgba(245, 184, 51, 0.56) 100%);
+  --sp-grad-high: linear-gradient(90deg, rgba(37, 99, 235, 0.42) 0%, rgba(245, 184, 51, 0.78) 100%);
+  --sp-grad-ready: linear-gradient(180deg, #3b82f6 0%, #1d4ed8 60%, #1e3a8a 100%);
+  --sp-ring-glow: rgba(245, 184, 51, 0.65);
+  --sp-pip-fill: #d99b26;
+  --sp-accent-deep: #1e3a8a;
+}
+
+[data-faction='orcs'] {
+  --sp-grad-low: linear-gradient(90deg, rgba(185, 28, 28, 0.2) 0%, rgba(255, 107, 26, 0.36) 100%);
+  --sp-grad-mid: linear-gradient(90deg, rgba(185, 28, 28, 0.34) 0%, rgba(255, 107, 26, 0.62) 100%);
+  --sp-grad-high: linear-gradient(90deg, rgba(185, 28, 28, 0.5) 0%, rgba(255, 107, 26, 0.85) 100%);
+  --sp-grad-ready: linear-gradient(180deg, #ff6b1a 0%, #dc2626 58%, #7f1d1d 100%);
+  --sp-ring-glow: rgba(255, 107, 26, 0.72);
+  --sp-pip-fill: #ff6b1a;
+  --sp-accent-deep: #7f1d1d;
+}
+
+[data-faction='elves'] {
+  --sp-grad-low: linear-gradient(90deg, rgba(67, 56, 202, 0.18) 0%, rgba(167, 139, 250, 0.34) 100%);
+  --sp-grad-mid: linear-gradient(90deg, rgba(67, 56, 202, 0.32) 0%, rgba(167, 139, 250, 0.58) 100%);
+  --sp-grad-high: linear-gradient(90deg, rgba(67, 56, 202, 0.48) 0%, rgba(167, 139, 250, 0.82) 100%);
+  --sp-grad-ready: linear-gradient(180deg, #6366f1 0%, #4338ca 58%, #1e1b4b 100%);
+  --sp-ring-glow: rgba(167, 139, 250, 0.72);
+  --sp-pip-fill: #6366f1;
+  --sp-accent-deep: #1e1b4b;
+}
+
+[data-faction='dwarves'] {
+  --sp-grad-low: linear-gradient(90deg, rgba(180, 83, 9, 0.2) 0%, rgba(249, 115, 22, 0.36) 100%);
+  --sp-grad-mid: linear-gradient(90deg, rgba(180, 83, 9, 0.36) 0%, rgba(249, 115, 22, 0.62) 100%);
+  --sp-grad-high: linear-gradient(90deg, rgba(180, 83, 9, 0.54) 0%, rgba(251, 191, 36, 0.84) 100%);
+  --sp-grad-ready: linear-gradient(180deg, #f97316 0%, #c2410c 58%, #7c2d12 100%);
+  --sp-ring-glow: rgba(251, 191, 36, 0.72);
+  --sp-pip-fill: #f97316;
+  --sp-accent-deep: #7c2d12;
+}
+
+@keyframes relicSheenSweep {
+  0% { transform: translateX(-140%) skewX(-18deg); opacity: 0; }
+  25% { opacity: 0.65; }
+  75% { opacity: 0.65; }
+  100% { transform: translateX(260%) skewX(-18deg); opacity: 0; }
+}
+
+@keyframes relicPulseHigh {
+  0%, 100% { box-shadow: 0 4px 0 var(--ui-border-strong), 0 0 8px var(--sp-ring-glow), var(--ui-inset-highlight); }
+  50% { box-shadow: 0 4px 0 var(--ui-border-strong), 0 0 18px var(--sp-ring-glow), var(--ui-inset-highlight); }
+}
+
+@keyframes superpowerBeaconPulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 6px 0 var(--sp-accent-deep), 0 0 14px var(--sp-ring-glow); }
+  50% { transform: scale(1.045); box-shadow: 0 6px 0 var(--sp-accent-deep), 0 0 26px var(--sp-ring-glow); }
+}
+
 .top-age-meter {
   position: relative;
   overflow: hidden;
-  min-width: 82px;
+  min-width: 108px;
+  padding: 0 10px 0 6px !important;
 }
 
 .top-age-meter-track {
@@ -1841,6 +1899,7 @@ html.android-webview .tech-confirm-card {
   inset: 0;
   pointer-events: none;
   z-index: 0;
+  overflow: hidden;
 }
 
 .top-age-meter-fill {
@@ -1848,15 +1907,45 @@ html.android-webview .tech-confirm-card {
   top: 0;
   left: 0;
   bottom: 0;
-  background: linear-gradient(90deg, rgba(217, 155, 38, 0.22) 0%, rgba(217, 155, 38, 0.44) 100%);
-  border-right: 2px solid rgba(217, 155, 38, 0.58);
-  transition: width 240ms ease;
+  background: var(--sp-grad-low);
+  border-right: 2px solid var(--sp-pip-fill);
+  transition: width 320ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
 }
 
-[data-faction='orcs'] .top-age-meter.is-filling .top-age-meter-fill,
-[data-faction='dwarves'] .top-age-meter.is-filling .top-age-meter-fill {
-  background: linear-gradient(90deg, rgba(245, 184, 51, 0.24) 0%, rgba(245, 184, 51, 0.46) 100%);
-  border-right-color: rgba(245, 184, 51, 0.65);
+.top-age-meter.charge-mid .top-age-meter-fill {
+  background: var(--sp-grad-mid);
+}
+
+.top-age-meter.charge-high {
+  border-color: var(--ui-gold) !important;
+  animation: relicPulseHigh 1.8s ease-in-out infinite;
+}
+
+.top-age-meter.charge-high .top-age-meter-fill {
+  background: var(--sp-grad-high);
+}
+
+.top-age-meter-sheen {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 44%;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.5) 50%, transparent 100%);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.top-age-meter.charge-mid .top-age-meter-sheen {
+  animation: relicSheenSweep 3.2s ease-in-out infinite;
+}
+
+.top-age-meter.charge-high .top-age-meter-sheen {
+  animation: relicSheenSweep 1.65s ease-in-out infinite;
+}
+
+.top-age-meter.is-superpower-ready .top-age-meter-sheen {
+  animation: relicSheenSweep 1.9s ease-in-out infinite;
 }
 
 .top-age-meter-content {
@@ -1865,33 +1954,146 @@ html.android-webview .tech-confirm-card {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
+}
+
+.relic-medallion {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  background: var(--ui-surface-recessed);
+  border: 2px solid var(--ui-border-color);
+  color: var(--ui-ink-muted);
+}
+
+.relic-medallion.charge-low {
+  opacity: 0.72;
+}
+
+.relic-medallion.charge-mid {
+  border-color: var(--ui-gold);
+  color: var(--ui-ink);
+  background: rgba(245, 184, 51, 0.22);
+}
+
+.relic-medallion.charge-high {
+  border-color: var(--ui-gold);
+  background: var(--sp-grad-ready);
+  color: #ffffff;
+}
+
+.relic-medallion.is-ignited {
+  border-color: #fde047;
+  background: rgba(0, 0, 0, 0.26);
+  color: #fef08a;
+}
+
+.relic-medallion.is-spent {
+  opacity: 0.55;
+}
+
+.top-age-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1.05;
+  gap: 3px;
+}
+
+.top-age-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.top-age-val {
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+}
+
+.top-age-soon {
+  font-size: 0.62rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--ui-gold);
+  color: #1c1408;
+}
+
+.top-age-sub {
+  font-size: 0.63rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #fef08a;
+}
+
+.relic-pips {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.relic-pip {
+  width: 7px;
+  height: 5px;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+[data-faction='orcs'] .relic-pip,
+[data-faction='dwarves'] .relic-pip {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.relic-pip.is-milestone {
+  margin-right: 3px;
+}
+
+.relic-pip.is-filled {
+  background: var(--sp-pip-fill);
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 .top-age-meter.is-superpower-ready {
-  border-color: var(--ui-gold) !important;
+  border-color: #fde047 !important;
   box-shadow:
-    0 3px 0 var(--ui-accent-deep),
-    0 0 14px rgba(245, 184, 51, 0.55),
+    0 4px 0 var(--sp-accent-deep),
+    0 0 18px var(--sp-ring-glow),
     var(--ui-inset-highlight) !important;
+  animation: relicPulseHigh 1.4s ease-in-out infinite;
+}
+
+.top-age-meter.is-superpower-ready:active {
+  transform: translateY(2px);
 }
 
 .top-age-meter.is-superpower-ready .top-age-meter-fill {
-  background: linear-gradient(180deg, var(--ui-accent-bright) 0%, var(--ui-accent) 100%);
+  background: var(--sp-grad-ready);
   border-right: none;
 }
 
 .top-age-meter.is-superpower-ready .top-age-val,
 .top-age-meter.is-superpower-ready .icon-age {
-  color: var(--ui-cta-text) !important;
+  color: #ffffff !important;
 }
 
 .top-age-meter.is-superpower-targeting {
   border-color: #f87171 !important;
   box-shadow:
-    0 3px 0 #7f1d1d,
-    0 0 12px rgba(239, 68, 68, 0.5),
+    0 4px 0 #7f1d1d,
+    0 0 14px rgba(239, 68, 68, 0.55),
     var(--ui-inset-highlight) !important;
+  animation: none;
 }
 
 .top-age-meter.is-superpower-targeting .top-age-meter-fill {
@@ -1899,8 +2101,88 @@ html.android-webview .tech-confirm-card {
 }
 
 .top-age-meter.is-superpower-targeting .top-age-val,
-.top-age-meter.is-superpower-targeting .icon-age {
+.top-age-meter.is-superpower-targeting .icon-age,
+.top-age-meter.is-superpower-targeting .top-age-sub {
   color: #ffffff !important;
+}
+
+/* Tactile Center-Bottom Superpower Activation Medallion (Age III Ready) */
+.tt-dock-btn-superpower {
+  margin-top: -10px;
+}
+
+.tt-superpower-medallion {
+  position: relative;
+  width: 72px !important;
+  height: 72px !important;
+  border-radius: 50%;
+  background: var(--sp-grad-ready) !important;
+  border: 3.5px solid #fde047 !important;
+  color: #ffffff !important;
+  box-shadow:
+    0 6px 0 var(--sp-accent-deep),
+    0 0 20px var(--sp-ring-glow) !important;
+  animation: superpowerBeaconPulse 1.65s ease-in-out infinite;
+  transition: transform 110ms ease;
+}
+
+.tt-dock-btn-superpower:active .tt-superpower-medallion {
+  transform: translateY(4px) scale(0.96);
+  box-shadow:
+    0 2px 0 var(--sp-accent-deep),
+    0 0 12px var(--sp-ring-glow) !important;
+}
+
+.tt-superpower-ring {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(254, 240, 138, 0.65);
+  pointer-events: none;
+}
+
+.icon-superpower-dock {
+  width: 34px !important;
+  height: 34px !important;
+  color: #fef08a;
+}
+
+.tt-superpower-label {
+  background: var(--sp-grad-ready) !important;
+  border-color: #fde047 !important;
+  color: #ffffff !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tt-dock-btn-superpower.is-targeting .tt-superpower-medallion {
+  background: linear-gradient(180deg, #ef4444 0%, #b91c1c 100%) !important;
+  border-color: #fecaca !important;
+  animation: none;
+  box-shadow: 0 5px 0 #7f1d1d !important;
+}
+
+.tt-dock-btn-superpower.is-targeting .tt-superpower-label {
+  background: #b91c1c !important;
+  border-color: #fecaca !important;
+}
+
+/* Android WebView GPU Safety for new escalating gauge & Superpower Medallion */
+html.android-webview .top-age-meter.charge-high,
+html.android-webview .top-age-meter.is-superpower-ready,
+html.android-webview .top-age-meter-sheen,
+html.android-webview .tt-superpower-medallion {
+  animation: none !important;
+  box-shadow: none !important;
+}
+
+html.android-webview .top-age-meter.is-superpower-ready {
+  border-bottom: 4px solid var(--sp-accent-deep) !important;
+}
+
+html.android-webview .tt-superpower-medallion {
+  border-bottom: 6px solid var(--sp-accent-deep) !important;
 }
 
 /* Age Advancement Celebration Modal */

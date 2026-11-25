@@ -185,13 +185,14 @@ const ICON_PATHS: Record<IconName, string> = {
 
   // Per-Civ Age III Superpower Icons
   // Humans: Beacon Tower / Radiant Citadel
-  superpowerHumans: `<path d="M8 20.5h8M9 20.5V11h6v9.5M8 11V8.5h2v1.2h4V8.5h2V11z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M12 3.2l1.1 2.3 2.4.9-2.4.9L12 9.6l-1.1-2.3-2.4-.9 2.4-.9z" fill="currentColor" stroke="none"/>`,
-  // Orcs: Erupting Volcano
-  superpowerOrcs: `<path d="M3.5 20h17l-5.2-10h-6.6L3.5 20z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M9.5 10c-.5-2 .5-3.8 2.5-5.5 1.8 1.5 2.8 3.2 2.4 5.5M12 4.5V2.5M7.5 6.5L6 5M16.5 6.5L18 5" stroke-linecap="round" stroke-linejoin="round"/>`,
-  // Elves: Starlight Eclipse
-  superpowerElves: `<circle cx="12" cy="12" r="6" fill="currentColor" fill-opacity="0.28"/><path d="M14.5 6.8a5.5 5.5 0 100 10.4A4.6 4.6 0 1114.5 6.8z" fill="currentColor" stroke="none"/><path d="M12 2.2v2M12 19.8v2M2.2 12h2M19.8 12h2" stroke-linecap="round"/>`,
-  // Dwarves: Ancient Dragon
-  superpowerDwarves: `<path d="M5 18.5c2.2-1.8 4-4.2 4.5-7.2L7 8.5l3.5-1.2L12 4l2.2 3.2 4.8.6-2.8 3.2 2.3 2.5-4.5.8c-.5 2.2-1.8 3.8-4 4.8L5 18.5z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><circle cx="13.5" cy="9.5" r="0.9" fill="currentColor" stroke="none"/>`,
+  // Humans: Radiant Beacon Watchtower
+  superpowerHumans: `<path d="M6.5 21h11M8 21V11.5h8V21M7 11.5V8.5h2.4v1.4h5.2V8.5H17v3z" fill="currentColor" fill-opacity="0.3" stroke-linejoin="round" stroke-linecap="round"/><path d="M10.8 21v-3.5a1.2 1.2 0 012.4 0V21" stroke-linecap="round"/><path d="M12 1.8l1.2 2.7 2.8 1-2.8 1L12 9.2l-1.2-2.7-2.8-1 2.8-1z" fill="currentColor" stroke="none"/>`,
+  // Orcs: Erupting Volcano with Magma Plume & Embers
+  superpowerOrcs: `<path d="M2.8 20.5h18.4l-5.6-10.2H8.4L2.8 20.5z" fill="currentColor" fill-opacity="0.32" stroke-linejoin="round"/><path d="M9.4 10.3c-.7-2.3.5-4.3 2.6-6.2 2 1.8 3.2 3.8 2.6 6.2z" fill="currentColor" stroke="none"/><path d="M12 2.2v1.6M6.8 6.8L5 5.2M17.2 6.8L19 5.2M8.8 14.5l1.8 2.2 1.6-1.4 2.2 2.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+  // Elves: Total Starlight Eclipse with Corona Rays
+  superpowerElves: `<circle cx="12" cy="12" r="6.2" fill="currentColor" fill-opacity="0.24"/><path d="M14.6 6.4a5.8 5.8 0 100 11.2 4.7 4.7 0 110-11.2z" fill="currentColor" stroke="none"/><path d="M12 1.8v2.2M12 20v2.2M1.8 12H4M20 12h2.2M4.8 4.8l1.5 1.5M17.7 17.7l1.5 1.5M19.2 4.8l-1.5 1.5M6.3 17.7l-1.5 1.5" stroke-linecap="round"/>`,
+  // Dwarves: Winged Fire Drake with Flame Breath
+  superpowerDwarves: `<path d="M3.2 17.5c2.2-1.5 4.2-3.8 5-6.8L4.5 7.2l4.4-.6L11.2 3l2.2 3.4 4.8.4-2.8 3.2 3.2 2.2-4.8 1.2c-.8 2.4-2.4 4.3-5.2 5.4l-5.4-1.3z" fill="currentColor" fill-opacity="0.32" stroke-linejoin="round"/><path d="M18.2 10.2l3.4-1.4-1.6 2.8 2 1.2-3.4.2" fill="currentColor" stroke="none"/><circle cx="13.4" cy="9.2" r="0.95" fill="currentColor" stroke="none"/>`,
 };
 
 export function renderIcon(name: IconName, className = 'icon'): string {

@@ -227,6 +227,9 @@ export class AppController {
       onDeselect: () => this.clearSelection(),
       onSwitchLayer: (layer) => this.switchSelectionLayer(layer),
       onOpenTech: () => this.openTechModal(),
+      onActivateSuperpower: () => {
+        void this.handleSuperpowerButtonClick();
+      },
       onNextReadyUnit: () => this.focusNextReadyUnit(),
       onEndTurn: () => {
         void this.handleEndTurn();
@@ -2240,6 +2243,10 @@ export class AppController {
     const allUnitsActed = remainingUnitsCount === 0 || isTutorialEndTurnStep;
     const combatPreview = this.buildCombatPreview();
 
+    const canPower =
+      !this.tutorial.isActive() && canUseSuperpower(this.state, this.humanPlayerId);
+    const spDef = SUPERPOWER_DEFINITIONS[human.faction];
+
     if (!this.selectedCoord) {
       this.actionBar.update({
         isHumanTurn: isHuman,
@@ -2249,6 +2256,9 @@ export class AppController {
         affordableTechCount,
         remainingUnitsCount,
         allUnitsActed,
+        canUseSuperpower: canPower,
+        superpowerTargeting: this.isSuperpowerTargeting,
+        superpowerLabel: spDef.shortLabel,
         selectionLayer: 'unit',
         canToggleLayer: false,
         altLayerLabel: 'Tile',

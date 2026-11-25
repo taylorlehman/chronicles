@@ -118,12 +118,16 @@ export class TopBar {
 
     const age: PlayerAge = vm.age ?? getPlayerAge(vm.player);
     const techCount = vm.techCount ?? vm.player.techs.length;
-    const fillPct = Math.max(0, Math.min(100, Math.round((techCount / 7) * 100)));
+    const clampedTechs = Math.max(0, Math.min(7, techCount));
+    const fillPct = Math.round((clampedTechs / 7) * 100);
     const superpowerUsed = Boolean(vm.superpowerUsed);
     const superpowerTargeting = Boolean(vm.superpowerTargeting);
     const canUseSuperpower = Boolean(vm.canUseSuperpower && !superpowerUsed);
     const isSuperpowerMode = (canUseSuperpower || superpowerTargeting) && !superpowerUsed;
     const ageLabel = `Age ${AGE_ROMAN[age]}`;
+    const remainingToAge3 = Math.max(0, 7 - clampedTechs);
+    const chargeTier =
+      clampedTechs >= 5 ? 'charge-high' : clampedTechs >= 3 ? 'charge-mid' : 'charge-low';
     const superpowerShort = superpowerTargeting
       ? 'Cancel'
       : shortSuperpowerLabel(vm.player.faction, vm.superpowerName);
@@ -133,13 +137,19 @@ export class TopBar {
         ? `Activate ${vm.superpowerName}`
         : `Activate ${superpowerShort} Superpower`;
 
+    const pipsHtml = Array.from({ length: 7 }, (_, i) => {
+      const filled = i < clampedTechs;
+      const isMilestone = i === 2;
+      return `<span class="relic-pip ${filled ? 'is-filled' : ''} ${isMilestone ? 'is-milestone' : ''}"></span>`;
+    }).join('');
+
     const barKey = [
       vm.player.faction,
       vm.player.score,
       vm.player.gold,
       vm.player.goldPerTurn,
       age,
-      techCount,
+      clampedTechs,
       canUseSuperpower ? 1 : 0,
       superpowerUsed ? 1 : 0,
       superpowerTargeting ? 1 : 0,
@@ -161,14 +171,20 @@ export class TopBar {
         >
           <span class="top-age-meter-track" aria-hidden="true">
             <span class="top-age-meter-fill" style="width: 100%;"></span>
+            <span class="top-age-meter-sheen"></span>
           </span>
           <span class="top-age-meter-content">
-            ${
-              superpowerTargeting
-                ? renderIcon('close', 'icon icon-sm icon-age')
-                : renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')
-            }
-            <span class="top-age-val">${esc(superpowerShort)}</span>
+            <span class="relic-medallion is-ignited" aria-hidden="true">
+              ${
+                superpowerTargeting
+                  ? renderIcon('close', 'icon icon-sm icon-age')
+                  : renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')
+              }
+            </span>
+            <span class="top-age-stack">
+              <span class="top-age-val">${esc(superpowerShort)}</span>
+              <span class="top-age-sub">${superpowerTargeting ? 'Tap target' : 'Ready!'}</span>
+            </span>
           </span>
         </button>
       `
@@ -182,7 +198,9 @@ export class TopBar {
             aria-label="${ageLabel} — Open Tech Codex"
           >
             <span class="top-age-meter-content">
-              ${renderIcon('codex', 'icon icon-sm icon-age')}
+              <span class="relic-medallion is-spent" aria-hidden="true">
+                ${renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')}
+              </span>
               <span class="top-age-val">${ageLabel}</span>
             </span>
           </button>
@@ -190,17 +208,27 @@ export class TopBar {
         : `
           <button
             type="button"
-            class="top-pill top-pill-age top-age-meter is-filling"
+            class="top-pill top-pill-age top-age-meter is-filling ${chargeTier}"
             data-action="codex"
-            title="${ageLabel} (${techCount}/7 Lore to Age III) — Open Tech Codex"
-            aria-label="${ageLabel}, ${techCount} of 7 technologies to Age III — Open Tech Codex"
+            title="${ageLabel} (${clampedTechs}/7 to unlock ${esc(superpowerShort)}) — Open Tech Codex"
+            aria-label="${ageLabel}, ${clampedTechs} of 7 technologies to unlock ${esc(superpowerShort)} — Open Tech Codex"
           >
             <span class="top-age-meter-track" aria-hidden="true">
-              <span class="top-age-meter-fill" style="width: ${fillPct}%;"></span>
+              <span class="top-age-meter-fill" style="width: ${fillPct}%;">
+                <span class="top-age-meter-sheen"></span>
+              </span>
             </span>
             <span class="top-age-meter-content">
-              ${renderIcon('codex', 'icon icon-sm icon-age')}
-              <span class="top-age-val">${ageLabel}</span>
+              <span class="relic-medallion ${chargeTier}" aria-hidden="true">
+                ${renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')}
+              </span>
+              <span class="top-age-stack">
+                <span class="top-age-row">
+                  <span class="top-age-val">${ageLabel}</span>
+                  ${remainingToAge3 <= 2 ? `<span class="top-age-soon">${remainingToAge3} left</span>` : ''}
+                </span>
+                <span class="relic-pips" aria-hidden="true">${pipsHtml}</span>
+              </span>
             </span>
           </button>
         `;
