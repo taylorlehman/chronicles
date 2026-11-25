@@ -9,6 +9,7 @@ import {
 import { getUnitWorldPosition, TILE_TOP_Y, tileToWorld } from './assets/terrainMesh';
 import type { BuiltUnitSprite } from './assets/unitSprite';
 import type { BoardRenderer } from './BoardRenderer';
+import type { SceneManager } from './SceneManager';
 import type { WorldBadges } from './WorldBadges';
 
 interface TweenTask {
@@ -46,6 +47,7 @@ const projectileHaloGeo = new THREE.OctahedronGeometry(0.19, 1);
 const slashGeo = new THREE.TorusGeometry(0.45, 0.045, 4, 14, Math.PI * 0.85);
 const glowRingGeo = new THREE.RingGeometry(0.26, 0.44, 32);
 glowRingGeo.rotateX(-Math.PI / 2);
+const summonPillarGeo = new THREE.CylinderGeometry(0.42, 0.56, 3.6, 16, 1, true);
 
 const CONFETTI_COLORS = ['#facc15', '#38bdf8', '#34d399', '#fb7185', '#fb923c', '#f8fafc'];
 
@@ -73,13 +75,15 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 export class AnimationQueue {
   private readonly board: BoardRenderer;
   private readonly badges: WorldBadges;
+  private readonly sceneManager?: SceneManager;
   private readonly tweens: TweenTask[] = [];
   private readonly particles: Particle[] = [];
   private playing = false;
 
-  constructor(board: BoardRenderer, badges: WorldBadges) {
+  constructor(board: BoardRenderer, badges: WorldBadges, sceneManager?: SceneManager) {
     this.board = board;
     this.badges = badges;
+    this.sceneManager = sceneManager;
   }
 
   public isPlaying(): boolean {
@@ -510,6 +514,11 @@ export class AnimationQueue {
         return;
       }
 
+      case 'SUPERPOWER_USED': {
+        await this.playSuperpowerEvent(ev, stateAfter, viewerId, invSpeed);
+        return;
+      }
+
       default:
         return;
     }
@@ -879,6 +888,252 @@ export class AnimationQueue {
       this.board.fxGroup.remove(outerRing, innerRing);
       outerMat.dispose();
       innerMat.dispose();
+    }
+  }
+
+  /**
+   * Punchy 500-700ms 3D spectacle for Age III Faction Superpowers.
+   */
+  private async playSuperpowerEvent(
+    ev: Extract<GameEvent, { type: 'SUPERPOWER_USED' }>,
+    stateAfter: GameState,
+    viewerId: PlayerId,
+    invSpeed: number,
+  ): Promise<void> {
+    const mapSize = stateAfter.mapSize;
+
+    // Resolve focal coordinate (explicit target, affected tile, owner's capital, or board center)
+    const ownerCities = Object.values(stateAfter.cities).filter((c) => c.ownerId === ev.playerId);
+    const ownerCapital = ownerCities.find((c) => c.isCapital) ?? ownerCities[0];
+    const viewerCities = Object.values(stateAfter.cities).filter((c) => c.ownerId === viewerId);
+    const viewerCapital = viewerCities.find((c) => c.isCapital) ?? viewerCities[0];
+
+    const focalCoord: Coord =
+      ev.target ??
+      ev.affectedCoords?.[0] ??
+      (ownerCapital ? { x: ownerCapital.x, y: ownerCapital.y } : null) ??
+      (viewerCapital ? { x: viewerCapital.x, y: viewerCapital.y } : null) ?? {
+        x: Math.floor(mapSize / 2),
+        y: Math.floor(mapSize / 2),
+      };
+
+    switch (ev.faction) {
+      case 'elves': {
+        // Global realm-wide Starlit Eclipse: shift lighting immediately + expanding starlight shockwave
+        this.sceneManager?.setEclipseMode(true);
+        const textCoord = this.isCoordVisible(stateAfter, viewerId, focalCoord)
+          ? focalCoord
+          : viewerCapital
+            ? { x: viewerCapital.x, y: viewerCapital.y }
+            : focalCoord;
+        const pos = tileToWorld(textCoord.x, textCoord.y, mapSize, TILE_TOP_Y + 0.24);
+        this.badges.spawnFloatingText(textCoord, 'STARLIT ECLIPSE!', 'level');
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.5, 0)), 18, '#c7d2fe', {
+          spark: true,
+          speed: 3.4,
+          gravity: 2.6,
+          life: 0.72,
+          scale: 1.15,
+        });
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.35, 0)), 12, '#818cf8', {
+          spark: true,
+          speed: 2.8,
+          gravity: 2.2,
+          life: 0.65,
+        });
+        await this.animateStarlightShockwave(pos, 0.64 * invSpeed);
+        return;
+      }
+
+      case 'orcs': {
+        const coords = ev.affectedCoords && ev.affectedCoords.length > 0 ? ev.affectedCoords : [focalCoord];
+        const visibleCoords = coords.filter((c) => this.isCoordVisible(stateAfter, viewerId, c));
+        if (visibleCoords.length === 0 && ev.playerId !== viewerId) return;
+
+        const centerCoord = ev.target ?? visibleCoords[0] ?? focalCoord;
+        const centerPos = tileToWorld(centerCoord.x, centerCoord.y, mapSize, TILE_TOP_Y + 0.2);
+        this.sceneManager?.focusOnWorld(centerPos);
+        this.sceneManager?.shakeCamera(0.55, 0.56 * invSpeed);
+        this.badges.spawnFloatingText(centerCoord, 'VOLCANIC CATACLYSM!', 'damage');
+
+        const ringAnims: Promise<void>[] = [];
+        for (const c of visibleCoords.length > 0 ? visibleCoords : coords) {
+          const p = tileToWorld(c.x, c.y, mapSize, TILE_TOP_Y + 0.22);
+          this.spawnBurst(p.clone().add(new THREE.Vector3(0, 0.28, 0)), 10, '#ff5a1f', {
+            spark: true,
+            speed: 3.4,
+            gravity: 5.8,
+            life: 0.62,
+            scale: 1.15,
+          });
+          this.spawnBurst(p.clone().add(new THREE.Vector3(0, 0.18, 0)), 6, '#facc15', {
+            spark: true,
+            speed: 2.6,
+            gravity: 4.5,
+            life: 0.5,
+          });
+          ringAnims.push(this.animateRisingPulseRing(p, '#ff5a1f', 0.58 * invSpeed));
+        }
+        await Promise.all(ringAnims);
+        return;
+      }
+
+      case 'dwarves': {
+        if (!this.isCoordVisible(stateAfter, viewerId, focalCoord) && ev.playerId !== viewerId) {
+          return;
+        }
+        const pos = tileToWorld(focalCoord.x, focalCoord.y, mapSize, TILE_TOP_Y + 0.18);
+        this.sceneManager?.focusOnWorld(pos);
+        this.badges.spawnFloatingText(focalCoord, 'FIRE DRAKE AWAKENED!', 'level');
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.65, 0)), 18, '#ff5a1f', {
+          spark: true,
+          speed: 3.5,
+          gravity: 4.2,
+          life: 0.68,
+          scale: 1.2,
+        });
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.5, 0)), 14, '#facc15', {
+          spark: true,
+          speed: 2.8,
+          gravity: 3.6,
+          life: 0.62,
+        });
+        await this.animateSummonPillar(pos, '#ef4444', '#facc15', 0.62 * invSpeed);
+        return;
+      }
+
+      case 'humans': {
+        if (!this.isCoordVisible(stateAfter, viewerId, focalCoord) && ev.playerId !== viewerId) {
+          return;
+        }
+        const pos = tileToWorld(focalCoord.x, focalCoord.y, mapSize, TILE_TOP_Y + 0.18);
+        this.sceneManager?.focusOnWorld(pos);
+        this.badges.spawnFloatingText(focalCoord, 'WATCHTOWER RAISED!', 'level');
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.55, 0)), 16, '#f5c542', {
+          spark: true,
+          speed: 3.0,
+          gravity: 4.4,
+          life: 0.62,
+          scale: 1.1,
+        });
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.45, 0)), 10, '#93c5fd', {
+          spark: true,
+          speed: 2.4,
+          gravity: 3.8,
+          life: 0.55,
+        });
+        await this.animateSummonPillar(pos, '#f5c542', '#93c5fd', 0.60 * invSpeed);
+        return;
+      }
+    }
+  }
+
+  /**
+   * Wide expanding silver-indigo starlight shockwave for Elves' Starlit Eclipse.
+   */
+  private async animateStarlightShockwave(
+    worldPos: THREE.Vector3,
+    duration: number,
+  ): Promise<void> {
+    const outerMat = new THREE.MeshBasicMaterial({
+      color: '#818cf8',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+    });
+    const innerMat = new THREE.MeshBasicMaterial({
+      color: '#e0e7ff',
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    });
+
+    const outerRing = new THREE.Mesh(glowRingGeo, outerMat);
+    outerRing.position.copy(worldPos);
+    outerRing.renderOrder = 36;
+    this.board.fxGroup.add(outerRing);
+
+    const innerRing = new THREE.Mesh(glowRingGeo, innerMat);
+    innerRing.position.copy(worldPos);
+    innerRing.renderOrder = 36;
+    this.board.fxGroup.add(innerRing);
+
+    const baseY = worldPos.y;
+    try {
+      await this.runTween(duration, (t) => {
+        const e = easeOutCubic(t);
+        outerRing.scale.setScalar(1.0 + e * 14.0);
+        outerRing.position.y = baseY + e * 0.45;
+        outerMat.opacity = Math.max(0, 0.92 * (1 - easeInOutQuad(t)));
+
+        const t2 = THREE.MathUtils.clamp((t - 0.1) / 0.9, 0, 1);
+        const e2 = easeOutCubic(t2);
+        innerRing.scale.setScalar(0.8 + e2 * 10.5);
+        innerRing.position.y = baseY + e2 * 0.65;
+        innerMat.opacity = t < 0.1 ? 0 : Math.max(0, 0.85 * (1 - easeInOutQuad(t2)));
+      });
+    } finally {
+      this.board.fxGroup.remove(outerRing, innerRing);
+      outerMat.dispose();
+      innerMat.dispose();
+    }
+  }
+
+  /**
+   * Rising translucent light pillar + expanding base ring for Fire Drake & Watchtower summons.
+   */
+  private async animateSummonPillar(
+    worldPos: THREE.Vector3,
+    primaryColor: string,
+    accentColor: string,
+    duration: number,
+  ): Promise<void> {
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: primaryColor,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.65,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: accentColor,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.94,
+      depthWrite: false,
+    });
+
+    const pillar = new THREE.Mesh(summonPillarGeo, pillarMat);
+    pillar.position.set(worldPos.x, worldPos.y + 1.8, worldPos.z);
+    pillar.renderOrder = 35;
+    this.board.fxGroup.add(pillar);
+
+    const ring = new THREE.Mesh(glowRingGeo, ringMat);
+    ring.position.copy(worldPos);
+    ring.renderOrder = 36;
+    this.board.fxGroup.add(ring);
+
+    const baseY = worldPos.y;
+    try {
+      await this.runTween(duration, (t) => {
+        const e = easeOutCubic(t);
+        const pillarFade = t < 0.25 ? t / 0.25 : 1 - easeInOutQuad((t - 0.25) / 0.75);
+        const radiusScale = 0.75 + e * 0.85;
+        pillar.scale.set(radiusScale, 0.4 + e * 1.15, radiusScale);
+        pillar.position.y = baseY + (0.4 + e * 1.15) * 1.5;
+        pillarMat.opacity = Math.max(0, 0.68 * pillarFade);
+
+        ring.scale.setScalar(0.8 + e * 4.4);
+        ring.position.y = baseY + e * 0.48;
+        ringMat.opacity = Math.max(0, 0.94 * (1 - easeInOutQuad(t)));
+      });
+    } finally {
+      this.board.fxGroup.remove(pillar, ring);
+      pillarMat.dispose();
+      ringMat.dispose();
     }
   }
 }

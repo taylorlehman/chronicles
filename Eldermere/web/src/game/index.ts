@@ -25,12 +25,14 @@ export {
   PLANT_WOODS_COST,
   RESOURCE_POP_GAIN,
   ROAD_COST,
+  SUPERPOWER_DEFINITIONS,
   calculatePlayerIncome,
   calculatePlayerScore,
   canPassMountains,
   canResearchTech,
   canUnitCapture,
   canUnitExploreRuins,
+  canUseSuperpower,
   chebyshevDist,
   computeCapitalConnections,
   getActivePlayer,
@@ -46,6 +48,7 @@ export {
   getPlayerAge,
   getPlayerCities,
   getPlayerUnits,
+  getSuperpowerTargetCoords,
   getTechCost,
   getTechResearchBlockReason,
   getTileActionOptions,
@@ -64,6 +67,7 @@ export {
   isRuinsTile,
   unitHasTrait,
   type AgeProgressInfo,
+  type SuperpowerDefinition,
 } from './rules';
 
 // Core Simulation Engine

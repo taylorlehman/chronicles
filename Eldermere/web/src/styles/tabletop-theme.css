@@ -1826,3 +1826,299 @@ html.android-webview .tech-confirm-card {
   background: var(--ui-surface-solid) !important;
   border-bottom: 4px solid var(--ui-border-strong) !important;
 }
+
+/* --------------------------------------------------------------------------
+   8) TOPBAR AGE METER & SUPERPOWER BUTTON, AGE-UP MODAL, CODEX GESTURES
+   -------------------------------------------------------------------------- */
+.top-age-meter {
+  position: relative;
+  overflow: hidden;
+  min-width: 82px;
+}
+
+.top-age-meter-track {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.top-age-meter-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(217, 155, 38, 0.22) 0%, rgba(217, 155, 38, 0.44) 100%);
+  border-right: 2px solid rgba(217, 155, 38, 0.58);
+  transition: width 240ms ease;
+}
+
+[data-faction='orcs'] .top-age-meter.is-filling .top-age-meter-fill,
+[data-faction='dwarves'] .top-age-meter.is-filling .top-age-meter-fill {
+  background: linear-gradient(90deg, rgba(245, 184, 51, 0.24) 0%, rgba(245, 184, 51, 0.46) 100%);
+  border-right-color: rgba(245, 184, 51, 0.65);
+}
+
+.top-age-meter-content {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.top-age-meter.is-superpower-ready {
+  border-color: var(--ui-gold) !important;
+  box-shadow:
+    0 3px 0 var(--ui-accent-deep),
+    0 0 14px rgba(245, 184, 51, 0.55),
+    var(--ui-inset-highlight) !important;
+}
+
+.top-age-meter.is-superpower-ready .top-age-meter-fill {
+  background: linear-gradient(180deg, var(--ui-accent-bright) 0%, var(--ui-accent) 100%);
+  border-right: none;
+}
+
+.top-age-meter.is-superpower-ready .top-age-val,
+.top-age-meter.is-superpower-ready .icon-age {
+  color: var(--ui-cta-text) !important;
+}
+
+.top-age-meter.is-superpower-targeting {
+  border-color: #f87171 !important;
+  box-shadow:
+    0 3px 0 #7f1d1d,
+    0 0 12px rgba(239, 68, 68, 0.5),
+    var(--ui-inset-highlight) !important;
+}
+
+.top-age-meter.is-superpower-targeting .top-age-meter-fill {
+  background: linear-gradient(180deg, #ef4444 0%, #b91c1c 100%);
+}
+
+.top-age-meter.is-superpower-targeting .top-age-val,
+.top-age-meter.is-superpower-targeting .icon-age {
+  color: #ffffff !important;
+}
+
+/* Age Advancement Celebration Modal */
+.age-up-modal {
+  z-index: 82;
+}
+
+.age-up-panel {
+  width: min(410px, calc(100vw - 28px));
+  padding: 22px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.age-up-crest-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 2px;
+}
+
+.age-up-crest-medallion {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  border: 3.5px solid var(--ui-gold);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+.age-up-crest-svg {
+  width: 36px;
+  height: 36px;
+}
+
+.age-up-roman-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -4px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f5b833 0%, #c98314 100%);
+  border: 2px solid var(--ui-rim);
+  color: #1f1606;
+  font-family: var(--font-ui) !important;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  display: grid;
+  place-items: center;
+}
+
+.age-up-headline {
+  margin: 0;
+  font-family: var(--font-ui) !important;
+  font-size: 25px;
+  font-weight: 900;
+  line-height: 1.1;
+  color: var(--ui-ink);
+}
+
+.age-up-summary {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.38;
+  color: var(--ui-ink);
+}
+
+.age-up-unlock-strip {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--ui-surface-recessed);
+  border: 2px solid var(--ui-border-color);
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ui-ink);
+}
+
+.age-up-unlock-icon {
+  color: var(--ui-gold);
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.age-up-superpower-card {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 13px;
+  border-radius: 13px;
+  background: var(--ui-surface-recessed);
+  border: 2.5px solid var(--ui-gold);
+  text-align: left;
+}
+
+.age-up-superpower-icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  border-radius: 11px;
+  background: var(--age-heraldry, var(--ui-accent));
+  border: 2px solid var(--ui-rim);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+}
+
+.age-up-superpower-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.age-up-superpower-label {
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ui-gold);
+}
+
+.age-up-superpower-name {
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.15;
+  color: var(--ui-ink);
+}
+
+.age-up-superpower-desc {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.32;
+  color: var(--ui-ink-muted);
+}
+
+.age-up-cta {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 18px;
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+/* Codex Touch Swipe & Swipe-Down to Close */
+.tech-carousel {
+  touch-action: pan-x pan-y;
+}
+
+.tech-modal-panel .sheet-handle {
+  cursor: grab;
+}
+
+.tech-modal-panel.is-dragging {
+  transition: none !important;
+  will-change: transform;
+}
+
+.tech-modal-panel.is-snapping-back {
+  transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1) !important;
+}
+
+/* Android WebView GPU Safety Overrides for Age Meter, AgeUpModal & Codex Drag */
+html.android-webview .top-age-meter,
+html.android-webview .top-age-meter-fill,
+html.android-webview .age-up-modal,
+html.android-webview .age-up-panel,
+html.android-webview .age-up-crest-medallion,
+html.android-webview .age-up-roman-badge,
+html.android-webview .age-up-superpower-card,
+html.android-webview .age-up-superpower-icon,
+html.android-webview .age-up-unlock-strip,
+html.android-webview .age-up-cta {
+  box-shadow: none !important;
+  animation: none !important;
+  transition: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.android-webview .top-age-meter.is-superpower-ready {
+  border-color: var(--ui-gold) !important;
+  border-bottom: 4px solid var(--ui-accent-deep) !important;
+}
+
+html.android-webview .top-age-meter.is-superpower-targeting {
+  border-color: #f87171 !important;
+  border-bottom: 4px solid #7f1d1d !important;
+}
+
+html.android-webview .age-up-panel {
+  background: var(--ui-surface-solid) !important;
+  border-bottom: 4px solid var(--ui-border-strong) !important;
+}
+
+html.android-webview .tech-modal-panel.is-dragging {
+  transform: translateY(var(--sheet-drag-y, 0px)) !important;
+}

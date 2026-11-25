@@ -12,24 +12,82 @@ const MAX_FRAME_DT = 0.033;
 const PAN_DAMP_LAMBDA = 11.5;
 const ZOOM_DAMP_LAMBDA = 12.5;
 const ORBIT_DAMP_LAMBDA = 10.5;
+const ECLIPSE_DAMP_LAMBDA = 4.8;
 
-function createSkyGradientTexture(): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 16;
-  canvas.height = 256;
+const NORMAL_HEMI_SKY = new THREE.Color('#d6ebff');
+const NORMAL_HEMI_GROUND = new THREE.Color('#586a85');
+const NORMAL_SUN_COLOR = new THREE.Color('#fff6e6');
+const NORMAL_RIM_COLOR = new THREE.Color('#bdd6ff');
+const NORMAL_SKY_TOP = new THREE.Color('#0c1322');
+const NORMAL_SKY_MID = new THREE.Color('#152036');
+const NORMAL_SKY_BOT = new THREE.Color('#1e2c46');
+
+// Dramatic Starlit Elven Twilight palette: deep midnight-indigo sky + cool silver-violet moonlight
+const ECLIPSE_HEMI_SKY = new THREE.Color('#7c8cf8');
+const ECLIPSE_HEMI_GROUND = new THREE.Color('#1e1b4b');
+const ECLIPSE_SUN_COLOR = new THREE.Color('#c7d2fe');
+const ECLIPSE_RIM_COLOR = new THREE.Color('#a78bfa');
+const ECLIPSE_SKY_TOP = new THREE.Color('#040514');
+const ECLIPSE_SKY_MID = new THREE.Color('#0d0a2b');
+const ECLIPSE_SKY_BOT = new THREE.Color('#1e1548');
+
+const STAR_SPECKS: ReadonlyArray<{ x: number; y: number; r: number; alpha: number }> = [
+  { x: 14, y: 18, r: 1.2, alpha: 0.9 },
+  { x: 42, y: 34, r: 0.9, alpha: 0.7 },
+  { x: 88, y: 22, r: 1.4, alpha: 0.95 },
+  { x: 112, y: 48, r: 1.0, alpha: 0.75 },
+  { x: 26, y: 68, r: 1.1, alpha: 0.85 },
+  { x: 66, y: 54, r: 0.85, alpha: 0.65 },
+  { x: 102, y: 84, r: 1.3, alpha: 0.85 },
+  { x: 18, y: 112, r: 0.9, alpha: 0.6 },
+  { x: 54, y: 98, r: 1.2, alpha: 0.8 },
+  { x: 80, y: 124, r: 0.95, alpha: 0.6 },
+  { x: 116, y: 138, r: 1.1, alpha: 0.55 },
+  { x: 36, y: 146, r: 0.85, alpha: 0.5 },
+  { x: 74, y: 168, r: 1.0, alpha: 0.42 },
+  { x: 12, y: 182, r: 0.8, alpha: 0.35 },
+];
+
+const _tmpColorTop = new THREE.Color();
+const _tmpColorMid = new THREE.Color();
+const _tmpColorBot = new THREE.Color();
+
+function paintSkyCanvas(canvas: HTMLCanvasElement, eclipseBlend: number): void {
   const ctx = canvas.getContext('2d');
-  if (ctx) {
-    // Deep twilight slate-navy vertical backdrop (floating Polytopia diorama in space)
-    const grad = ctx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0, '#0c1322');
-    grad.addColorStop(0.5, '#152036');
-    grad.addColorStop(1, '#1e2c46');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 16, 256);
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
+  const t = THREE.MathUtils.clamp(eclipseBlend, 0, 1);
+
+  _tmpColorTop.copy(NORMAL_SKY_TOP).lerp(ECLIPSE_SKY_TOP, t);
+  _tmpColorMid.copy(NORMAL_SKY_MID).lerp(ECLIPSE_SKY_MID, t);
+  _tmpColorBot.copy(NORMAL_SKY_BOT).lerp(ECLIPSE_SKY_BOT, t);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, `#${_tmpColorTop.getHexString()}`);
+  grad.addColorStop(0.5, `#${_tmpColorMid.getHexString()}`);
+  grad.addColorStop(1, `#${_tmpColorBot.getHexString()}`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+
+  if (t > 0.06) {
+    for (const star of STAR_SPECKS) {
+      ctx.fillStyle = `rgba(224, 231, 255, ${(star.alpha * t).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
+}
+
+function createSkyGradientResources(): { canvas: HTMLCanvasElement; texture: THREE.CanvasTexture } {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  paintSkyCanvas(canvas, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return { canvas, texture };
 }
 
 export class SceneManager {
@@ -53,7 +111,21 @@ export class SceneManager {
   private boardHalfExtent = 12;
   private lastBoardMapSize: number | null = null;
   private idleOrbitEnabled = false;
+  private hemiLight: THREE.HemisphereLight | null = null;
   private sunLight: THREE.DirectionalLight | null = null;
+  private rimLight: THREE.DirectionalLight | null = null;
+
+  // Starlit Eclipse lighting transition state
+  private skyCanvas: HTMLCanvasElement;
+  private skyTexture: THREE.CanvasTexture;
+  private eclipseTarget = 0;
+  private eclipseBlend = 0;
+  private lastRenderedEclipseBlend = 0;
+
+  // Punchy camera shake state (for Volcanic Cataclysm & impact spectacles)
+  private shakeTimeRemaining = 0;
+  private shakeDuration = 0.001;
+  private shakeIntensity = 0;
 
   private resizeObserver: ResizeObserver | null = null;
   private readonly handleWindowResize: () => void;
@@ -62,7 +134,10 @@ export class SceneManager {
     this.container = container;
 
     this.scene = new THREE.Scene();
-    this.scene.background = createSkyGradientTexture();
+    const sky = createSkyGradientResources();
+    this.skyCanvas = sky.canvas;
+    this.skyTexture = sky.texture;
+    this.scene.background = this.skyTexture;
     // Orthographic dioramas need zero distance haze
     this.scene.fog = null;
 
@@ -118,6 +193,7 @@ export class SceneManager {
     // Cool blue-slate bounce fill for crisp shadow facets
     const hemi = new THREE.HemisphereLight('#d6ebff', '#586a85', 0.78);
     hemi.position.set(0, 30, 0);
+    this.hemiLight = hemi;
     this.scene.add(hemi);
 
     // Off-axis 3-tone key sun for distinct Light / Mid / Shadow face separation
@@ -142,7 +218,45 @@ export class SceneManager {
     // Cool sky-rim backlight separating unit & mountain back-edges from twilight backdrop
     const rim = new THREE.DirectionalLight('#bdd6ff', 0.36);
     rim.position.set(-22, 16, -20);
+    this.rimLight = rim;
     this.scene.add(rim);
+  }
+
+  public setEclipseMode(active: boolean): void {
+    this.eclipseTarget = active ? 1 : 0;
+    if (this.rafId === null) {
+      this.eclipseBlend = this.eclipseTarget;
+      this.applyEclipseAtmosphere(this.eclipseBlend);
+    }
+  }
+
+  public shakeCamera(intensity = 0.45, duration = 0.48): void {
+    this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+    this.shakeDuration = Math.max(duration, 0.05);
+    this.shakeTimeRemaining = Math.max(this.shakeTimeRemaining, this.shakeDuration);
+  }
+
+  private applyEclipseAtmosphere(blend: number): void {
+    const t = THREE.MathUtils.clamp(blend, 0, 1);
+    this.lastRenderedEclipseBlend = t;
+
+    if (this.hemiLight) {
+      this.hemiLight.color.copy(NORMAL_HEMI_SKY).lerp(ECLIPSE_HEMI_SKY, t);
+      this.hemiLight.groundColor.copy(NORMAL_HEMI_GROUND).lerp(ECLIPSE_HEMI_GROUND, t);
+      this.hemiLight.intensity = THREE.MathUtils.lerp(0.78, 0.64, t);
+    }
+    if (this.sunLight) {
+      this.sunLight.color.copy(NORMAL_SUN_COLOR).lerp(ECLIPSE_SUN_COLOR, t);
+      this.sunLight.intensity = THREE.MathUtils.lerp(2.3, 1.38, t);
+    }
+    if (this.rimLight) {
+      this.rimLight.color.copy(NORMAL_RIM_COLOR).lerp(ECLIPSE_RIM_COLOR, t);
+      this.rimLight.intensity = THREE.MathUtils.lerp(0.36, 0.88, t);
+    }
+    this.renderer.toneMappingExposure = THREE.MathUtils.lerp(1.06, 0.94, t);
+
+    paintSkyCanvas(this.skyCanvas, t);
+    this.skyTexture.needsUpdate = true;
   }
 
   public setBoardBounds(mapSize: number, tileSize = 2.0): void {
@@ -344,6 +458,29 @@ export class SceneManager {
       this.currentZoom = this.desiredZoom;
     }
 
+    // Smoothly transition Starlit Eclipse atmosphere
+    if (Math.abs(this.eclipseTarget - this.eclipseBlend) > 1e-4) {
+      const tEclipse = 1 - Math.exp(-ECLIPSE_DAMP_LAMBDA * dt);
+      this.eclipseBlend = THREE.MathUtils.lerp(this.eclipseBlend, this.eclipseTarget, tEclipse);
+      if (Math.abs(this.eclipseTarget - this.eclipseBlend) <= 1e-3) {
+        this.eclipseBlend = this.eclipseTarget;
+      }
+      if (
+        Math.abs(this.eclipseBlend - this.lastRenderedEclipseBlend) >= 0.006 ||
+        this.eclipseBlend === this.eclipseTarget
+      ) {
+        this.applyEclipseAtmosphere(this.eclipseBlend);
+      }
+    }
+
+    // Decay punchy camera shake
+    if (this.shakeTimeRemaining > 0) {
+      this.shakeTimeRemaining = Math.max(0, this.shakeTimeRemaining - dt);
+      if (this.shakeTimeRemaining === 0) {
+        this.shakeIntensity = 0;
+      }
+    }
+
     this.updateCameraTransform();
   }
 
@@ -351,12 +488,27 @@ export class SceneManager {
     const horizDist = Math.cos(ELEVATION_RAD) * CAMERA_DISTANCE;
     const vertDist = Math.sin(ELEVATION_RAD) * CAMERA_DISTANCE;
 
+    let shakeX = 0;
+    let shakeY = 0;
+    let shakeZ = 0;
+    if (this.shakeTimeRemaining > 0 && this.shakeIntensity > 0) {
+      const decay = this.shakeTimeRemaining / Math.max(this.shakeDuration, 0.001);
+      const amp = this.shakeIntensity * decay * decay;
+      shakeX = (Math.random() - 0.5) * 2 * amp;
+      shakeY = (Math.random() - 0.5) * 1.4 * amp;
+      shakeZ = (Math.random() - 0.5) * 2 * amp;
+    }
+
     this.camera.position.set(
-      this.currentTarget.x + Math.sin(this.currentAzimuth) * horizDist,
-      this.currentTarget.y + vertDist,
-      this.currentTarget.z + Math.cos(this.currentAzimuth) * horizDist,
+      this.currentTarget.x + Math.sin(this.currentAzimuth) * horizDist + shakeX,
+      this.currentTarget.y + vertDist + shakeY,
+      this.currentTarget.z + Math.cos(this.currentAzimuth) * horizDist + shakeZ,
     );
-    this.camera.lookAt(this.currentTarget);
+    this.camera.lookAt(
+      this.currentTarget.x + shakeX * 0.6,
+      this.currentTarget.y + shakeY * 0.4,
+      this.currentTarget.z + shakeZ * 0.6,
+    );
 
     if (Math.abs(this.camera.zoom - this.currentZoom) > 1e-6) {
       this.camera.zoom = this.currentZoom;
@@ -371,6 +523,7 @@ export class SceneManager {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
+    this.skyTexture.dispose();
     this.renderer.dispose();
   }
 }

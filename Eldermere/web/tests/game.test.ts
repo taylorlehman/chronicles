@@ -4,6 +4,7 @@ import {
   AGE_THRESHOLDS,
   ALL_FACTIONS,
   FACTION_DEFINITIONS,
+  SUPERPOWER_DEFINITIONS,
   TECH_DEFINITIONS,
   applyAction,
   calculatePlayerIncome,
@@ -11,6 +12,7 @@ import {
   canResearchTech,
   canUnitCapture,
   canUnitExploreRuins,
+  canUseSuperpower,
   cloneState,
   createGame,
   getAvailableTileActions,
@@ -23,6 +25,7 @@ import {
   getPlayer,
   getPlayerAge,
   getPlayerCities,
+  getSuperpowerTargetCoords,
   getTechCost,
   getTechResearchBlockReason,
   getTerrainDefenseBonus,
@@ -1932,5 +1935,247 @@ describe('Ages Progression & Tap-to-Research Metadata', () => {
     expect(trainOpts.find((o) => o.unitType === 'rohirrim_knight')?.requiredTechId).toBe(
       'humans_chivalry',
     );
+  });
+});
+
+describe('Age III One-Time Superpowers', () => {
+  function grantAge3(state: GameState, playerId: string): void {
+    const player = getPlayer(state, playerId)!;
+    const factionTechs = getFactionTechs(player.faction).map((t) => t.id);
+    while (player.techs.length < 7) {
+      const nextTech = factionTechs.find((id) => !player.techs.includes(id))!;
+      player.techs.push(nextTech);
+    }
+  }
+
+  it('requires Age III, enforces one-time use, and never lists dragon/watchtower as trainable', () => {
+    const state = createGame(makeConfig({ humanFaction: 'dwarves' }));
+    const player = getPlayer(state, 'player_dwarves')!;
+    const cap = getPlayerCities(state, player.id)[0];
+
+    expect(SUPERPOWER_DEFINITIONS.elves.requiresTarget).toBe(false);
+    expect(SUPERPOWER_DEFINITIONS.dwarves.requiresTarget).toBe(false);
+    expect(SUPERPOWER_DEFINITIONS.orcs.requiresTarget).toBe(true);
+    expect(SUPERPOWER_DEFINITIONS.humans.requiresTarget).toBe(true);
+
+    // Age I: cannot use superpower
+    expect(getPlayerAge(player)).toBe(1);
+    expect(canUseSuperpower(state, player.id)).toBe(false);
+    const noop = applyAction(state, { type: 'USE_SUPERPOWER' });
+    expect(noop.events).toHaveLength(0);
+
+    // Age III: trainable units never include dragon or watchtower
+    grantAge3(state, player.id);
+    expect(canUseSuperpower(state, player.id)).toBe(true);
+    expect(getTrainableUnits(state, cap.id)).not.toContain('dragon');
+    expect(getTrainableUnits(state, cap.id)).not.toContain('watchtower');
+    const trainTypes = getCityTrainOptions(state, cap.id).map((o) => o.unitType);
+    expect(trainTypes).not.toContain('dragon');
+    expect(trainTypes).not.toContain('watchtower');
+
+    // Use once -> succeeds, second use is rejected
+    const res1 = applyAction(state, { type: 'USE_SUPERPOWER' });
+    expect(res1.events.some((e) => e.type === 'SUPERPOWER_USED')).toBe(true);
+    expect(getPlayer(res1.state, player.id)!.superpowerUsed).toBe(true);
+    expect(canUseSuperpower(res1.state, player.id)).toBe(false);
+
+    const res2 = applyAction(res1.state, { type: 'USE_SUPERPOWER' });
+    expect(res2.events).toHaveLength(0);
+  });
+
+  it('Elves Starlit Eclipse grants +1 MOV & +1 ATK to Elven units and expires after 3 turns', () => {
+    let state = createGame(makeConfig({ humanFaction: 'elves' }));
+    clearBoardUnits(state);
+    for (let y = 4; y <= 8; y++) {
+      for (let x = 4; x <= 10; x++) {
+        const t = getTile(state, x, y)!;
+        t.terrain = 'plains';
+        t.hasRoad = false;
+      }
+    }
+    const elfWarrior = placeTestUnit(state, 'player_elves', 'warrior', 5, 6);
+    const orcWarrior = placeTestUnit(state, 'player_orcs', 'warrior', 9, 6);
+    grantAge3(state, 'player_elves');
+
+    const baseAtk = getEffectiveAttack(state, elfWarrior);
+    const orcBaseAtk = getEffectiveAttack(state, orcWarrior);
+    expect(getValidMoves(state, elfWarrior.id)).not.toContainEqual({ x: 7, y: 6 });
+
+    // Activate Starlit Eclipse
+    const act = applyAction(state, { type: 'USE_SUPERPOWER' });
+    state = act.state;
+    expect(state.eclipseTurnsRemaining).toBe(3);
+    expect(state.eclipseOwnerId).toBe('player_elves');
+    expect(act.events.some((e) => e.type === 'SUPERPOWER_USED' && e.faction === 'elves')).toBe(true);
+
+    // Elves gain +1 ATK and +1 MOV (warrior can now reach 2 tiles away); Orcs do NOT
+    expect(getEffectiveAttack(state, state.units[elfWarrior.id])).toBe(baseAtk + 1);
+    expect(getEffectiveAttack(state, state.units[orcWarrior.id])).toBe(orcBaseAtk);
+    expect(getValidMoves(state, elfWarrior.id)).toContainEqual({ x: 7, y: 6 });
+
+    // Advance 1 full round (4 players) -> 2 turns remaining
+    for (let i = 0; i < 4; i++) state = applyAction(state, { type: 'END_TURN' }).state;
+    expect(state.eclipseTurnsRemaining).toBe(2);
+    expect(getEffectiveAttack(state, state.units[elfWarrior.id])).toBe(baseAtk + 1);
+
+    // Advance 2nd full round -> 1 turn remaining
+    for (let i = 0; i < 4; i++) state = applyAction(state, { type: 'END_TURN' }).state;
+    expect(state.eclipseTurnsRemaining).toBe(1);
+    expect(getEffectiveAttack(state, state.units[elfWarrior.id])).toBe(baseAtk + 1);
+
+    // Advance 3rd full round -> expired!
+    for (let i = 0; i < 4; i++) state = applyAction(state, { type: 'END_TURN' }).state;
+    expect(state.eclipseTurnsRemaining).toBe(0);
+    expect(state.eclipseOwnerId).toBeNull();
+    expect(getEffectiveAttack(state, state.units[elfWarrior.id])).toBe(baseAtk);
+    expect(getValidMoves(state, elfWarrior.id)).not.toContainEqual({ x: 7, y: 6 });
+  });
+
+  it('Orcs Volcanic Cataclysm destroys enemies in 3x3, clears improvements/resources, and scorches land to Wasteland', () => {
+    const state = createGame(makeConfig({ humanFaction: 'orcs' }));
+    clearBoardUnits(state);
+    grantAge3(state, 'player_orcs');
+    const orcPlayer = getPlayer(state, 'player_orcs')!;
+
+    // Set up a 3x3 centered at (7, 7) with varied terrain, resources, roads, improvements, and units
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const t = getTile(state, 7 + dx, 7 + dy)!;
+        t.terrain = dx === 1 && dy === 1 ? 'water' : 'plains';
+        t.resource = dx === 0 && dy === 0 ? 'berries' : null;
+        t.improvement = dx === -1 && dy === 0 ? 'farm' : null;
+        t.hasRoad = dx === 0 && dy === -1;
+        orcPlayer.revealedTiles[tileIndex(t.x, t.y, state.mapSize)] = true;
+      }
+    }
+
+    const enemy1 = placeTestUnit(state, 'player_humans', 'warrior', 7, 7);
+    const enemy2 = placeTestUnit(state, 'player_elves', 'archer', 6, 7);
+    const friendlyOrc = placeTestUnit(state, 'player_orcs', 'warrior', 7, 6);
+    const outsideEnemy = placeTestUnit(state, 'player_dwarves', 'warrior', 9, 7);
+
+    const targets = getSuperpowerTargetCoords(state, 'player_orcs');
+    expect(targets).toContainEqual({ x: 7, y: 7 });
+
+    const res = applyAction(state, { type: 'USE_SUPERPOWER', target: { x: 7, y: 7 } });
+    const ev = res.events.find((e) => e.type === 'SUPERPOWER_USED');
+    expect(ev).toBeDefined();
+    if (ev && ev.type === 'SUPERPOWER_USED') {
+      expect(ev.affectedCoords).toHaveLength(9);
+      expect(ev.destroyedUnitIds).toContain(enemy1.id);
+      expect(ev.destroyedUnitIds).toContain(enemy2.id);
+      expect(ev.destroyedUnitIds).not.toContain(friendlyOrc.id);
+      expect(ev.destroyedUnitIds).not.toContain(outsideEnemy.id);
+    }
+
+    // Enemies inside 3x3 are destroyed; friendly orc and outside enemy survive
+    expect(res.state.units[enemy1.id]).toBeUndefined();
+    expect(res.state.units[enemy2.id]).toBeUndefined();
+    expect(res.state.units[friendlyOrc.id]).toBeDefined();
+    expect(res.state.units[outsideEnemy.id]).toBeDefined();
+
+    // Non-water tiles converted to wasteland, resources/improvements/roads cleared, water preserved
+    expect(getTile(res.state, 7, 7)!.terrain).toBe('wasteland');
+    expect(getTile(res.state, 7, 7)!.resource).toBeNull();
+    expect(getTile(res.state, 6, 7)!.improvement).toBeNull();
+    expect(getTile(res.state, 7, 6)!.hasRoad).toBe(false);
+    expect(getTile(res.state, 8, 8)!.terrain).toBe('water');
+  });
+
+  it('Dwarves Awaken Fire Drake summons a ready flying Fire Drake at the closest mountain and flies over water/mountains', () => {
+    const state = createGame(makeConfig({ humanFaction: 'dwarves' }));
+    clearBoardUnits(state);
+    grantAge3(state, 'player_dwarves');
+    const cap = getPlayerCities(state, 'player_dwarves')[0];
+
+    // Place a known closest mountain right next to capital
+    const mtnCoord = { x: cap.x + 1, y: cap.y };
+    const mtnTile = getTile(state, mtnCoord.x, mtnCoord.y)!;
+    mtnTile.terrain = 'mountain';
+    // Clear any other mountains at distance 1 so mtnCoord is uniquely closest
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 1 && dy === 0) continue;
+        const t = getTile(state, cap.x + dx, cap.y + dy);
+        if (t && t.terrain === 'mountain') t.terrain = 'plains';
+      }
+    }
+
+    const res = applyAction(state, { type: 'USE_SUPERPOWER' });
+    const ev = res.events.find((e) => e.type === 'SUPERPOWER_USED');
+    expect(ev).toBeDefined();
+    expect(ev?.type === 'SUPERPOWER_USED' && ev.spawnedUnitId).toBeTruthy();
+
+    const drakeId = ev && ev.type === 'SUPERPOWER_USED' ? ev.spawnedUnitId! : '';
+    const drake = res.state.units[drakeId];
+    expect(drake).toBeDefined();
+    expect(drake.type).toBe('dragon');
+    expect(drake.x).toBe(mtnCoord.x);
+    expect(drake.y).toBe(mtnCoord.y);
+    expect(drake.maxHp).toBe(20);
+    expect(drake.actedThisTurn).toBe(false);
+
+    // Verify flying: build a 3-tile line of water -> mountain -> plains from a test dragon
+    const flyState = cloneState(res.state);
+    clearBoardUnits(flyState);
+    getTile(flyState, 4, 6)!.terrain = 'plains';
+    getTile(flyState, 5, 6)!.terrain = 'water';
+    getTile(flyState, 6, 6)!.terrain = 'mountain';
+    getTile(flyState, 7, 6)!.terrain = 'plains';
+    const testDrake = placeTestUnit(flyState, 'player_dwarves', 'dragon', 4, 6, { maxHp: 20 });
+
+    const moves = getValidMoves(flyState, testDrake.id);
+    // Flies onto water, onto mountain, and all the way across both to (7,6) with 3 MOV!
+    expect(moves).toContainEqual({ x: 5, y: 6 });
+    expect(moves).toContainEqual({ x: 6, y: 6 });
+    expect(moves).toContainEqual({ x: 7, y: 6 });
+  });
+
+  it('Humans Raise Watchtower builds a static 25 HP Range-2 Watchtower inside borders that fires without moving', () => {
+    const state = createGame(makeConfig({ humanFaction: 'humans' }));
+    clearBoardUnits(state);
+    grantAge3(state, 'player_humans');
+    const cap = getPlayerCities(state, 'player_humans')[0];
+
+    const validTargets = getSuperpowerTargetCoords(state, 'player_humans');
+    expect(validTargets.length).toBeGreaterThan(0);
+    // Must never include city center
+    expect(validTargets).not.toContainEqual({ x: cap.x, y: cap.y });
+
+    const buildCoord = validTargets[0];
+    // Place an enemy within range 2 of buildCoord
+    const enemyCoord = {
+      x: Math.min(state.mapSize - 1, buildCoord.x + 2),
+      y: buildCoord.y,
+    };
+    const enemy = placeTestUnit(state, 'player_orcs', 'warrior', enemyCoord.x, enemyCoord.y);
+
+    const res = applyAction(state, { type: 'USE_SUPERPOWER', target: buildCoord });
+    const ev = res.events.find((e) => e.type === 'SUPERPOWER_USED');
+    expect(ev).toBeDefined();
+    const towerId = ev && ev.type === 'SUPERPOWER_USED' ? ev.spawnedUnitId! : '';
+    const tower = res.state.units[towerId];
+
+    expect(tower).toBeDefined();
+    expect(tower.type).toBe('watchtower');
+    expect(tower.hp).toBe(25);
+    expect(tower.maxHp).toBe(25);
+    expect(tower.actedThisTurn).toBe(false);
+
+    // Static: cannot move even if placed on a road!
+    getTile(res.state, tower.x, tower.y)!.hasRoad = true;
+    expect(getValidMoves(res.state, tower.id)).toHaveLength(0);
+
+    // Can fire at enemy within range 2 immediately
+    const atkTargets = getValidAttackTargets(res.state, tower.id);
+    expect(atkTargets).toContainEqual({ x: enemy.x, y: enemy.y });
+
+    const fired = applyAction(res.state, {
+      type: 'ATTACK_UNIT',
+      attackerId: tower.id,
+      defenderId: enemy.id,
+    });
+    expect(fired.events.some((e) => e.type === 'UNIT_ATTACKED' && e.isRanged)).toBe(true);
+    expect(fired.state.units[tower.id].actedThisTurn).toBe(true);
   });
 });

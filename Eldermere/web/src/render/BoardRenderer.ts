@@ -170,6 +170,76 @@ export class BoardRenderer {
     depthWrite: false,
   });
 
+  // Shared superpower targeting overlay geometries & materials (Volcano orange-red & Watchtower royal gold)
+  private static readonly SUPERPOWER_FILL_GEO = (() => {
+    const g = new THREE.CircleGeometry(0.48, 24);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private static readonly SUPERPOWER_FILL_COMPACT_GEO = (() => {
+    const g = new THREE.CircleGeometry(0.38, 24);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private static readonly SUPERPOWER_RING_GEO = (() => {
+    const g = new THREE.RingGeometry(0.48, 0.64, 28);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private static readonly SUPERPOWER_RING_COMPACT_GEO = (() => {
+    const g = new THREE.RingGeometry(0.38, 0.52, 28);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private static readonly VOLCANO_FILL_MAT = new THREE.MeshBasicMaterial({
+    color: '#ff5a1f',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.44,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private static readonly VOLCANO_RING_MAT = new THREE.MeshBasicMaterial({
+    color: '#ff5a1f',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.96,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private static readonly VOLCANO_DOT_MAT = new THREE.MeshBasicMaterial({
+    color: '#fde047',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private static readonly TOWER_FILL_MAT = new THREE.MeshBasicMaterial({
+    color: '#f5c542',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.4,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private static readonly TOWER_RING_MAT = new THREE.MeshBasicMaterial({
+    color: '#f5c542',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.96,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private static readonly TOWER_DOT_MAT = new THREE.MeshBasicMaterial({
+    color: '#fef9c3',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.95,
+    depthTest: false,
+    depthWrite: false,
+  });
+
   // Shared attack-target overlay geometries & materials (zero allocations per click)
   private static readonly ATTACK_RING_GEO = (() => {
     const g = new THREE.RingGeometry(0.62, 0.84, 24);
@@ -236,6 +306,7 @@ export class BoardRenderer {
   private tileHitMeshes: THREE.Mesh[] = [];
   private unitHitMeshes: THREE.Mesh[] = [];
   private moveTargetHitMeshes: THREE.Mesh[] = [];
+  private superpowerTargetHitMeshes: THREE.Mesh[] = [];
   private animatedTrees: THREE.Object3D[] = [];
   private waterMeshes: THREE.Mesh[] = [];
   private windmillBlades: THREE.Object3D[] = [];
@@ -265,6 +336,7 @@ export class BoardRenderer {
   private selectedRing: THREE.Mesh;
   private moveOverlayGroup = new THREE.Group();
   private attackOverlayGroup = new THREE.Group();
+  private superpowerOverlayGroup = new THREE.Group();
 
   constructor(scene: THREE.Scene) {
     this.boardRoot.add(
@@ -297,7 +369,11 @@ export class BoardRenderer {
     this.selectedRing.visible = false;
     this.overlaysGroup.add(this.selectedRing);
 
-    this.overlaysGroup.add(this.moveOverlayGroup, this.attackOverlayGroup);
+    this.overlaysGroup.add(
+      this.moveOverlayGroup,
+      this.attackOverlayGroup,
+      this.superpowerOverlayGroup,
+    );
   }
 
   private buildHoverBracket(): THREE.Group {
@@ -343,7 +419,13 @@ export class BoardRenderer {
   }
 
   public getMoveTargetHitMeshes(): THREE.Mesh[] {
-    return this.moveTargetHitMeshes;
+    if (this.superpowerTargetHitMeshes.length === 0) {
+      return this.moveTargetHitMeshes;
+    }
+    if (this.moveTargetHitMeshes.length === 0) {
+      return this.superpowerTargetHitMeshes;
+    }
+    return [...this.moveTargetHitMeshes, ...this.superpowerTargetHitMeshes];
   }
 
   public getUnitObject(unitId: string): BuiltUnitSprite | undefined {
@@ -1183,10 +1265,75 @@ export class BoardRenderer {
     }
   }
 
+  public setSuperpowerTargets(coords: Coord[], style: 'volcano' | 'tower'): void {
+    clearGroup(this.superpowerOverlayGroup);
+    this.superpowerTargetHitMeshes = [];
+    if (coords.length === 0) return;
+
+    const fillMat =
+      style === 'volcano' ? BoardRenderer.VOLCANO_FILL_MAT : BoardRenderer.TOWER_FILL_MAT;
+    const ringMat =
+      style === 'volcano' ? BoardRenderer.VOLCANO_RING_MAT : BoardRenderer.TOWER_RING_MAT;
+    const dotMat =
+      style === 'volcano' ? BoardRenderer.VOLCANO_DOT_MAT : BoardRenderer.TOWER_DOT_MAT;
+
+    for (const c of coords) {
+      const key = coordKey(c.x, c.y);
+      const tile = this.tilesByCoord.get(key);
+      const isMountain =
+        this.mountainCoords.has(key) ||
+        Boolean(tile && tile.terrain === 'mountain' && !tile.isCityCenter && !tile.hasVillage);
+      const isCityOrVillage =
+        this.cityCoords.has(key) || Boolean(tile && (tile.isCityCenter || tile.hasVillage));
+
+      const overlayY = this.getMoveOverlayY(tile);
+      const pos = tileToWorld(c.x, c.y, this.mapSize, overlayY);
+      if (isMountain) {
+        pos.x += MOUNTAIN_LEDGE_OFFSET_X;
+        pos.z += MOUNTAIN_LEDGE_OFFSET_Z;
+      } else if (isCityOrVillage) {
+        pos.x += GARRISON_OFFSET_X;
+        pos.z += GARRISON_OFFSET_Z;
+      }
+
+      const compact = isMountain || isCityOrVillage;
+      const phase = (c.x * 0.85 + c.y * 1.15) % (Math.PI * 2);
+
+      // Clickable translucent glowing fill
+      const fill = new THREE.Mesh(
+        compact ? BoardRenderer.SUPERPOWER_FILL_COMPACT_GEO : BoardRenderer.SUPERPOWER_FILL_GEO,
+        fillMat,
+      );
+      fill.position.copy(pos);
+      fill.renderOrder = 33;
+      fill.userData = { tileX: c.x, tileY: c.y };
+      this.superpowerOverlayGroup.add(fill);
+      this.superpowerTargetHitMeshes.push(fill);
+
+      // Crisp glowing superpower outer ring
+      const ring = new THREE.Mesh(
+        compact ? BoardRenderer.SUPERPOWER_RING_COMPACT_GEO : BoardRenderer.SUPERPOWER_RING_GEO,
+        ringMat,
+      );
+      ring.position.set(pos.x, pos.y + 0.008, pos.z);
+      ring.renderOrder = 34;
+      ring.userData = { isSuperpowerRing: true, phase };
+      this.superpowerOverlayGroup.add(ring);
+
+      // Pulsing center focus pip
+      const dot = new THREE.Mesh(BoardRenderer.MOVE_DOT_GEO, dotMat);
+      dot.position.set(pos.x, pos.y + 0.014, pos.z);
+      dot.renderOrder = 35;
+      dot.userData = { isSuperpowerDot: true, phase };
+      this.superpowerOverlayGroup.add(dot);
+    }
+  }
+
   public clearHighlights(): void {
     this.setSelectedTile(null);
     this.setMoveTargets([]);
     this.setAttackTargets([]);
+    this.setSuperpowerTargets([], 'volcano');
   }
 
   public update(rawDt: number, elapsed: number): void {
@@ -1198,13 +1345,22 @@ export class BoardRenderer {
       const phase = meta?.phase ?? 0;
 
       if (!this.animatingUnitIds.has(id)) {
+        const isTower = Boolean(built.flameMesh);
+        const isDragon = Boolean(built.wingLeft && built.wingRight);
+
         if (meta?.isHumanOwner) {
           if (meta.exhausted) {
-            // Acted units stay completely still like stone figurines (amp = 0)
-            built.bodyGroup.position.y = 0.055;
+            // Acted units stay still like stone figurines (dragons keep a very gentle glide)
+            built.bodyGroup.position.y = isDragon
+              ? 0.055 + Math.sin(elapsed * 2.0 + phase) * 0.025
+              : 0.055;
           } else {
-            // Ready human units: lively vertical bounce (amp = 0.045) + pulsing Ready Ring
-            built.bodyGroup.position.y = 0.055 + Math.sin(elapsed * 3.4 + phase) * 0.045;
+            // Ready human units: lively vertical bounce (watchtower stays firmly planted!)
+            built.bodyGroup.position.y = isTower
+              ? 0.055
+              : isDragon
+                ? 0.055 + Math.sin(elapsed * 3.2 + phase) * 0.09
+                : 0.055 + Math.sin(elapsed * 3.4 + phase) * 0.045;
             if (built.readyRing.visible) {
               const isSpecial = meta.canCapture || meta.canExploreRuins;
               const pulseSpeed = isSpecial ? 4.4 : 3.6;
@@ -1215,9 +1371,29 @@ export class BoardRenderer {
             }
           }
         } else {
-          // Enemy units: gentle subtle bob (amp = 0.016)
-          built.bodyGroup.position.y = 0.055 + Math.sin(elapsed * 2.4 + phase) * 0.016;
+          // Enemy units: gentle subtle bob (watchtower stays grounded)
+          built.bodyGroup.position.y = isTower
+            ? 0.055
+            : isDragon
+              ? 0.055 + Math.sin(elapsed * 2.8 + phase) * 0.07
+              : 0.055 + Math.sin(elapsed * 2.4 + phase) * 0.016;
         }
+      }
+
+      // Fire Drake wing flap animation
+      if (built.wingLeft && built.wingRight) {
+        const flapSpeed = meta?.exhausted ? 3.2 : 5.4;
+        const flapAmp = meta?.exhausted ? 0.16 : 0.34;
+        const flap = Math.sin(elapsed * flapSpeed + phase) * flapAmp;
+        built.wingLeft.rotation.z = flap;
+        built.wingRight.rotation.z = -flap;
+      }
+
+      // Citadel Watchtower summit beacon brazier flame flicker
+      if (built.flameMesh) {
+        const flicker = 0.92 + Math.sin(elapsed * 9.5 + phase) * 0.12 + Math.cos(elapsed * 14.2 + phase) * 0.06;
+        built.flameMesh.scale.set(0.96 + (flicker - 1) * 0.4, flicker, 0.96 + (flicker - 1) * 0.4);
+        built.flameMesh.rotation.y += dt * 1.9;
       }
 
       if (built.veteranCrown) {
@@ -1276,6 +1452,16 @@ export class BoardRenderer {
       if (child.userData.isMoveDot) {
         const phase = (child.userData.phase as number) ?? 0;
         const s = 1 + Math.sin(elapsed * 4.8 + phase) * 0.1;
+        child.scale.setScalar(s);
+      }
+    }
+    for (const child of this.superpowerOverlayGroup.children) {
+      const phase = (child.userData.phase as number) ?? 0;
+      if (child.userData.isSuperpowerRing) {
+        const s = 1 + Math.sin(elapsed * 5.2 + phase) * 0.08;
+        child.scale.setScalar(s);
+      } else if (child.userData.isSuperpowerDot) {
+        const s = 1 + Math.sin(elapsed * 6.0 + phase) * 0.16;
         child.scale.setScalar(s);
       }
     }

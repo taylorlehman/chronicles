@@ -20,6 +20,7 @@ import {
   canResearchTech,
   canUnitCapture,
   canUnitExploreRuins,
+  canUseSuperpower,
   chebyshevDist,
   computeCapitalConnections,
   getActivePlayer,
@@ -30,6 +31,7 @@ import {
   getNeighbors8,
   getPlayer,
   getPlayerCities,
+  getSuperpowerTargetCoords,
   getTechCost,
   getTrainableUnits,
   getUnitCost,
@@ -327,6 +329,7 @@ export function createGame(config: GameConfig): GameState {
       revealedTiles: new Array<boolean>(config.mapSize * config.mapSize).fill(false),
       alive: true,
       eliminatedOnTurn: null,
+      superpowerUsed: false,
     };
   });
 
@@ -338,6 +341,8 @@ export function createGame(config: GameConfig): GameState {
     phase: 'playing',
     winnerId: null,
     winReason: null,
+    eclipseTurnsRemaining: 0,
+    eclipseOwnerId: null,
     rngState: generated.rngState,
     nextEntityId: 1,
     players,
@@ -406,10 +411,13 @@ export function cloneState(state: GameState): GameState {
     phase: state.phase,
     winnerId: state.winnerId,
     winReason: state.winReason,
+    eclipseTurnsRemaining: state.eclipseTurnsRemaining ?? 0,
+    eclipseOwnerId: state.eclipseOwnerId ?? null,
     rngState: state.rngState,
     nextEntityId: state.nextEntityId,
     players: state.players.map((p) => ({
       ...p,
+      superpowerUsed: p.superpowerUsed ?? false,
       techs: p.techs.slice(),
       revealedTiles: p.revealedTiles.slice(),
     })),
@@ -1386,6 +1394,150 @@ export function applyAction(state: GameState, action: GameAction): ActionResult 
       break;
     }
 
+    case 'USE_SUPERPOWER': {
+      if (!canUseSuperpower(next, activePlayer.id)) break;
+
+      if (activePlayer.faction === 'elves') {
+        next.eclipseTurnsRemaining = 3;
+        next.eclipseOwnerId = activePlayer.id;
+        activePlayer.superpowerUsed = true;
+        events.push({
+          type: 'SUPERPOWER_USED',
+          playerId: activePlayer.id,
+          faction: activePlayer.faction,
+        });
+      } else if (activePlayer.faction === 'orcs') {
+        const target = action.target;
+        if (!target) break;
+        const centerTile = getTile(next, target.x, target.y);
+        if (!centerTile) break;
+        if (!activePlayer.revealedTiles[tileIndex(target.x, target.y, next.mapSize)]) break;
+
+        const affectedCoords: Coord[] = [];
+        const destroyedUnitIds: string[] = [];
+
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const tile = getTile(next, target.x + dx, target.y + dy);
+            if (!tile) continue;
+            affectedCoords.push({ x: tile.x, y: tile.y });
+
+            if (tile.unitId !== null) {
+              const victim = next.units[tile.unitId];
+              if (victim && victim.ownerId !== activePlayer.id) {
+                destroyedUnitIds.push(victim.id);
+                delete next.units[victim.id];
+                tile.unitId = null;
+              }
+            }
+
+            tile.resource = null;
+            tile.improvement = null;
+            tile.hasRoad = false;
+            if (tile.terrain !== 'water') {
+              tile.terrain = 'wasteland';
+            }
+          }
+        }
+
+        activePlayer.superpowerUsed = true;
+        events.push({
+          type: 'SUPERPOWER_USED',
+          playerId: activePlayer.id,
+          faction: activePlayer.faction,
+          target: { x: target.x, y: target.y },
+          affectedCoords,
+          destroyedUnitIds,
+        });
+      } else if (activePlayer.faction === 'dwarves') {
+        const ownedCities = getPlayerCities(next, activePlayer.id);
+        const capital = ownedCities.find((c) => c.isCapital) ?? ownedCities[0];
+        if (!capital) break;
+
+        const compareByDist = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+          const da = (a.x - capital.x) ** 2 + (a.y - capital.y) ** 2;
+          const db = (b.x - capital.x) ** 2 + (b.y - capital.y) ** 2;
+          if (da !== db) return da - db;
+          const ca = chebyshevDist(a, capital);
+          const cb = chebyshevDist(b, capital);
+          if (ca !== cb) return ca - cb;
+          if (a.y !== b.y) return a.y - b.y;
+          return a.x - b.x;
+        };
+
+        const openMountains = next.tiles
+          .filter((t) => t.terrain === 'mountain' && t.unitId === null)
+          .sort(compareByDist);
+        let spawnTile = openMountains[0] ?? null;
+
+        if (!spawnTile) {
+          const openLand = next.tiles
+            .filter((t) => t.terrain !== 'water' && t.unitId === null)
+            .sort(compareByDist);
+          spawnTile = openLand[0] ?? null;
+        }
+        if (!spawnTile) break;
+
+        const drake = createUnitEntity(
+          next,
+          activePlayer.id,
+          'dragon',
+          spawnTile.x,
+          spawnTile.y,
+          null,
+          { ready: true },
+        );
+        const revealed = revealRadius(next, activePlayer, spawnTile.x, spawnTile.y, 2);
+        if (revealed.length > 0) {
+          events.push({
+            type: 'TILES_REVEALED',
+            playerId: activePlayer.id,
+            coords: revealed,
+          });
+        }
+        activePlayer.superpowerUsed = true;
+        events.push({
+          type: 'SUPERPOWER_USED',
+          playerId: activePlayer.id,
+          faction: activePlayer.faction,
+          target: { x: spawnTile.x, y: spawnTile.y },
+          spawnedUnitId: drake.id,
+        });
+      } else if (activePlayer.faction === 'humans') {
+        const target = action.target;
+        if (!target) break;
+        const validTargets = getSuperpowerTargetCoords(next, activePlayer.id);
+        if (!validTargets.some((c) => c.x === target.x && c.y === target.y)) break;
+
+        const tower = createUnitEntity(
+          next,
+          activePlayer.id,
+          'watchtower',
+          target.x,
+          target.y,
+          null,
+          { ready: true },
+        );
+        const revealed = revealRadius(next, activePlayer, target.x, target.y, 2);
+        if (revealed.length > 0) {
+          events.push({
+            type: 'TILES_REVEALED',
+            playerId: activePlayer.id,
+            coords: revealed,
+          });
+        }
+        activePlayer.superpowerUsed = true;
+        events.push({
+          type: 'SUPERPOWER_USED',
+          playerId: activePlayer.id,
+          faction: activePlayer.faction,
+          target: { x: target.x, y: target.y },
+          spawnedUnitId: tower.id,
+        });
+      }
+      break;
+    }
+
     case 'END_TURN': {
       const totalPlayers = next.players.length;
       let nextIndex = next.activePlayerIndex;
@@ -1430,6 +1582,13 @@ export function applyAction(state: GameState, action: GameAction): ActionResult 
       }
 
       const nextPlayer = next.players[next.activePlayerIndex];
+      if ((next.eclipseTurnsRemaining ?? 0) > 0 && next.eclipseOwnerId === nextPlayer.id) {
+        next.eclipseTurnsRemaining -= 1;
+        if (next.eclipseTurnsRemaining <= 0) {
+          next.eclipseTurnsRemaining = 0;
+          next.eclipseOwnerId = null;
+        }
+      }
       handleStartOfTurn(next, nextPlayer, events);
       break;
     }

@@ -42,7 +42,9 @@ export type UnitType =
   | 'rohirrim_knight'
   | 'uruk_berserker'
   | 'elven_sentinel'
-  | 'ironbreaker';
+  | 'ironbreaker'
+  | 'dragon'
+  | 'watchtower';
 
 export type UnitTrait =
   | 'dash'
@@ -52,7 +54,8 @@ export type UnitTrait =
   | 'persist'
   | 'bloodlust'
   | 'skirmish'
-  | 'stalwart';
+  | 'stalwart'
+  | 'flying';
 
 export type TechSlot = 'root' | 'a' | 'b' | 'capstone';
 
@@ -232,6 +235,7 @@ export interface PlayerState {
   revealedTiles: boolean[];
   alive: boolean;
   eliminatedOnTurn: number | null;
+  superpowerUsed: boolean;
 }
 
 export interface GameConfig {
@@ -250,6 +254,8 @@ export interface GameState {
   phase: 'playing' | 'game_over';
   winnerId: PlayerId | null;
   winReason: 'domination' | 'glory' | null;
+  eclipseTurnsRemaining: number;
+  eclipseOwnerId: PlayerId | null;
   rngState: number;
   nextEntityId: number;
   players: PlayerState[];
@@ -341,6 +347,7 @@ export type GameAction =
   | { type: 'TRAIN_UNIT'; cityId: string; unitType: UnitType }
   | { type: 'RESEARCH_TECH'; techId: TechId }
   | { type: 'CHOOSE_CITY_REWARD'; cityId: string; reward: CityRewardChoice }
+  | { type: 'USE_SUPERPOWER'; target?: Coord }
   | { type: 'END_TURN' };
 
 export type GameEvent =
@@ -422,6 +429,15 @@ export type GameEvent =
       ownerId: PlayerId;
     }
   | { type: 'TECH_RESEARCHED'; playerId: PlayerId; techId: TechId; cost: number }
+  | {
+      type: 'SUPERPOWER_USED';
+      playerId: PlayerId;
+      faction: FactionId;
+      target?: Coord;
+      spawnedUnitId?: string;
+      affectedCoords?: Coord[];
+      destroyedUnitIds?: string[];
+    }
   | { type: 'SPOILS_GAINED'; playerId: PlayerId; coord: Coord; amount: number }
   | { type: 'PLAYER_ELIMINATED'; playerId: PlayerId; eliminatedByPlayerId: PlayerId }
   | {

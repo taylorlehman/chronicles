@@ -331,7 +331,6 @@ export class TechModal {
           title="Next pillar"
           ${this.activePillarIndex >= pillars.length - 1 ? 'disabled' : ''}
         >&rsaquo;</button>
-        <span class="tech-pillar-counter" data-pillar-counter>${this.activePillarIndex + 1}/${pillars.length}</span>
       </div>
     `;
 
@@ -392,13 +391,8 @@ export class TechModal {
 
     const ageProgressText =
       ageProgress.nextAge !== null && ageProgress.requiredTechs !== null
-        ? `${ageProgress.currentTechs}/${ageProgress.requiredTechs} Lore to Age ${AGE_ROMAN[ageProgress.nextAge]}`
-        : `Max Age (${player.techs.length}/${totalTechs} Lore)`;
-
-    const cityScaleNote =
-      cityCount > 1
-        ? `<span>&middot;</span><span class="tech-city-scale-note" title="Each additional city increases tech cost by +1 Star">+1${renderIcon('star', 'icon icon-xs icon-star')}/city</span>`
-        : '';
+        ? `${ageProgress.currentTechs}/${ageProgress.requiredTechs} to Age ${AGE_ROMAN[ageProgress.nextAge]}`
+        : `${player.techs.length}/${totalTechs} Lore`;
 
     this.root.innerHTML = `
       <div class="modal-panel tech-modal-panel">
@@ -416,8 +410,6 @@ export class TechModal {
               <strong class="gold-text">${player.gold}${renderIcon('star', 'icon icon-sm icon-star')}</strong>
               <span>&middot;</span>
               <span class="tech-age-progress">${esc(ageProgressText)}</span>
-              ${cityScaleNote}
-              ${player.techs.includes('elves_elven_lore') ? '<span>&middot;</span><span class="tech-discount-note">-1★ Lore</span>' : ''}
             </span>
           </div>
           <button type="button" class="btn btn-icon modal-close-btn" data-action="close" aria-label="Close Codex">
@@ -427,7 +419,7 @@ export class TechModal {
 
         ${pillarNavHtml}
 
-        <div class="tech-tree-grid" data-tech-carousel>
+        <div class="tech-tree-grid tech-carousel" data-tech-carousel>
           ${pillarsHtml}
         </div>
 
@@ -545,7 +537,6 @@ export class TechModal {
     tutorialTargetTechId: TechId | null,
   ): string {
     const { root, branchA, branchB, capstone } = pillar;
-    const isPillarComplete = pillar.researchedCount === pillar.techs.length;
 
     const rootHtml = root
       ? `<div class="tech-tree-row-center">${this.renderTechCard(root, getCost(root), player, age, researchedSet, isHumanTurn, 'wide', tutorialTargetTechId)}</div>`
@@ -570,10 +561,6 @@ export class TechModal {
       <section class="tech-pillar${pillar.index === this.activePillarIndex ? ' pillar-active' : ''}" data-pillar-index="${pillar.index}" aria-label="${esc(pillar.name)} Pillar">
         <header class="tech-pillar-header">
           <span class="tech-branch-header">${esc(pillar.name)}</span>
-          <span class="tech-pillar-progress ${isPillarComplete ? 'complete' : ''}">
-            ${isPillarComplete ? renderIcon('check', 'icon icon-xs') : ''}
-            <span>${pillar.researchedCount}/${pillar.techs.length}</span>
-          </span>
         </header>
         <div class="tech-pillar-tree">
           ${rootHtml}
@@ -849,9 +836,9 @@ export class TechModal {
       }
     });
 
-    const carousel = this.root.querySelector<HTMLElement>('[data-tech-carousel]');
+    const panel = this.root.querySelector<HTMLElement>('.tech-modal-panel');
+    const carousel = this.root.querySelector<HTMLElement>('.tech-carousel');
     const pills = Array.from(this.root.querySelectorAll<HTMLButtonElement>('[data-pillar-jump]'));
-    const counterEl = this.root.querySelector<HTMLElement>('[data-pillar-counter]');
     const prevBtn = this.root.querySelector<HTMLButtonElement>('[data-carousel-prev]');
     const nextBtn = this.root.querySelector<HTMLButtonElement>('[data-carousel-next]');
 
@@ -862,9 +849,6 @@ export class TechModal {
         pill.classList.toggle('active', active);
         pill.setAttribute('aria-selected', String(active));
       });
-      if (counterEl && pills.length > 0) {
-        counterEl.textContent = `${idx + 1}/${pills.length}`;
-      }
       if (prevBtn) {
         prevBtn.disabled = idx <= 0;
       }
@@ -877,33 +861,104 @@ export class TechModal {
       });
     };
 
+    const jumpToPillar = (idx: number, smooth: boolean) => {
+      const maxIdx = Math.max(0, pills.length - 1);
+      const clamped = Math.max(0, Math.min(maxIdx, idx)) as PillarIndex;
+      updateNavActive(clamped);
+      this.restoreCarouselPosition(smooth);
+    };
+
     pills.forEach((pill) => {
       pill.addEventListener('click', () => {
-        const idx = Number(pill.dataset.pillarJump) as PillarIndex;
+        const idx = Number(pill.dataset.pillarJump);
         if (Number.isNaN(idx)) return;
-        updateNavActive(idx);
-        this.restoreCarouselPosition(true);
+        jumpToPillar(idx, true);
       });
     });
 
     prevBtn?.addEventListener('click', () => {
-      const nextIdx = Math.max(0, this.activePillarIndex - 1) as PillarIndex;
-      if (nextIdx !== this.activePillarIndex) {
-        updateNavActive(nextIdx);
-        this.restoreCarouselPosition(true);
+      if (this.activePillarIndex > 0) {
+        jumpToPillar(this.activePillarIndex - 1, true);
       }
     });
 
     nextBtn?.addEventListener('click', () => {
       const maxIdx = Math.max(0, pills.length - 1);
-      const nextIdx = Math.min(maxIdx, this.activePillarIndex + 1) as PillarIndex;
-      if (nextIdx !== this.activePillarIndex) {
-        updateNavActive(nextIdx);
-        this.restoreCarouselPosition(true);
+      if (this.activePillarIndex < maxIdx) {
+        jumpToPillar(this.activePillarIndex + 1, true);
       }
     });
 
     if (carousel) {
+      // Explicit touch swipe handling for Android WebView & touch devices
+      let swipeStartX = 0;
+      let swipeStartY = 0;
+      let swipeLastX = 0;
+      let swipeLastY = 0;
+      let swipeStartTime = 0;
+      let swipeTracking = false;
+
+      carousel.addEventListener(
+        'touchstart',
+        (e: TouchEvent) => {
+          if (e.touches.length !== 1 || this.pendingTechId || this.blockedTechId) {
+            swipeTracking = false;
+            return;
+          }
+          const t = e.touches[0];
+          swipeStartX = t.clientX;
+          swipeStartY = t.clientY;
+          swipeLastX = t.clientX;
+          swipeLastY = t.clientY;
+          swipeStartTime = Date.now();
+          swipeTracking = true;
+        },
+        { passive: true },
+      );
+
+      carousel.addEventListener(
+        'touchmove',
+        (e: TouchEvent) => {
+          if (!swipeTracking || e.touches.length !== 1) return;
+          const t = e.touches[0];
+          swipeLastX = t.clientX;
+          swipeLastY = t.clientY;
+        },
+        { passive: true },
+      );
+
+      carousel.addEventListener(
+        'touchend',
+        () => {
+          if (!swipeTracking) return;
+          swipeTracking = false;
+          const dx = swipeLastX - swipeStartX;
+          const dy = swipeLastY - swipeStartY;
+          const elapsed = Date.now() - swipeStartTime;
+          if (
+            elapsed < 900 &&
+            Math.abs(dx) > 40 &&
+            Math.abs(dx) > Math.abs(dy) * 1.2
+          ) {
+            const delta = dx < 0 ? 1 : -1;
+            const maxIdx = Math.max(0, pills.length - 1);
+            const nextIdx = Math.max(0, Math.min(maxIdx, this.activePillarIndex + delta));
+            if (nextIdx !== this.activePillarIndex) {
+              jumpToPillar(nextIdx, true);
+            }
+          }
+        },
+        { passive: true },
+      );
+
+      carousel.addEventListener(
+        'touchcancel',
+        () => {
+          swipeTracking = false;
+        },
+        { passive: true },
+      );
+
       carousel.addEventListener(
         'wheel',
         (e: WheelEvent) => {
@@ -943,6 +998,192 @@ export class TechModal {
         },
         { passive: true },
       );
+    }
+
+    if (panel) {
+      // Swipe / drag down on Codex sheet to close
+      let dragStartX = 0;
+      let dragStartY = 0;
+      let dragCurrentY = 0;
+      let dragStartTime = 0;
+      let dragEligible = false;
+      let dragActive = false;
+      let dragAxis: 'none' | 'vertical' | 'horizontal' = 'none';
+
+      const canStartSheetDrag = (target: EventTarget | null): boolean => {
+        if (this.pendingTechId || this.blockedTechId) return false;
+        const el = target instanceof HTMLElement ? target : null;
+        if (el?.closest('.sheet-handle, .modal-header')) {
+          return true;
+        }
+        const panelAtTop = panel.scrollTop <= 0;
+        const carouselAtTop = !carousel || carousel.scrollTop <= 0;
+        return panelAtTop && carouselAtTop;
+      };
+
+      const applyDragOffset = (dy: number) => {
+        const clamped = Math.max(0, Math.round(dy));
+        dragCurrentY = clamped;
+        panel.classList.add('is-dragging');
+        panel.style.setProperty('--sheet-drag-y', `${clamped}px`);
+        panel.style.transform = `translateY(${clamped}px)`;
+      };
+
+      const resetDragStyles = (snapBack: boolean) => {
+        panel.classList.remove('is-dragging');
+        panel.style.removeProperty('--sheet-drag-y');
+        if (snapBack) {
+          panel.classList.add('is-snapping-back');
+          panel.style.transform = 'translateY(0px)';
+          window.setTimeout(() => {
+            panel.classList.remove('is-snapping-back');
+            panel.style.transform = '';
+          }, 200);
+        } else {
+          panel.classList.remove('is-snapping-back');
+          panel.style.transform = '';
+        }
+      };
+
+      const finishSheetDrag = () => {
+        if (!dragActive) {
+          dragEligible = false;
+          dragAxis = 'none';
+          return;
+        }
+        const dy = dragCurrentY;
+        const elapsed = Math.max(1, Date.now() - dragStartTime);
+        const velocity = dy / elapsed;
+        dragActive = false;
+        dragEligible = false;
+        dragAxis = 'none';
+        dragCurrentY = 0;
+
+        if (dy > 85 || (dy > 36 && velocity > 0.55)) {
+          resetDragStyles(false);
+          this.close();
+        } else {
+          resetDragStyles(true);
+        }
+      };
+
+      panel.addEventListener(
+        'touchstart',
+        (e: TouchEvent) => {
+          if (e.touches.length !== 1 || !canStartSheetDrag(e.target)) {
+            dragEligible = false;
+            return;
+          }
+          const t = e.touches[0];
+          dragStartX = t.clientX;
+          dragStartY = t.clientY;
+          dragCurrentY = 0;
+          dragStartTime = Date.now();
+          dragEligible = true;
+          dragActive = false;
+          dragAxis = 'none';
+        },
+        { passive: true },
+      );
+
+      panel.addEventListener(
+        'touchmove',
+        (e: TouchEvent) => {
+          if (!dragEligible || e.touches.length !== 1) return;
+          const t = e.touches[0];
+          const dx = t.clientX - dragStartX;
+          const dy = t.clientY - dragStartY;
+
+          if (dragAxis === 'none') {
+            if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+            if (dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.25) {
+              dragAxis = 'vertical';
+              dragActive = true;
+            } else {
+              dragAxis = 'horizontal';
+              dragEligible = false;
+              return;
+            }
+          }
+
+          if (dragActive) {
+            e.preventDefault();
+            applyDragOffset(Math.max(0, dy));
+          }
+        },
+        { passive: false },
+      );
+
+      panel.addEventListener('touchend', finishSheetDrag, { passive: true });
+      panel.addEventListener('touchcancel', () => {
+        if (dragActive) {
+          dragActive = false;
+          dragEligible = false;
+          dragAxis = 'none';
+          dragCurrentY = 0;
+          resetDragStyles(true);
+        } else {
+          dragEligible = false;
+          dragAxis = 'none';
+        }
+      });
+
+      // Desktop mouse drag-down on sheet handle / header
+      let mouseDragId: number | null = null;
+      panel.addEventListener('pointerdown', (e: PointerEvent) => {
+        if (e.pointerType !== 'mouse' || e.button !== 0) return;
+        const targetEl = e.target instanceof HTMLElement ? e.target : null;
+        if (!targetEl?.closest('.sheet-handle, .modal-header') || targetEl.closest('button')) return;
+        if (this.pendingTechId || this.blockedTechId) return;
+        mouseDragId = e.pointerId;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        dragCurrentY = 0;
+        dragStartTime = Date.now();
+        dragEligible = true;
+        dragActive = false;
+        dragAxis = 'none';
+        try {
+          panel.setPointerCapture(e.pointerId);
+        } catch {
+          // ignore if capture unavailable
+        }
+      });
+
+      panel.addEventListener('pointermove', (e: PointerEvent) => {
+        if (mouseDragId === null || e.pointerId !== mouseDragId) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        if (dragAxis === 'none') {
+          if (Math.abs(dx) < 6 && Math.abs(dy) < 6) return;
+          if (dy > 0 && Math.abs(dy) > Math.abs(dx) * 1.25) {
+            dragAxis = 'vertical';
+            dragActive = true;
+          } else {
+            dragAxis = 'horizontal';
+            mouseDragId = null;
+            dragEligible = false;
+            return;
+          }
+        }
+        if (dragActive) {
+          applyDragOffset(Math.max(0, dy));
+        }
+      });
+
+      const endMouseDrag = (e: PointerEvent) => {
+        if (mouseDragId === null || e.pointerId !== mouseDragId) return;
+        mouseDragId = null;
+        try {
+          panel.releasePointerCapture(e.pointerId);
+        } catch {
+          // ignore
+        }
+        finishSheetDrag();
+      };
+
+      panel.addEventListener('pointerup', endMouseDrag);
+      panel.addEventListener('pointercancel', endMouseDrag);
     }
   }
 

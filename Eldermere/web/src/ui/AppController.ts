@@ -1,12 +1,13 @@
 import { planAITurn } from '../ai';
 import {
-  AGE_ROMAN,
+  SUPERPOWER_DEFINITIONS,
   TECH_DEFINITIONS,
   UNIT_DEFINITIONS,
   applyAction,
   canResearchTech,
   canUnitCapture,
   canUnitExploreRuins,
+  canUseSuperpower,
   createGame,
   createTutorialGame,
   getActivePlayer,
@@ -21,6 +22,7 @@ import {
   getPlayerAge,
   getPlayerCities,
   getPlayerUnits,
+  getSuperpowerTargetCoords,
   getTechCost,
   getTile,
   getTileActionOptions,
@@ -65,6 +67,7 @@ import {
   type SelectedUnitInfo,
   type SelectionLayer,
 } from './ActionBar';
+import { AgeUpModal } from './AgeUpModal';
 import { CityRewardModal } from './CityRewardModal';
 import { DefeatNoticeModal } from './DefeatNoticeModal';
 import { FactionDossierModal, type FactionDossierModalViewModel } from './FactionDossierModal';
@@ -83,7 +86,7 @@ import {
   type TutorialStage,
 } from './TutorialController';
 import { notifyAndroidGameReady, triggerAndroidHaptic } from './androidBridge';
-import { renderIcon } from './icons';
+import { renderFactionSuperpowerIcon, renderIcon } from './icons';
 import {
   clearSavedCampaign,
   getSavedCampaignSummary,
@@ -116,12 +119,14 @@ export class AppController {
   private readonly topBar: TopBar;
   private readonly actionBar: ActionBar;
   private readonly techModal: TechModal;
+  private readonly ageUpModal: AgeUpModal;
   private readonly cityRewardModal: CityRewardModal;
   private readonly defeatNoticeModal: DefeatNoticeModal;
   private readonly factionDossierModal: FactionDossierModal;
   private readonly leaderboardModal: LeaderboardModal;
   private readonly tutorial: TutorialController;
   private readonly rewardToastEl: HTMLDivElement;
+  private readonly superpowerBannerEl: HTMLDivElement;
   private rewardToastTimer: number | null = null;
   private readonly onPagePersistBound: () => void;
   private readonly onVisibilityPersistBound: () => void;
@@ -141,6 +146,8 @@ export class AppController {
   private validAttacks: Coord[] = [];
   private hoveredCoord: Coord | null = null;
   private readyUnitCycleIndex = 0;
+  private isSuperpowerTargeting = false;
+  private superpowerTargets: Coord[] = [];
 
   // Empty-sky tap deselection tracking
   private activeCanvasPointerId: number | null = null;
@@ -207,6 +214,9 @@ export class AppController {
     this.topBar = new TopBar(this.hudRoot, {
       onOpenLeaderboard: () => this.openLeaderboardModal(),
       onOpenCodex: () => this.openTechModal(),
+      onActivateSuperpower: () => {
+        void this.handleSuperpowerButtonClick();
+      },
     });
 
     this.actionBar = new ActionBar(this.hudRoot, {
@@ -227,6 +237,12 @@ export class AppController {
       onResearch: (techId) => {
         void this.handleHumanAction({ type: 'RESEARCH_TECH', techId });
       },
+      onClose: () => {
+        this.resumeSceneAfterOpaqueSheet();
+      },
+    });
+
+    this.ageUpModal = new AgeUpModal(this.hudRoot, {
       onClose: () => {
         this.resumeSceneAfterOpaqueSheet();
       },
@@ -320,6 +336,18 @@ export class AppController {
     this.rewardToastEl.setAttribute('aria-live', 'polite');
     this.hudRoot.appendChild(this.rewardToastEl);
 
+    this.superpowerBannerEl = document.createElement('div');
+    this.superpowerBannerEl.className = 'superpower-targeting-banner hidden';
+    this.superpowerBannerEl.setAttribute('role', 'status');
+    this.superpowerBannerEl.setAttribute('aria-live', 'polite');
+    this.superpowerBannerEl.style.cssText =
+      'position:fixed;top:calc(env(safe-area-inset-top, 0px) + 64px);left:50%;transform:translateX(-50%);' +
+      'z-index:45;display:none;align-items:center;gap:10px;max-width:min(92vw,420px);' +
+      'padding:8px 12px 8px 14px;border-radius:14px;' +
+      'background:rgba(20,16,13,0.92);border:1.5px solid rgba(245,197,66,0.72);' +
+      'box-shadow:0 8px 24px rgba(0,0,0,0.45);color:#f7eedc;pointer-events:auto;';
+    this.hudRoot.appendChild(this.superpowerBannerEl);
+
     this.titleScreen.setSavedCampaign(getSavedCampaignSummary());
     this.applyFactionTheme(this.titleScreen.getSelectedFaction());
     this.mountTitleDiorama();
@@ -355,6 +383,11 @@ export class AppController {
       triggerAndroidHaptic('tap');
       return true;
     }
+    if (this.ageUpModal.isOpen()) {
+      this.ageUpModal.close();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
     if (this.factionDossierModal.isOpen()) {
       this.factionDossierModal.close();
       this.openLeaderboardModal();
@@ -376,6 +409,11 @@ export class AppController {
       triggerAndroidHaptic('tap');
       return true;
     }
+    if (this.isSuperpowerTargeting) {
+      this.cancelSuperpowerTargeting();
+      triggerAndroidHaptic('tap');
+      return true;
+    }
     if (this.selectedCoord !== null) {
       this.clearSelection();
       triggerAndroidHaptic('tap');
@@ -390,6 +428,7 @@ export class AppController {
       this.isTitleDioramaActive ||
       this.tutorial.isModalOpen() ||
       this.resignationOverlay.isOpen() ||
+      this.ageUpModal.isOpen() ||
       this.techModal.isOpen() ||
       this.leaderboardModal.isOpen() ||
       this.factionDossierModal.isOpen() ||
@@ -474,6 +513,7 @@ export class AppController {
     if (
       this.tutorial.isModalOpen() ||
       this.resignationOverlay.isOpen() ||
+      this.ageUpModal.isOpen() ||
       this.techModal.isOpen() ||
       this.cityRewardModal.isOpen() ||
       this.defeatNoticeModal.isOpen() ||
@@ -485,8 +525,12 @@ export class AppController {
 
     const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
     const threshold = e.pointerType === 'touch' ? 10 : 6;
-    if (dist <= threshold && this.selectedCoord !== null) {
-      this.clearSelection();
+    if (dist <= threshold) {
+      if (this.isSuperpowerTargeting) {
+        this.cancelSuperpowerTargeting();
+      } else if (this.selectedCoord !== null) {
+        this.clearSelection();
+      }
     }
   }
 
@@ -626,6 +670,19 @@ export class AppController {
     this.disposeSession();
     this.sessionToken += 1;
 
+    // Ensure backward compatibility with older saved campaigns missing superpower/eclipse fields
+    if (typeof state.eclipseTurnsRemaining !== 'number') {
+      state.eclipseTurnsRemaining = 0;
+    }
+    if (state.eclipseOwnerId === undefined) {
+      state.eclipseOwnerId = null;
+    }
+    for (const player of state.players) {
+      if (typeof player.superpowerUsed !== 'boolean') {
+        player.superpowerUsed = false;
+      }
+    }
+
     this.state = state;
     const humanPlayer = getPlayer(state, humanPlayerId) ?? state.players[0];
     this.humanPlayerId = humanPlayer.id;
@@ -638,6 +695,7 @@ export class AppController {
     const sceneManager = new SceneManager(this.canvasContainer);
     sceneManager.setBoardBounds(state.mapSize);
     sceneManager.setIdleOrbit(false);
+    sceneManager.setEclipseMode((state.eclipseTurnsRemaining ?? 0) > 0);
 
     const board = new BoardRenderer(sceneManager.scene);
     const badges = new WorldBadges(this.badgesContainer);
@@ -648,7 +706,7 @@ export class AppController {
       void this.executeExploreRuins(unitId);
     });
 
-    const animQueue = new AnimationQueue(board, badges);
+    const animQueue = new AnimationQueue(board, badges, sceneManager);
     const input = new InputController(sceneManager, board, {
       onTileClick: (coord) => {
         this.tileClickHandled = true;
@@ -666,12 +724,16 @@ export class AppController {
           this.tutorial.dismissModal();
         } else if (this.defeatNoticeModal.isOpen()) {
           this.defeatNoticeModal.close();
+        } else if (this.ageUpModal.isOpen()) {
+          this.ageUpModal.close();
         } else if (this.techModal.isOpen()) {
           this.techModal.close();
         } else if (this.factionDossierModal.isOpen()) {
           this.factionDossierModal.close();
         } else if (this.leaderboardModal.isOpen()) {
           this.leaderboardModal.close();
+        } else if (this.isSuperpowerTargeting) {
+          this.cancelSuperpowerTargeting();
         } else {
           this.clearSelection();
         }
@@ -737,11 +799,13 @@ export class AppController {
     const score = human?.score ?? 0;
 
     clearSavedCampaign();
+    this.cancelSuperpowerTargeting();
     this.pendingEndTurnAfterTutorial = false;
     this.tutorialScenario = null;
     this.tutorial.hide();
     this.topBar.hide();
     this.actionBar.hide();
+    this.ageUpModal.close();
     this.techModal.close();
     this.cityRewardModal.close();
     this.defeatNoticeModal.close();
@@ -763,12 +827,14 @@ export class AppController {
 
   public returnToTitle(): void {
     clearSavedCampaign();
+    this.cancelSuperpowerTargeting();
     this.pendingEndTurnAfterTutorial = false;
     this.tutorialScenario = null;
     this.tutorial.hide();
     this.resignationOverlay.hide();
     this.topBar.hide();
     this.actionBar.hide();
+    this.ageUpModal.close();
     this.techModal.close();
     this.cityRewardModal.close();
     this.defeatNoticeModal.close();
@@ -795,12 +861,14 @@ export class AppController {
     this.disposeSession();
     this.hideRewardToast();
     this.rewardToastEl.remove();
+    this.superpowerBannerEl.remove();
     this.tutorial.destroy();
     this.titleScreen.destroy();
     this.gameOverOverlay.destroy();
     this.resignationOverlay.destroy();
     this.topBar.destroy();
     this.actionBar.destroy();
+    this.ageUpModal.destroy();
     this.techModal.destroy();
     this.cityRewardModal.destroy();
     this.defeatNoticeModal.destroy();
@@ -815,6 +883,8 @@ export class AppController {
       window.clearTimeout(this.titleSettleTimer);
       this.titleSettleTimer = null;
     }
+    this.cancelSuperpowerTargeting();
+    this.ageUpModal.close();
     this.defeatNoticeModal.close();
     this.isBusy = false;
     this.isAITurnRunning = false;
@@ -912,18 +982,121 @@ export class AppController {
     this.clearSelection();
   }
 
-  private async handleTileClick(coord: Coord): Promise<void> {
+  private async handleSuperpowerButtonClick(): Promise<void> {
     if (!this.state || this.isBusy || this.isAITurnRunning) return;
-    if (this.state.phase !== 'playing') return;
+    if (!this.isHumanTurn()) return;
     if (
       this.tutorial.isModalOpen() ||
       this.resignationOverlay.isOpen() ||
+      this.ageUpModal.isOpen() ||
       this.techModal.isOpen() ||
       this.cityRewardModal.isOpen() ||
       this.defeatNoticeModal.isOpen() ||
       this.factionDossierModal.isOpen() ||
       this.leaderboardModal.isOpen()
     ) {
+      return;
+    }
+
+    if (this.tutorial.isActive()) {
+      triggerAndroidHaptic('tap');
+      this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+      return;
+    }
+
+    if (this.isSuperpowerTargeting) {
+      this.cancelSuperpowerTargeting();
+      triggerAndroidHaptic('tap');
+      return;
+    }
+
+    const human = getPlayer(this.state, this.humanPlayerId);
+    if (!human || !canUseSuperpower(this.state, human.id)) return;
+
+    const def = SUPERPOWER_DEFINITIONS[human.faction];
+    if (!def.requiresTarget) {
+      await this.handleHumanAction({ type: 'USE_SUPERPOWER' });
+      return;
+    }
+
+    const targets = getSuperpowerTargetCoords(this.state, this.humanPlayerId);
+    if (targets.length === 0) return;
+
+    this.clearSelection();
+    this.isSuperpowerTargeting = true;
+    this.superpowerTargets = targets;
+    this.board?.setSuperpowerTargets(targets, human.faction === 'orcs' ? 'volcano' : 'tower');
+    this.showSuperpowerTargetingBanner(
+      human.faction,
+      def.name,
+      def.targetHint ?? 'Select a highlighted tile',
+    );
+    triggerAndroidHaptic('select');
+    this.refreshTopBar();
+  }
+
+  private showSuperpowerTargetingBanner(faction: FactionId, name: string, hint: string): void {
+    const safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const safeHint = hint.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    this.superpowerBannerEl.innerHTML = `
+      <span style="display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;color:#f5c542;">
+        ${renderFactionSuperpowerIcon(faction, 'icon')}
+      </span>
+      <span style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">
+        <strong style="font-size:0.82rem;letter-spacing:0.03em;color:#f5c542;line-height:1.15;">${safeName}</strong>
+        <span style="font-size:0.76rem;color:#f7eedc;line-height:1.2;">${safeHint}</span>
+      </span>
+      <button
+        type="button"
+        data-cancel-superpower
+        style="flex-shrink:0;padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.28);background:rgba(255,255,255,0.1);color:#f7eedc;font-size:0.74rem;font-weight:700;cursor:pointer;"
+      >Cancel</button>
+    `;
+    this.superpowerBannerEl.classList.remove('hidden');
+    this.superpowerBannerEl.style.display = 'flex';
+    this.superpowerBannerEl
+      .querySelector<HTMLButtonElement>('[data-cancel-superpower]')
+      ?.addEventListener('click', () => {
+        this.cancelSuperpowerTargeting();
+        triggerAndroidHaptic('tap');
+      });
+  }
+
+  private cancelSuperpowerTargeting(): void {
+    if (!this.isSuperpowerTargeting && this.superpowerTargets.length === 0) return;
+    this.isSuperpowerTargeting = false;
+    this.superpowerTargets = [];
+    this.superpowerBannerEl.classList.add('hidden');
+    this.superpowerBannerEl.style.display = 'none';
+    this.superpowerBannerEl.innerHTML = '';
+    this.board?.clearHighlights();
+    this.refreshTopBar();
+  }
+
+  private async handleTileClick(coord: Coord): Promise<void> {
+    if (!this.state || this.isBusy || this.isAITurnRunning) return;
+    if (this.state.phase !== 'playing') return;
+    if (
+      this.tutorial.isModalOpen() ||
+      this.resignationOverlay.isOpen() ||
+      this.ageUpModal.isOpen() ||
+      this.techModal.isOpen() ||
+      this.cityRewardModal.isOpen() ||
+      this.defeatNoticeModal.isOpen() ||
+      this.factionDossierModal.isOpen() ||
+      this.leaderboardModal.isOpen()
+    ) {
+      return;
+    }
+
+    if (this.isSuperpowerTargeting) {
+      const isValidTarget = this.superpowerTargets.some(
+        (t) => t.x === coord.x && t.y === coord.y,
+      );
+      this.cancelSuperpowerTargeting();
+      if (isValidTarget) {
+        await this.handleHumanAction({ type: 'USE_SUPERPOWER', target: coord });
+      }
       return;
     }
 
@@ -1137,12 +1310,12 @@ export class AppController {
       const { state: nextState, events } = applyAction(this.state, action);
       this.state = nextState;
 
-      let advancedToAge: PlayerAge | null = null;
+      let advancedToAge: 2 | 3 | null = null;
       if (action.type === 'RESEARCH_TECH' && prevAge !== null) {
         const nextHuman = getPlayer(nextState, this.humanPlayerId);
         if (nextHuman) {
           const nextAge = getPlayerAge(nextHuman);
-          if (nextAge > prevAge) {
+          if (nextAge > prevAge && (nextAge === 2 || nextAge === 3)) {
             advancedToAge = nextAge;
           }
         }
@@ -1154,7 +1327,12 @@ export class AppController {
           hapticStyle = 'victory';
           break;
         }
-        if (ev.type === 'CITY_CAPTURED' || ev.type === 'CITY_LEVELED' || ev.type === 'RUINS_CLAIMED') {
+        if (
+          ev.type === 'CITY_CAPTURED' ||
+          ev.type === 'CITY_LEVELED' ||
+          ev.type === 'RUINS_CLAIMED' ||
+          ev.type === 'SUPERPOWER_USED'
+        ) {
           hapticStyle = 'capture';
         } else if (ev.type === 'UNIT_ATTACKED' && hapticStyle === 'tap') {
           hapticStyle = 'combat';
@@ -1170,15 +1348,13 @@ export class AppController {
           this.showRuinsRewardToast(ev, nextState);
         }
       }
-      if (advancedToAge !== null) {
-        this.showAgeAdvancementToast(advancedToAge);
-      }
 
       if (
         action.type === 'MOVE_UNIT' ||
         action.type === 'ATTACK_UNIT' ||
         action.type === 'CAPTURE_CITY' ||
-        action.type === 'EXPLORE_RUINS'
+        action.type === 'EXPLORE_RUINS' ||
+        action.type === 'USE_SUPERPOWER'
       ) {
         this.validMoves = [];
         this.validAttacks = [];
@@ -1191,12 +1367,18 @@ export class AppController {
       }
       if (token !== this.sessionToken) return;
 
+      this.sceneManager?.setEclipseMode((nextState.eclipseTurnsRemaining ?? 0) > 0);
+
       const badgeCoord =
         this.selectedCoord && this.selectionLayer === 'tile' ? this.selectedCoord : null;
       this.board?.syncState(nextState, this.humanPlayerId);
       this.badges?.syncState(nextState, this.humanPlayerId, badgeCoord);
 
-      if (action.type === 'CAPTURE_CITY' || action.type === 'EXPLORE_RUINS') {
+      if (
+        action.type === 'CAPTURE_CITY' ||
+        action.type === 'EXPLORE_RUINS' ||
+        action.type === 'USE_SUPERPOWER'
+      ) {
         this.clearSelection();
       } else if (this.selectedCoord) {
         this.selectCoord(this.selectedCoord, this.selectionLayer);
@@ -1207,6 +1389,22 @@ export class AppController {
 
       this.refreshHUD();
       this.advanceTutorialAfterAction(action, nextState);
+
+      if (advancedToAge !== null && nextState.phase === 'playing') {
+        const nextHuman = getPlayer(nextState, this.humanPlayerId);
+        if (nextHuman) {
+          this.techModal.close();
+          const superpowerDef = SUPERPOWER_DEFINITIONS[nextHuman.faction];
+          this.ageUpModal.open({
+            faction: nextHuman.faction,
+            newAge: advancedToAge,
+            superpowerName: advancedToAge === 3 ? superpowerDef.name : undefined,
+            superpowerDescription: advancedToAge === 3 ? superpowerDef.description : undefined,
+          });
+          this.pauseSceneBehindOpaqueSheet();
+        }
+      }
+
       await this.showEliminationNotices(events, nextState, token);
       if (token !== this.sessionToken) return;
       this.checkPostActionState();
@@ -1511,7 +1709,9 @@ export class AppController {
   private async handleEndTurn(): Promise<void> {
     if (!this.state || this.isBusy || this.isAITurnRunning) return;
     if (!this.isHumanTurn()) return;
-    if (this.tutorial.isModalOpen() || this.resignationOverlay.isOpen()) return;
+    if (this.tutorial.isModalOpen() || this.resignationOverlay.isOpen() || this.ageUpModal.isOpen()) return;
+
+    this.cancelSuperpowerTargeting();
 
     if (this.openNextPendingCityReward()) {
       return;
@@ -1527,6 +1727,7 @@ export class AppController {
     // Step 7 (End Turn): show Tutorial Complete! immediately, then run End Turn on Continue Playing
     if (this.tutorial.isActive() && this.tutorial.getStage() === 'end_turn') {
       triggerAndroidHaptic('victory');
+      this.ageUpModal.close();
       this.techModal.close();
       this.factionDossierModal.close();
       this.leaderboardModal.close();
@@ -1539,6 +1740,7 @@ export class AppController {
     triggerAndroidHaptic('tap');
 
     const token = this.sessionToken;
+    this.ageUpModal.close();
     this.techModal.close();
     this.factionDossierModal.close();
     this.leaderboardModal.close();
@@ -1555,6 +1757,7 @@ export class AppController {
       }
       if (token !== this.sessionToken) return;
 
+      this.sceneManager?.setEclipseMode((this.state.eclipseTurnsRemaining ?? 0) > 0);
       this.board?.syncState(this.state, this.humanPlayerId);
       this.badges?.syncState(this.state, this.humanPlayerId, null);
       this.refreshActionBar();
@@ -1617,6 +1820,7 @@ export class AppController {
             }
             if (token !== this.sessionToken) return;
 
+            this.sceneManager?.setEclipseMode((nextState.eclipseTurnsRemaining ?? 0) > 0);
             this.board?.syncState(nextState, this.humanPlayerId);
             this.badges?.syncState(nextState, this.humanPlayerId, null);
             this.refreshTopBar();
@@ -1632,6 +1836,7 @@ export class AppController {
       if (token !== this.sessionToken || !this.state) return;
 
       this.readyUnitCycleIndex = 0;
+      this.sceneManager?.setEclipseMode((this.state.eclipseTurnsRemaining ?? 0) > 0);
       this.board?.syncState(this.state, this.humanPlayerId);
       this.badges?.syncState(this.state, this.humanPlayerId, null);
       if (this.state.phase === 'playing' && this.isHumanTurn()) {
@@ -1665,6 +1870,7 @@ export class AppController {
         case 'PLAYER_ELIMINATED':
         case 'GAME_OVER':
         case 'CITY_CAPTURED':
+        case 'SUPERPOWER_USED':
           return true;
         case 'TILES_REVEALED':
           if (ev.playerId === this.humanPlayerId && ev.coords.length > 0) return true;
@@ -1733,6 +1939,14 @@ export class AppController {
           this.sceneManager.focusOnWorld(tileToWorld(ev.coord.x, ev.coord.y, state.mapSize, 0), false);
           return;
         }
+      } else if (ev.type === 'SUPERPOWER_USED' && ev.target) {
+        if (human.revealedTiles[tileIndex(ev.target.x, ev.target.y, state.mapSize)]) {
+          this.sceneManager.focusOnWorld(
+            tileToWorld(ev.target.x, ev.target.y, state.mapSize, 0),
+            false,
+          );
+          return;
+        }
       }
     }
   }
@@ -1741,7 +1955,9 @@ export class AppController {
     if (!this.state) return;
     if (this.state.phase === 'game_over') {
       clearSavedCampaign();
+      this.cancelSuperpowerTargeting();
       this.tutorial.hide();
+      this.ageUpModal.close();
       this.techModal.close();
       this.cityRewardModal.close();
       this.factionDossierModal.close();
@@ -1774,6 +1990,7 @@ export class AppController {
     );
     if (!cityWithReward) return false;
 
+    this.cancelSuperpowerTargeting();
     this.cityRewardModal.open({
       city: cityWithReward,
       levelReached: cityWithReward.pendingLevelRewards[0],
@@ -1791,6 +2008,7 @@ export class AppController {
       return;
     }
     triggerAndroidHaptic('tap');
+    this.cancelSuperpowerTargeting();
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     const vm = this.buildTechModalViewModel();
@@ -1808,6 +2026,7 @@ export class AppController {
       return;
     }
     triggerAndroidHaptic('tap');
+    this.cancelSuperpowerTargeting();
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     const vm = this.buildTechModalViewModel();
@@ -1836,6 +2055,7 @@ export class AppController {
   private openFactionDossier(focusFaction?: FactionId): void {
     if (!this.state) return;
     triggerAndroidHaptic('tap');
+    this.cancelSuperpowerTargeting();
     this.techModal.close();
     this.leaderboardModal.close();
     const vm = this.buildFactionDossierViewModel();
@@ -1848,6 +2068,7 @@ export class AppController {
   private openLeaderboardModal(): void {
     if (!this.state) return;
     triggerAndroidHaptic('tap');
+    this.cancelSuperpowerTargeting();
     this.techModal.close();
     this.factionDossierModal.close();
     const vm = this.buildLeaderboardViewModel();
@@ -1867,28 +2088,6 @@ export class AppController {
       age: human ? getPlayerAge(human) : 1,
       tutorialActive: this.tutorial.isActive(),
     };
-  }
-
-  private showAgeAdvancementToast(newAge: PlayerAge): void {
-    const roman = AGE_ROMAN[newAge];
-    this.rewardToastEl.innerHTML = `
-      <span class="toast-ruins-icon">${renderIcon('crown', 'icon icon-star')}</span>
-      <span class="toast-ruins-body">
-        <span class="toast-ruins-kicker">Age ${roman} Unlocked!</span>
-        <span class="toast-ruins-line"><span>Tier ${roman} technologies are now available in the Codex.</span></span>
-      </span>
-    `;
-
-    this.rewardToastEl.classList.remove('hidden', 'toast-show');
-    void this.rewardToastEl.offsetWidth;
-    this.rewardToastEl.classList.add('toast-show');
-
-    if (this.rewardToastTimer !== null) {
-      window.clearTimeout(this.rewardToastTimer);
-    }
-    this.rewardToastTimer = window.setTimeout(() => {
-      this.hideRewardToast();
-    }, 3600);
   }
 
   private showRuinsRewardToast(
@@ -2012,6 +2211,11 @@ export class AppController {
       turn: this.state.turn,
       maxTurns: this.state.config.maxTurns,
       age: getPlayerAge(human),
+      techCount: human.techs.length,
+      canUseSuperpower: canUseSuperpower(this.state, human.id),
+      superpowerUsed: Boolean(human.superpowerUsed),
+      superpowerName: SUPERPOWER_DEFINITIONS[human.faction].shortLabel,
+      superpowerTargeting: this.isSuperpowerTargeting,
       isHumanTurn: isHuman,
     });
   }
@@ -2126,10 +2330,17 @@ export class AppController {
 
     const tile = getTile(this.state, unit.x, unit.y);
     const baseDef = UNIT_DEFINITIONS[unit.type];
-    const roadBonus = owner.faction === 'humans' && tile?.hasRoad ? 1 : 0;
+    const roadBonus = baseDef.movement > 0 && owner.faction === 'humans' && tile?.hasRoad ? 1 : 0;
     const rohirrimBonus =
       owner.techs.includes('humans_ride_of_rohirrim') &&
       (unit.type === 'rider' || unit.type === 'rohirrim_knight')
+        ? 1
+        : 0;
+    const eclipseMoveBonus =
+      baseDef.movement > 0 &&
+      owner.faction === 'elves' &&
+      (this.state.eclipseTurnsRemaining ?? 0) > 0 &&
+      this.state.eclipseOwnerId === owner.id
         ? 1
         : 0;
     const isOwnedByHuman = unit.ownerId === this.humanPlayerId;
@@ -2145,7 +2356,7 @@ export class AppController {
       isOwnedByHuman,
       effectiveAttack: getEffectiveAttack(this.state, unit),
       effectiveDefense: getEffectiveDefense(this.state, unit),
-      effectiveMovement: baseDef.movement + roadBonus + rohirrimBonus,
+      effectiveMovement: baseDef.movement + roadBonus + rohirrimBonus + eclipseMoveBonus,
       actions: filteredUnitActions,
     };
   }

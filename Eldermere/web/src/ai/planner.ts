@@ -3,11 +3,13 @@ import {
   canResearchTech,
   canUnitCapture,
   canUnitExploreRuins,
+  canUseSuperpower,
   cloneState,
   getAvailableTileActions,
   getCityUnitCap,
   getCityUnitCount,
   getFactionTechs,
+  getSuperpowerTargetCoords,
   getTechCost,
   getTile,
   getTrainableUnits,
@@ -161,6 +163,74 @@ export function planAITurn(
   };
 
   runEconomyPass();
+
+  // Pass 2.5: Age III Superpower Activation
+  if (state.phase === 'playing' && canUseSuperpower(state, playerId)) {
+    const ctx = buildSpatialContext(state, playerId);
+    const faction = ctx.player.faction;
+    if (faction === 'dwarves') {
+      commit({ type: 'USE_SUPERPOWER' });
+    } else if (faction === 'elves') {
+      if (ctx.ownUnits.length >= 2 && (ctx.enemyUnits.length > 0 || ctx.enemyCities.length > 0)) {
+        commit({ type: 'USE_SUPERPOWER' });
+      }
+    } else if (faction === 'orcs') {
+      const targets = getSuperpowerTargetCoords(state, playerId);
+      let bestTarget: { x: number; y: number } | null = null;
+      let bestScore = 0;
+      for (const coord of targets) {
+        let enemiesHit = 0;
+        let ownTilePenalty = 0;
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dx = -1; dx <= 1; dx++) {
+            const t = getTile(state, coord.x + dx, coord.y + dy);
+            if (!t) continue;
+            if (t.unitId) {
+              const u = state.units[t.unitId];
+              if (u && u.ownerId !== playerId) enemiesHit++;
+            }
+            if (t.cityId && state.cities[t.cityId]?.ownerId === playerId && t.improvement) {
+              ownTilePenalty += 1;
+            }
+          }
+        }
+        const score = enemiesHit * 10 - ownTilePenalty * 2;
+        if (enemiesHit >= 1 && score > bestScore) {
+          bestScore = score;
+          bestTarget = coord;
+        }
+      }
+      if (bestTarget) {
+        commit({ type: 'USE_SUPERPOWER', target: bestTarget });
+      }
+    } else if (faction === 'humans') {
+      const targets = getSuperpowerTargetCoords(state, playerId);
+      if (targets.length > 0 && (ctx.enemyUnits.length > 0 || ctx.enemyCities.length > 0)) {
+        let bestTarget = targets[0];
+        let bestScore = -Infinity;
+        for (const coord of targets) {
+          let score = 0;
+          for (const enemy of ctx.enemyUnits) {
+            const d = Math.max(Math.abs(coord.x - enemy.x), Math.abs(coord.y - enemy.y));
+            if (d <= 2) score += 25;
+            else if (d <= 4) score += 8;
+          }
+          if (ctx.ownCapital) {
+            const capDist = Math.max(
+              Math.abs(coord.x - ctx.ownCapital.x),
+              Math.abs(coord.y - ctx.ownCapital.y),
+            );
+            if (capDist <= 2) score += 4;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestTarget = coord;
+          }
+        }
+        commit({ type: 'USE_SUPERPOWER', target: bestTarget });
+      }
+    }
+  }
 
   // Pass 3: Tactical Unit Global Best-Pair Loop
   let tacticalSteps = 0;

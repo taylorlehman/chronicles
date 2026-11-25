@@ -118,6 +118,32 @@ export const UNIT_DEFINITIONS: Record<UnitType, UnitDefinition> = {
     traits: ['dash', 'fortify', 'stalwart'],
     description: 'Starsteel-clad juggernaut. Stalwart: immune to Persist chains and takes -1 ranged damage.',
   },
+  dragon: {
+    type: 'dragon',
+    name: 'Fire Drake',
+    faction: 'dwarves',
+    cost: 0,
+    maxHp: 20,
+    attack: 4.5,
+    defense: 3,
+    movement: 3,
+    range: 2,
+    traits: ['dash', 'flying'],
+    description: 'Ancient winged Fire Drake awakened from the peaks. Flies freely over water and mountains.',
+  },
+  watchtower: {
+    type: 'watchtower',
+    name: 'Watchtower',
+    faction: 'humans',
+    cost: 0,
+    maxHp: 25,
+    attack: 3.5,
+    defense: 4.5,
+    movement: 0,
+    range: 2,
+    traits: ['fortify'],
+    description: 'Fortified stone tower. Cannot move, but fires volleys at enemies within range 2.',
+  },
 };
 
 export const BASE_UNIT_TYPES: UnitType[] = ['warrior', 'defender', 'archer', 'rider', 'catapult'];

@@ -13,6 +13,7 @@ import {
   type ActionOption,
   type City,
   type Coord,
+  type FactionId,
   type GameAction,
   type GameState,
   type ImprovementType,
@@ -211,7 +212,99 @@ export function getTrainableUnits(state: GameState, cityId: string): UnitType[] 
     }
   }
 
-  return ALL_UNIT_TYPES.filter((t) => unlocked.has(t));
+  return ALL_UNIT_TYPES.filter((t) => unlocked.has(t) && t !== 'dragon' && t !== 'watchtower');
+}
+
+export interface SuperpowerDefinition {
+  faction: FactionId;
+  name: string;
+  shortLabel: string;
+  description: string;
+  requiresTarget: boolean;
+  targetHint?: string;
+}
+
+export const SUPERPOWER_DEFINITIONS: Record<FactionId, SuperpowerDefinition> = {
+  elves: {
+    faction: 'elves',
+    name: 'Starlit Eclipse',
+    shortLabel: 'Eclipse',
+    description:
+      'Plunges the realm into darkness for 3 turns. All Elven units gain +1 MOV and +1 ATK.',
+    requiresTarget: false,
+  },
+  orcs: {
+    faction: 'orcs',
+    name: 'Volcanic Cataclysm',
+    shortLabel: 'Volcano',
+    description:
+      'Calls down volcano fire across a 3×3 area, destroying enemies and scorching the land into Wasteland.',
+    requiresTarget: true,
+    targetHint: 'Tap any revealed tile to unleash a 3×3 volcanic eruption',
+  },
+  dwarves: {
+    faction: 'dwarves',
+    name: 'Awaken Fire Drake',
+    shortLabel: 'Fire Drake',
+    description: 'Summons a flying Fire Drake at the mountain closest to your capital.',
+    requiresTarget: false,
+  },
+  humans: {
+    faction: 'humans',
+    name: 'Raise Watchtower',
+    shortLabel: 'Watchtower',
+    description: 'Constructs a fortified Watchtower (25 HP, Range 2) inside your territory.',
+    requiresTarget: true,
+    targetHint: 'Tap an empty tile inside your borders to build a Watchtower',
+  },
+};
+
+export function getSuperpowerTargetCoords(state: GameState, playerId: PlayerId): Coord[] {
+  const player = getPlayer(state, playerId);
+  if (!player || !player.alive) return [];
+
+  if (player.faction === 'elves' || player.faction === 'dwarves') {
+    return [];
+  }
+
+  const coords: Coord[] = [];
+  if (player.faction === 'orcs') {
+    for (let i = 0; i < state.tiles.length; i++) {
+      if (player.revealedTiles[i]) {
+        const tile = state.tiles[i];
+        coords.push({ x: tile.x, y: tile.y });
+      }
+    }
+    return coords;
+  }
+
+  // Humans: revealed tiles inside own borders, non-water, empty, non-city-center
+  for (let i = 0; i < state.tiles.length; i++) {
+    if (!player.revealedTiles[i]) continue;
+    const tile = state.tiles[i];
+    if (
+      tile.cityId !== null &&
+      state.cities[tile.cityId]?.ownerId === playerId &&
+      tile.terrain !== 'water' &&
+      tile.unitId === null &&
+      !tile.isCityCenter
+    ) {
+      coords.push({ x: tile.x, y: tile.y });
+    }
+  }
+  return coords;
+}
+
+export function canUseSuperpower(state: GameState, playerId: PlayerId): boolean {
+  if (state.phase !== 'playing') return false;
+  const player = getPlayer(state, playerId);
+  if (!player || !player.alive) return false;
+  if (getPlayerAge(player) < 3) return false;
+  if (player.superpowerUsed ?? false) return false;
+  if (player.faction === 'humans') {
+    return getSuperpowerTargetCoords(state, playerId).length > 0;
+  }
+  return true;
 }
 
 export const AGE_THRESHOLDS: Record<PlayerAge, number> = { 1: 0, 2: 3, 3: 7 };
@@ -655,6 +748,8 @@ export function getValidMoves(state: GameState, unitId: string): Coord[] {
   if (!startTile) return [];
 
   let maxMp = UNIT_DEFINITIONS[unit.type].movement;
+  if (maxMp <= 0) return [];
+
   // Humans Beacon Network: units starting on a Road get +1 MOV
   if (owner.faction === 'humans' && startTile.hasRoad) {
     maxMp += 1;
@@ -666,6 +761,12 @@ export function getValidMoves(state: GameState, unitId: string): Coord[] {
   ) {
     maxMp += 1;
   }
+  // Elves Starlit Eclipse Superpower: all Elven units gain +1 MOV while active
+  if ((state.eclipseTurnsRemaining ?? 0) > 0 && state.eclipseOwnerId === owner.id) {
+    maxMp += 1;
+  }
+
+  const isFlying = unitHasTrait(state, unit, 'flying');
 
   const size = state.mapSize;
   const bestRem = new Int8Array(size * size);
@@ -702,7 +803,7 @@ export function getValidMoves(state: GameState, unitId: string): Coord[] {
       // Never allow moving into or traversing through cloud-covered (unrevealed) tiles
       if (!owner.revealedTiles[nIdx]) continue;
 
-      if (!isTilePassableForUnit(owner, next)) continue;
+      if (!isFlying && !isTilePassableForUnit(owner, next)) continue;
 
       // Cannot pass through or land on enemy units
       if (next.unitId !== null) {
@@ -712,11 +813,13 @@ export function getValidMoves(state: GameState, unitId: string): Coord[] {
 
       // Compute movement cost
       let nextRem = curr.rem - 1;
-      const isForest = next.terrain === 'forest' || next.terrain === 'ancient_woods';
-      if (next.terrain === 'mountain') {
-        nextRem = 0; // Mountains stop movement
-      } else if (isForest && owner.faction !== 'elves' && !next.hasRoad) {
-        nextRem = 0; // Forests stop movement unless Elves or Road
+      if (!isFlying) {
+        const isForest = next.terrain === 'forest' || next.terrain === 'ancient_woods';
+        if (next.terrain === 'mountain') {
+          nextRem = 0; // Mountains stop movement
+        } else if (isForest && owner.faction !== 'elves' && !next.hasRoad) {
+          nextRem = 0; // Forests stop movement unless Elves or Road
+        }
       }
 
       // Can land on empty tile
@@ -944,6 +1047,8 @@ const UNIT_ICONS: Record<UnitType, string> = {
   uruk_berserker: '🪓',
   elven_sentinel: '🌟',
   ironbreaker: '⚒️',
+  dragon: '🐉',
+  watchtower: '🗼',
 };
 
 /**

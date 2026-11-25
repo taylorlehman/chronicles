@@ -1,8 +1,8 @@
 import { FACTION_DEFINITIONS } from '../game/data';
 import { AGE_ROMAN, getPlayerAge } from '../game/rules';
-import type { PlayerAge, PlayerState } from '../game/types';
+import type { FactionId, PlayerAge, PlayerState } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
-import { renderFactionCrest, renderIcon } from './icons';
+import { renderFactionCrest, renderFactionSuperpowerIcon, renderIcon } from './icons';
 
 export interface TopBarViewModel {
   player: PlayerState;
@@ -10,12 +10,40 @@ export interface TopBarViewModel {
   turn?: number;
   maxTurns?: number;
   age?: PlayerAge;
+  techCount?: number;
+  canUseSuperpower?: boolean;
+  superpowerUsed?: boolean;
+  superpowerName?: string;
+  superpowerTargeting?: boolean;
   isHumanTurn: boolean;
 }
 
 export interface TopBarCallbacks {
   onOpenLeaderboard?: () => void;
   onOpenCodex?: () => void;
+  onActivateSuperpower?: () => void;
+}
+
+function shortSuperpowerLabel(faction: FactionId, name?: string): string {
+  const trimmed = name?.trim();
+  if (trimmed) {
+    if (/eclipse/i.test(trimmed)) return 'Eclipse';
+    if (/volcano|eruption|doom/i.test(trimmed)) return 'Volcano';
+    if (/dragon|wyrm|drake/i.test(trimmed)) return 'Dragon';
+    if (/tower|beacon|citadel/i.test(trimmed)) return 'Tower';
+    if (trimmed.length <= 10) return trimmed;
+    return trimmed.split(/\s+/)[0] || trimmed;
+  }
+  switch (faction) {
+    case 'humans':
+      return 'Tower';
+    case 'orcs':
+      return 'Volcano';
+    case 'elves':
+      return 'Eclipse';
+    case 'dwarves':
+      return 'Dragon';
+  }
 }
 
 function esc(value: string): string {
@@ -89,13 +117,93 @@ export class TopBar {
     }
 
     const age: PlayerAge = vm.age ?? getPlayerAge(vm.player);
+    const techCount = vm.techCount ?? vm.player.techs.length;
+    const fillPct = Math.max(0, Math.min(100, Math.round((techCount / 7) * 100)));
+    const superpowerUsed = Boolean(vm.superpowerUsed);
+    const superpowerTargeting = Boolean(vm.superpowerTargeting);
+    const canUseSuperpower = Boolean(vm.canUseSuperpower && !superpowerUsed);
+    const isSuperpowerMode = (canUseSuperpower || superpowerTargeting) && !superpowerUsed;
     const ageLabel = `Age ${AGE_ROMAN[age]}`;
+    const superpowerShort = superpowerTargeting
+      ? 'Cancel'
+      : shortSuperpowerLabel(vm.player.faction, vm.superpowerName);
+    const superpowerTitle = superpowerTargeting
+      ? 'Cancel superpower targeting'
+      : vm.superpowerName
+        ? `Activate ${vm.superpowerName}`
+        : `Activate ${superpowerShort} Superpower`;
 
-    const barKey = `${vm.player.faction}|${vm.player.score}|${vm.player.gold}|${vm.player.goldPerTurn}|${age}`;
+    const barKey = [
+      vm.player.faction,
+      vm.player.score,
+      vm.player.gold,
+      vm.player.goldPerTurn,
+      age,
+      techCount,
+      canUseSuperpower ? 1 : 0,
+      superpowerUsed ? 1 : 0,
+      superpowerTargeting ? 1 : 0,
+      vm.superpowerName ?? '',
+    ].join('|');
     if (barKey === this.lastBarKey) {
       return;
     }
     this.lastBarKey = barKey;
+
+    const rightButtonHtml = isSuperpowerMode
+      ? `
+        <button
+          type="button"
+          class="top-pill top-pill-age top-age-meter is-superpower-ready ${superpowerTargeting ? 'is-superpower-targeting' : ''}"
+          data-action="superpower"
+          title="${esc(superpowerTitle)}"
+          aria-label="${esc(superpowerTitle)}"
+        >
+          <span class="top-age-meter-track" aria-hidden="true">
+            <span class="top-age-meter-fill" style="width: 100%;"></span>
+          </span>
+          <span class="top-age-meter-content">
+            ${
+              superpowerTargeting
+                ? renderIcon('close', 'icon icon-sm icon-age')
+                : renderFactionSuperpowerIcon(vm.player.faction, 'icon icon-sm icon-age')
+            }
+            <span class="top-age-val">${esc(superpowerShort)}</span>
+          </span>
+        </button>
+      `
+      : superpowerUsed || age >= 3
+        ? `
+          <button
+            type="button"
+            class="top-pill top-pill-age top-age-meter is-age-complete"
+            data-action="codex"
+            title="${ageLabel} — Open Tech Codex"
+            aria-label="${ageLabel} — Open Tech Codex"
+          >
+            <span class="top-age-meter-content">
+              ${renderIcon('codex', 'icon icon-sm icon-age')}
+              <span class="top-age-val">${ageLabel}</span>
+            </span>
+          </button>
+        `
+        : `
+          <button
+            type="button"
+            class="top-pill top-pill-age top-age-meter is-filling"
+            data-action="codex"
+            title="${ageLabel} (${techCount}/7 Lore to Age III) — Open Tech Codex"
+            aria-label="${ageLabel}, ${techCount} of 7 technologies to Age III — Open Tech Codex"
+          >
+            <span class="top-age-meter-track" aria-hidden="true">
+              <span class="top-age-meter-fill" style="width: ${fillPct}%;"></span>
+            </span>
+            <span class="top-age-meter-content">
+              ${renderIcon('codex', 'icon icon-sm icon-age')}
+              <span class="top-age-val">${ageLabel}</span>
+            </span>
+          </button>
+        `;
 
     this.root.innerHTML = `
       <div class="top-cluster top-cluster-left">
@@ -123,16 +231,7 @@ export class TopBar {
       </div>
 
       <div class="top-cluster top-cluster-right">
-        <button
-          type="button"
-          class="top-pill top-pill-age"
-          data-action="codex"
-          title="Current Age — Open Tech Codex"
-          aria-label="${ageLabel} — Open Tech Codex"
-        >
-          ${renderIcon('codex', 'icon icon-sm icon-age')}
-          <span class="top-age-val">${ageLabel}</span>
-        </button>
+        ${rightButtonHtml}
       </div>
     `;
 
@@ -146,6 +245,12 @@ export class TopBar {
       .querySelector<HTMLButtonElement>('[data-action="codex"]')
       ?.addEventListener('click', () => {
         this.callbacks.onOpenCodex?.();
+      });
+
+    this.root
+      .querySelector<HTMLButtonElement>('[data-action="superpower"]')
+      ?.addEventListener('click', () => {
+        this.callbacks.onActivateSuperpower?.();
       });
   }
 }

@@ -387,8 +387,11 @@ export class ActionBar {
       }
     } else if (showTile && vm.selectedTile) {
       const { tile, terrainName, defenseBonus } = vm.selectedTile;
-      const defLabel = `${defenseBonus.toFixed(2).replace(/\.00$/, '.0').replace(/\.50$/, '.5')}x`;
-      const statParts: string[] = [`DEF ${defLabel}`];
+      const statParts: string[] = [];
+      if (defenseBonus > 1) {
+        const defLabel = `${defenseBonus.toFixed(2).replace(/\.00$/, '.0').replace(/\.50$/, '.5')}x`;
+        statParts.push(`DEF ${defLabel}`);
+      }
       if (tile.resource) {
         statParts.push(RESOURCE_LABELS[tile.resource] ?? tile.resource);
       } else if (tile.improvement) {
@@ -401,7 +404,7 @@ export class ActionBar {
 
       headerLeftHtml = `
         <span class="drawer-title">${esc(terrainName)}</span>
-        <span class="drawer-stats">${esc(statParts.join(' · '))}</span>
+        ${statParts.length > 0 ? `<span class="drawer-stats">${esc(statParts.join(' · '))}</span>` : ''}
       `;
 
       if (vm.selectedTile.actions.length > 0) {
@@ -471,11 +474,9 @@ export class ActionBar {
     }
 
     let badgeHtml = '';
-    if (isTechLocked) {
-      badgeHtml = `<span class="tile-lock-badge" aria-hidden="true">${renderIcon('lock', 'icon icon-xs')}</span>`;
-    } else if (opt.cost !== undefined && opt.cost > 0) {
+    if (!isTechLocked && opt.cost !== undefined && opt.cost > 0) {
       badgeHtml = `<span class="tile-cost-pill">${opt.cost}${renderIcon('star', 'icon icon-xs icon-star')}</span>`;
-    } else if (opt.id === 'chop_forest') {
+    } else if (!isTechLocked && opt.id === 'chop_forest') {
       badgeHtml = `<span class="tile-cost-pill gain">+2${renderIcon('star', 'icon icon-xs icon-star')}</span>`;
     }
 

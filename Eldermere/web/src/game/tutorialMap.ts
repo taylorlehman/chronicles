@@ -467,6 +467,7 @@ export function createTutorialGame(options: TutorialGameOptions): TutorialGameRe
       revealedTiles: new Array<boolean>(mapSize * mapSize).fill(false),
       alive: true,
       eliminatedOnTurn: null,
+      superpowerUsed: false,
     };
   });
 
@@ -484,6 +485,8 @@ export function createTutorialGame(options: TutorialGameOptions): TutorialGameRe
     phase: 'playing',
     winnerId: null,
     winReason: null,
+    eclipseTurnsRemaining: 0,
+    eclipseOwnerId: null,
     rngState: generated.rngState,
     nextEntityId: 1,
     players,

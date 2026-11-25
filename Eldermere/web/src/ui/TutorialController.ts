@@ -380,37 +380,32 @@ export class TutorialController {
     this.modalEl.setAttribute('aria-label', 'Guided Tutorial Introduction');
     this.modalEl.innerHTML = `
       <div class="modal-panel tutorial-modal-panel tutorial-intro-panel">
-        <div class="tutorial-modal-kicker">
-          ${renderIcon('compass', 'icon icon-sm')}
-          <span>First Campaign Guide</span>
-        </div>
         <h2 class="tutorial-modal-headline">Welcome to Eldermere</h2>
         <p class="tutorial-modal-copy">
-          This short guided tutorial will walk you step-by-step through the essentials of commanding your realm:
+          Learn the essentials of commanding your realm:
         </p>
         <ul class="tutorial-intro-list">
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('wheat', 'icon icon-xs')}</span>
-            <span>Harvesting resources &amp; upgrading your city</span>
+            <span>Harvest resources &amp; upgrade your city</span>
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('compass', 'icon icon-xs')}</span>
-            <span>Moving your units across the realm</span>
+            <span>Move units across the realm</span>
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('swords', 'icon icon-xs')}</span>
-            <span>Fighting rival warriors &amp; capturing villages</span>
+            <span>Battle rivals &amp; capture villages</span>
           </li>
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('codex', 'icon icon-xs')}</span>
-            <span>Researching lore &amp; ending your turn</span>
+            <span>Research lore &amp; end your turn</span>
           </li>
         </ul>
         <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="start">
           <span>Start Tutorial</span>
           ${renderIcon('chevronRight', 'icon icon-sm')}
         </button>
-        <p class="tutorial-modal-footnote">You can end the tutorial anytime from the Scores menu.</p>
       </div>
     `;
 
@@ -430,8 +425,7 @@ export class TutorialController {
         </div>
         <h2 class="tutorial-modal-headline">Tutorial Complete!</h2>
         <p class="tutorial-modal-copy">
-          You have mastered upgrading cities, moving, combat, capturing settlements, researching in the Codex, and turn-based play.
-          The tutorial is now over — keep taking turns to earn fresh Stars, expand your realm, and conquer Eldermere!
+          You’ve mastered the essentials. Expand your realm, unlock new Ages in the Codex, and conquer Eldermere!
         </p>
         <button type="button" class="btn btn-cta tutorial-modal-cta" data-tutorial-modal-action="continue">
           <span>Continue Playing</span>

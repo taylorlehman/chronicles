@@ -139,7 +139,6 @@ export class LeaderboardModal {
               <div class="leaderboard-right-group">
                 <div class="leaderboard-score-col">
                   <span class="lb-score-val">${entry.score.toLocaleString()}</span>
-                  <span class="lb-score-label">Glory</span>
                 </div>
                 <span class="lb-row-chevron" aria-hidden="true">${renderIcon('chevronRight', 'icon icon-sm')}</span>
               </div>
@@ -154,7 +153,7 @@ export class LeaderboardModal {
       .join('');
 
     const ageSubtitle = `Age ${AGE_ROMAN[vm.age ?? 1]}`;
-    const footerHint = 'Capture all enemy capitals to win · Tap a realm for details';
+    const footerHint = 'Capture all capitals to win';
 
     this.root.innerHTML = `
       <div class="modal-panel leaderboard-modal-panel">

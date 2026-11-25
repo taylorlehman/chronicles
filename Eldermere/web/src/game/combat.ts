@@ -57,6 +57,11 @@ export function getEffectiveAttack(state: GameState, attacker: Unit): number {
     atk += 0.5;
   }
 
+  // Elves Starlit Eclipse Superpower: all Elven units gain +1 ATK while active
+  if ((state.eclipseTurnsRemaining ?? 0) > 0 && state.eclipseOwnerId === owner.id) {
+    atk += 1;
+  }
+
   return atk;
 }
 

@@ -118,6 +118,7 @@ export function createMockGameState(humanFaction: FactionId = 'humans'): GameSta
       revealedTiles: revealed,
       alive: true,
       eliminatedOnTurn: null,
+      superpowerUsed: false,
     };
   });
 
@@ -266,6 +267,8 @@ export function createMockGameState(humanFaction: FactionId = 'humans'): GameSta
     phase: 'playing',
     winnerId: null,
     winReason: null,
+    eclipseTurnsRemaining: 0,
+    eclipseOwnerId: null,
     rngState: 1337,
     nextEntityId,
     players,

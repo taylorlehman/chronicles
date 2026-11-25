@@ -47,7 +47,11 @@ export type IconName =
   | 'endTurnHumans'
   | 'endTurnOrcs'
   | 'endTurnElves'
-  | 'endTurnDwarves';
+  | 'endTurnDwarves'
+  | 'superpowerHumans'
+  | 'superpowerOrcs'
+  | 'superpowerElves'
+  | 'superpowerDwarves';
 
 const ICON_PATHS: Record<IconName, string> = {
   // 8-point Star of Gondor
@@ -178,6 +182,16 @@ const ICON_PATHS: Record<IconName, string> = {
   endTurnOrcs: `<path d="M5.5 7.2l6.2 4.8-6.2 4.8V7.2z" fill="currentColor" stroke-linejoin="round"/><path d="M12.5 13.8c2.6-.5 4.6-2 6-4.8l1.5 1.5c-1.5 3.4-4 5.5-7.5 6.2v-2.9z" fill="currentColor" fill-opacity="0.88" stroke-linejoin="round"/>`,
   endTurnElves: `<path d="M8.5 7.5l1.2 3.2 3.2 1.3-3.2 1.3-1.2 3.2-1.3-3.2L4 12l3.2-1.3 1.3-3.2z" fill="currentColor" stroke="none"/><path d="M13 6.5l6.2 5.5-6.2 5.5 2.2-5.5L13 6.5z" fill="currentColor" stroke-linejoin="round"/>`,
   endTurnDwarves: `<path d="M4.5 10.5h7.5v3.2c-1 .9-2.2 1.3-3.8 1.3l-.6 1.8h3.4v1.7H5.5v-1.7h.8l.5-1.8c-1.2-.5-2-1.4-2.3-2.5v-2z" fill="currentColor" stroke-linejoin="round"/><path d="M13.5 6.5l6 5.5-6 5.5v-11z" fill="currentColor" stroke-linejoin="round"/>`,
+
+  // Per-Civ Age III Superpower Icons
+  // Humans: Beacon Tower / Radiant Citadel
+  superpowerHumans: `<path d="M8 20.5h8M9 20.5V11h6v9.5M8 11V8.5h2v1.2h4V8.5h2V11z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M12 3.2l1.1 2.3 2.4.9-2.4.9L12 9.6l-1.1-2.3-2.4-.9 2.4-.9z" fill="currentColor" stroke="none"/>`,
+  // Orcs: Erupting Volcano
+  superpowerOrcs: `<path d="M3.5 20h17l-5.2-10h-6.6L3.5 20z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><path d="M9.5 10c-.5-2 .5-3.8 2.5-5.5 1.8 1.5 2.8 3.2 2.4 5.5M12 4.5V2.5M7.5 6.5L6 5M16.5 6.5L18 5" stroke-linecap="round" stroke-linejoin="round"/>`,
+  // Elves: Starlight Eclipse
+  superpowerElves: `<circle cx="12" cy="12" r="6" fill="currentColor" fill-opacity="0.28"/><path d="M14.5 6.8a5.5 5.5 0 100 10.4A4.6 4.6 0 1114.5 6.8z" fill="currentColor" stroke="none"/><path d="M12 2.2v2M12 19.8v2M2.2 12h2M19.8 12h2" stroke-linecap="round"/>`,
+  // Dwarves: Ancient Dragon
+  superpowerDwarves: `<path d="M5 18.5c2.2-1.8 4-4.2 4.5-7.2L7 8.5l3.5-1.2L12 4l2.2 3.2 4.8.6-2.8 3.2 2.3 2.5-4.5.8c-.5 2.2-1.8 3.8-4 4.8L5 18.5z" fill="currentColor" fill-opacity="0.28" stroke-linejoin="round"/><circle cx="13.5" cy="9.5" r="0.9" fill="currentColor" stroke="none"/>`,
 };
 
 export function renderIcon(name: IconName, className = 'icon'): string {
@@ -215,6 +229,16 @@ export function renderFactionEndTurnIcon(faction: FactionId, className = 'icon')
   return renderIcon(map[faction], className);
 }
 
+export function renderFactionSuperpowerIcon(faction: FactionId, className = 'icon'): string {
+  const map: Record<FactionId, IconName> = {
+    humans: 'superpowerHumans',
+    orcs: 'superpowerOrcs',
+    elves: 'superpowerElves',
+    dwarves: 'superpowerDwarves',
+  };
+  return renderIcon(map[faction], className);
+}
+
 export function renderUnitIcon(unitType: UnitType, className = 'icon'): string {
   switch (unitType) {
     case 'warrior':
@@ -232,6 +256,10 @@ export function renderUnitIcon(unitType: UnitType, className = 'icon'): string {
       return renderIcon('catapult', className);
     case 'uruk_berserker':
       return renderIcon('axe', className);
+    case 'dragon':
+      return renderIcon('superpowerDwarves', className);
+    case 'watchtower':
+      return renderIcon('tower', className);
     default:
       return renderIcon('swords', className);
   }
