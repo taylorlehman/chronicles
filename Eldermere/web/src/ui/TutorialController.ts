@@ -3,7 +3,7 @@ import { renderActionIcon, renderIcon, type IconName } from './icons';
 import { markTutorialCompleted } from './persistence';
 import { render3DThumbImg } from './thumbs';
 
-export type TutorialStepId = 'upgrade' | 'move' | 'combat' | 'capture' | 'codex' | 'end_turn';
+export type TutorialStepId = 'stars' | 'upgrade' | 'move' | 'combat' | 'capture' | 'codex' | 'end_turn';
 export type TutorialStage = 'intro' | TutorialStepId | 'complete';
 
 export interface TutorialBannerContext {
@@ -22,6 +22,12 @@ export interface TutorialStep {
 }
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
+  {
+    id: 'stars',
+    icon: 'star',
+    title: 'How Stars Work',
+    body: 'Stars (★) are your realm’s currency — spend them to harvest resources, train units, and research technologies. Upgrading and capturing cities increases the Stars you earn every turn.',
+  },
   {
     id: 'upgrade',
     icon: 'wheat',
@@ -61,12 +67,13 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
 ];
 
 const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
-  upgrade: 0,
-  move: 1,
-  combat: 2,
-  capture: 3,
-  codex: 4,
-  end_turn: 5,
+  stars: 0,
+  upgrade: 1,
+  move: 2,
+  combat: 3,
+  capture: 4,
+  codex: 5,
+  end_turn: 6,
 };
 
 function normalizeResourceThumbKey(key: string): string {
@@ -82,6 +89,7 @@ export function isTutorialStepStage(stage: TutorialStage | null): stage is Tutor
 export interface TutorialCallbacks {
   onStageChange?: (stage: TutorialStage | null) => void;
   onStartTutorial?: () => void;
+  onAdvanceFromStars?: () => void;
   onCompleteDismiss?: () => void;
   onEndTutorial?: () => void;
   onModalOpen?: () => void;
@@ -123,7 +131,7 @@ export class TutorialController {
     container.appendChild(this.modalEl);
   }
 
-  /** True while the tutorial is in progress (intro or any of the 6 scripted steps). */
+  /** True while the tutorial is in progress (intro or any of the 7 scripted steps). */
   public isActive(): boolean {
     return this.stage !== null && this.stage !== 'complete';
   }
@@ -133,7 +141,7 @@ export class TutorialController {
     return this.stage === 'intro' || this.stage === 'complete';
   }
 
-  /** True when End Turn should be blocked so the player completes steps 1-5 before ending the turn. */
+  /** True when End Turn should be blocked so the player completes steps 1-6 before ending the turn. */
   public isBlockingEndTurn(): boolean {
     return isTutorialStepStage(this.stage) && this.stage !== 'end_turn';
   }
@@ -191,7 +199,7 @@ export class TutorialController {
       return;
     }
 
-    // Active scripted step (1/6 .. 6/6)
+    // Active scripted step (1/7 .. 7/7)
     this.modalEl.classList.add('hidden');
     this.modalEl.innerHTML = '';
     this.renderBanner(nextStage);
@@ -259,7 +267,7 @@ export class TutorialController {
 
   public dismissModal(): void {
     if (this.stage === 'intro') {
-      this.setStage('upgrade');
+      this.setStage('stars');
       this.callbacks.onStartTutorial?.();
     } else if (this.stage === 'complete') {
       this.setStage(null);
@@ -326,6 +334,10 @@ export class TutorialController {
       `;
     }
 
+    const nextBtnHtml =
+      stepId === 'stars'
+        ? `<button type="button" class="btn btn-cta tutorial-next-btn" data-tutorial-next><span>Got It</span>${renderIcon('chevronRight', 'icon icon-xs')}</button>`
+        : '';
     const progressHtml = this.subProgress
       ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
       : '';
@@ -346,11 +358,22 @@ export class TutorialController {
         ${resourceCalloutHtml}
         ${nudgeHtml}
         <div class="tutorial-footer-row">
+          ${nextBtnHtml}
           ${progressHtml}
           <span class="tutorial-hint-note">End anytime in Scores</span>
         </div>
       </div>
     `;
+
+    if (stepId === 'stars') {
+      this.bannerEl
+        .querySelector<HTMLButtonElement>('[data-tutorial-next]')
+        ?.addEventListener('click', () => {
+          if (this.stage !== 'stars') return;
+          this.setStage('upgrade');
+          this.callbacks.onAdvanceFromStars?.();
+        });
+    }
   }
 
   private renderIntroModal(): void {
@@ -365,13 +388,6 @@ export class TutorialController {
         <p class="tutorial-modal-copy">
           This short guided tutorial will walk you step-by-step through the essentials of commanding your realm:
         </p>
-        <div class="tutorial-stars-callout">
-          <span class="tutorial-stars-icon" aria-hidden="true">${renderIcon('star', 'icon icon-sm icon-star')}</span>
-          <div class="tutorial-stars-copy">
-            <strong>Stars (★) Fuel Your Realm</strong>
-            <span>Spend Stars to harvest resources, train units, and research technologies. Upgrading and capturing cities increases the Stars you earn every turn.</span>
-          </div>
-        </div>
         <ul class="tutorial-intro-list">
           <li>
             <span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('wheat', 'icon icon-xs')}</span>
@@ -411,7 +427,7 @@ export class TutorialController {
       <div class="modal-panel tutorial-modal-panel tutorial-complete-panel">
         <div class="tutorial-modal-kicker is-gold">
           ${renderIcon('trophy', 'icon icon-sm')}
-          <span>All 6 Steps Mastered</span>
+          <span>All 7 Steps Mastered</span>
         </div>
         <div class="tutorial-complete-crest" aria-hidden="true">
           ${renderIcon('crown', 'icon icon-xl')}

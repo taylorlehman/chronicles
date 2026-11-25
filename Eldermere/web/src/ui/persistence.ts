@@ -7,6 +7,7 @@ export const TUTORIAL_DONE_KEY = 'eldermere_tutorial_done_v1';
 
 const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
   'intro',
+  'stars',
   'upgrade',
   'move',
   'combat',

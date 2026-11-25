@@ -272,9 +272,16 @@ export class AppController {
       onStartTutorial: () => {
         triggerAndroidHaptic('tap');
         this.syncTutorialContext();
-        this.focusTutorialCameraForStage('upgrade');
+        this.focusTutorialCameraForStage('stars');
         this.syncTutorialProgress();
         this.resumeSceneAfterOpaqueSheet();
+      },
+      onAdvanceFromStars: () => {
+        triggerAndroidHaptic('tap');
+        this.syncTutorialContext();
+        this.syncTutorialProgress();
+        this.focusTutorialCameraForStage('upgrade');
+        this.refreshHUD();
       },
       onCompleteDismiss: () => {
         triggerAndroidHaptic('tap');
@@ -1190,7 +1197,7 @@ export class AppController {
     if (!scenario) return;
 
     let target: Coord | null = null;
-    if (stage === 'upgrade') {
+    if (stage === 'stars' || stage === 'upgrade') {
       target = scenario.capitalCoord;
     } else if (stage === 'move') {
       target = {
@@ -1210,7 +1217,7 @@ export class AppController {
     if (!this.tutorial.isActive()) return true;
     const stage = this.tutorial.getStage();
     const scenario = this.tutorialScenario;
-    if (!stage || stage === 'intro') return false;
+    if (!stage || stage === 'intro' || stage === 'stars') return false;
 
     if (stage === 'upgrade') {
       if (action.type === 'CHOOSE_CITY_REWARD') return true;
@@ -1261,6 +1268,8 @@ export class AppController {
   private getTutorialNudgeForCurrentStage(): string {
     const stage = this.tutorial.getStage();
     switch (stage) {
+      case 'stars':
+        return 'Tap "Got It" above to begin upgrading your city!';
       case 'upgrade':
         return 'Harvest both resource tiles in your borders and pick a City Reward first!';
       case 'move':
@@ -1468,14 +1477,14 @@ export class AppController {
       return;
     }
 
-    // Strict tutorial gating: block End Turn during steps 1-5
+    // Strict tutorial gating: block End Turn during steps 1-6
     if (this.tutorial.isBlockingEndTurn()) {
       triggerAndroidHaptic('tap');
       this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
       return;
     }
 
-    // Step 6 (End Turn): show Tutorial Complete! immediately, then run End Turn on Continue Playing
+    // Step 7 (End Turn): show Tutorial Complete! immediately, then run End Turn on Continue Playing
     if (this.tutorial.isActive() && this.tutorial.getStage() === 'end_turn') {
       triggerAndroidHaptic('victory');
       this.techModal.close();
