@@ -908,8 +908,8 @@ const CITY_TIER_SCALE: Record<CityArtTier, number> = { 1: 0.86, 2: 0.93, 3: 1.0,
 const CITY_ART_TOP_PX: Record<FactionId, Record<CityArtTier, number>> = {
   humans: { 1: 173, 2: 185, 3: 190, 4: 175 },
   orcs: { 1: 248, 2: 206, 3: 189, 4: 187 },
-  elves: { 1: 258, 2: 215, 3: 178, 4: 67 },
-  dwarves: { 1: 273, 2: 188, 3: 206, 4: 209 },
+  elves: { 1: 258, 2: 212, 3: 190, 4: 67 },
+  dwarves: { 1: 273, 2: 182, 3: 219, 4: 204 },
 };
 
 /**
