@@ -821,6 +821,57 @@ function ribbon2D(curve, widths, a = -1, b = 1) {
   return [right[0], ...left, ...right.slice(1).reverse()];
 }
 
+/**
+ * Oversized veteran pauldrons for the slimmer-silhouette factions (orcs & elves), both shoulders:
+ *  - Orcs: hulking war-brass plates with bone spikes, iron rims and a skull trophy.
+ *  - Elves: tall gold plates with upswept gold leaf-flares and a starlight gem.
+ */
+function drawVeteranPauldrons(scene, faction, { leftArmX, rightArmX, shY, shZ, isUruk }) {
+  const vp = VET_PAL[faction];
+  for (const side of [-1, 1]) {
+    const x = side < 0 ? leftArmX : rightArmX;
+    const lyr = side < 0 ? 5.7 : 9.8;
+    if (faction === 'orcs') {
+      const k = isUruk ? 1.12 : 1.0;
+      scene.box(x + side * 0.03, shY + 0.02, shZ, 0.54 * k, 0.1, 0.56 * k, { color: PAL.orcs.iron, material: 'dark_metal', layer: lyr });
+      scene.box(x + side * 0.03, shY + 0.14, shZ, 0.5 * k, 0.26, 0.52 * k, { color: vp.gold, material: 'gold', layer: lyr + 0.01 });
+      scene.pyramid(x + side * 0.18, shY + 0.24, shZ, 0.08, 0.08, 0.36, {
+        tipOffX: side * 0.18,
+        color: vp.bone,
+        material: 'matte',
+        layer: lyr + 0.03,
+      });
+      scene.pyramid(x - side * 0.04, shY + 0.26, shZ - 0.08, 0.07, 0.07, 0.26, {
+        tipOffX: side * 0.06,
+        color: vp.boneShade,
+        material: 'matte',
+        layer: lyr + 0.02,
+      });
+      if (side < 0) drawSkullTrophy(scene, x + 0.06, shY + 0.42, shZ + 0.08, 0.24, lyr + 0.05);
+    } else {
+      scene.box(x + side * 0.02, shY + 0.06, shZ, 0.46, 0.2, 0.48, { color: vp.gold, material: 'gold', layer: lyr });
+      scene.box(x + side * 0.03, shY + 0.2, shZ, 0.36, 0.14, 0.4, { color: vp.goldBright, material: 'gold', layer: lyr + 0.01 });
+      // Upswept gold leaf-flare
+      scene.extrudeZ(
+        [
+          [x + side * 0.04, shY + 0.22],
+          [x + side * 0.26, shY + 0.2],
+          [x + side * 0.36, shY + 0.62],
+          [x + side * 0.14, shY + 0.4],
+        ],
+        shZ - 0.03,
+        shZ + 0.03,
+        { color: vp.gold, material: 'gold', layer: lyr + 0.02 }
+      );
+      scene.octahedron(x + side * 0.02, shY + 0.12, shZ + 0.25, 0.05, 0.07, 0.03, {
+        color: vp.glow,
+        material: 'glow',
+        layer: lyr + 0.04,
+      });
+    }
+  }
+}
+
 /** Long flowing veteran cape with a gold border peeking out around its silhouette. */
 function drawVeteranCape(scene, faction, spec, { isMounted, torsoY0, torsoY1, color }) {
   const vp = VET_PAL[faction];
@@ -964,7 +1015,24 @@ function drawVeteranHeadOrnament(scene, faction, head, cfg) {
 
   if (faction === 'orcs') {
     // Bone skull trophy spiked on top of the helm
-    drawSkullTrophy(scene, 0.02, topY + h * 0.2, 0.06, cfg.isUruk ? 0.36 : 0.34, 9.6);
+    // Tall jagged crimson horsehair war-crest running front-to-back, skull trophy spiked at its front
+    const cy = topY - h * 0.08;
+    scene.extrudeX(
+      [
+        [hd * 0.3, cy],
+        [hd * 0.16, cy + h * 0.98],
+        [-hd * 0.18, cy + h * 0.7],
+        [-hd * 0.4, cy + h * 1.06],
+        [-hd * 0.66, cy + h * 0.66],
+        [-hd * 1.0, cy + h * 0.84],
+        [-hd * 1.2, cy + h * 0.22],
+        [-hd * 0.9, cy],
+      ],
+      -0.14,
+      0.14,
+      { color: VET_PAL.orcs.paint, material: 'matte', layer: 9.55 }
+    );
+    drawSkullTrophy(scene, 0.02, topY + h * 0.14, hd * 0.5, cfg.isUruk ? 0.4 : 0.38, 9.6);
     // Bloody red war-paint mask band across the eyes (eyes/sockets stay drawn on top) + cheek claws
     const fz = d / 2 + 0.012;
     const x0 = cfg.isUruk ? -w * 0.5 : -w * 0.5;
@@ -1008,8 +1076,8 @@ function drawVeteranHeadOrnament(scene, faction, head, cfg) {
       }
       scene.addPoly3D(pts, { color, unlit: true, layer: lyr, opacity });
     };
-    halo(w * 1.3, w * 0.8, vp.halo, 0.8, 1.0, Math.PI / 2);
-    halo(w * 1.02, w * 0.7, vp.glowCore, 0.9, 1.02, Math.PI / 2 + Math.PI / 8);
+    halo(w * 1.48, w * 0.88, vp.halo, 0.82, 1.0, Math.PI / 2);
+    halo(w * 1.14, w * 0.76, vp.glowCore, 0.92, 1.02, Math.PI / 2 + Math.PI / 8);
 
     // Tall golden mallorn-leaf crown fanned across the brow
     const baseY = style === 'circlet' || style === 'sentinel' ? hh + h * 0.04 : hh + h * 0.08;
@@ -1017,16 +1085,16 @@ function drawVeteranHeadOrnament(scene, faction, head, cfg) {
     const helmed = !(style === 'circlet' || style === 'sentinel');
     const leaves = helmed
       ? [
-          [-w * 0.3, 34, h * 0.3],
-          [0, 0, h * 0.4],
-          [w * 0.3, -34, h * 0.3],
+          [-w * 0.32, 34, h * 0.44],
+          [0, 0, h * 0.62],
+          [w * 0.32, -34, h * 0.44],
         ]
       : [
-          [-w * 0.42, 52, h * 0.3],
-          [-w * 0.22, 24, h * 0.42],
-          [0, 0, h * 0.56],
-          [w * 0.22, -24, h * 0.42],
-          [w * 0.42, -52, h * 0.3],
+          [-w * 0.42, 52, h * 0.38],
+          [-w * 0.22, 24, h * 0.54],
+          [0, 0, h * 0.72],
+          [w * 0.22, -24, h * 0.54],
+          [w * 0.42, -52, h * 0.38],
         ];
     scene.box(0, baseY - 0.01, 0.02, w * 1.16, h * 0.1, d * 1.14, { color: vp.gold, material: 'gold', layer: 9.42 });
     for (const [lx, ang, lh] of leaves) {
@@ -2937,7 +3005,9 @@ function buildPolytopiaBody(scene, faction, config = {}) {
     const leftArmX = -spec.shoulderW * 0.54; // Screen-LEFT (character's right weapon arm)
     const rightArmX = spec.shoulderW * 0.54; // Screen-RIGHT (character's left offhand/shield arm)
 
-    if (config.pauldronColor) {
+    if (config.pauldronColor && VET && (faction === 'orcs' || faction === 'elves')) {
+      drawVeteranPauldrons(scene, faction, { leftArmX, rightArmX, shY, shZ, isUruk });
+    } else if (config.pauldronColor) {
       const pLScale = faction === 'orcs' ? 1.24 : 1.0;
       scene.box(leftArmX, shY + 0.06, shZ, 0.36 * pLScale, 0.3 * pLScale, 0.4 * pLScale, {
         color: config.pauldronColor,

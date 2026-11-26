@@ -170,9 +170,16 @@ const crownGemGeo = new THREE.OctahedronGeometry(0.11, 0);
 const crownHaloGeo = new THREE.TorusGeometry(0.145, 0.024, 6, 16);
 crownHaloGeo.rotateX(Math.PI / 2);
 
-/** Gilded rim hugging the base disc's top edge on veteran units. */
-const veteranRimGeo = new THREE.TorusGeometry(0.405, 0.03, 4, 28);
+/**
+ * Veteran base-disc rim: a thick deep-bronze band studded with ivory star notches, deliberately a
+ * different hue & pattern from the flat yellow (#facc15) selection / capture rings so it stays
+ * readable while the veteran is selected.
+ */
+const VETERAN_RIM_RADIUS = 0.41;
+const VETERAN_RIM_STUDS = 8;
+const veteranRimGeo = new THREE.TorusGeometry(VETERAN_RIM_RADIUS, 0.05, 4, 28);
 veteranRimGeo.rotateX(Math.PI / 2);
+const veteranStudGeo = new THREE.OctahedronGeometry(0.06, 0);
 /** The veteran sprite now carries its own head ornament, so the floating crown is a small accent. */
 const VETERAN_CROWN_SCALE = 0.6;
 
@@ -760,24 +767,47 @@ export function createUnitSprite(
   let veteranCrown: THREE.Object3D | null = null;
   if (opts?.isVeteran) {
     const rimMat = new THREE.MeshStandardMaterial({
-      color: '#f5c542',
+      color: '#a8641a',
       flatShading: true,
-      metalness: 0.55,
-      roughness: 0.32,
-      emissive: new THREE.Color('#eab308'),
-      emissiveIntensity: 0.45,
+      metalness: 0.6,
+      roughness: 0.38,
+      emissive: new THREE.Color('#6b3a0a'),
+      emissiveIntensity: 0.35,
     });
-    bodyMaterials.push({
-      material: rimMat,
-      originalColor: rimMat.color.clone(),
-      originalEmissive: rimMat.emissive.clone(),
-      originalEmissiveIntensity: rimMat.emissiveIntensity,
+    const studMat = new THREE.MeshStandardMaterial({
+      color: '#fff4d1',
+      flatShading: true,
+      metalness: 0.2,
+      roughness: 0.3,
+      emissive: new THREE.Color('#fff1c2'),
+      emissiveIntensity: 0.7,
     });
+    for (const mat of [rimMat, studMat]) {
+      bodyMaterials.push({
+        material: mat,
+        originalColor: mat.color.clone(),
+        originalEmissive: mat.emissive.clone(),
+        originalEmissiveIntensity: mat.emissiveIntensity,
+      });
+    }
+    const rimScale = dims.shadowScale * 0.94;
     const veteranRim = new THREE.Mesh(veteranRimGeo, rimMat);
-    veteranRim.position.y = 0.05;
-    veteranRim.scale.set(dims.shadowScale * 0.94, 1, dims.shadowScale * 0.94);
+    veteranRim.position.y = 0.052;
+    veteranRim.scale.set(rimScale, 1.4, rimScale);
     veteranRim.renderOrder = 3;
     group.add(veteranRim);
+    for (let i = 0; i < VETERAN_RIM_STUDS; i++) {
+      const a = (i / VETERAN_RIM_STUDS) * Math.PI * 2;
+      const stud = new THREE.Mesh(veteranStudGeo, studMat);
+      stud.position.set(
+        Math.cos(a) * VETERAN_RIM_RADIUS * rimScale,
+        0.085,
+        Math.sin(a) * VETERAN_RIM_RADIUS * rimScale,
+      );
+      stud.scale.set(1, 0.7, 1);
+      stud.renderOrder = 3;
+      group.add(stud);
+    }
 
     const crownGroup = new THREE.Group();
     const crownMat = new THREE.MeshStandardMaterial({
