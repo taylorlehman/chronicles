@@ -97,6 +97,40 @@ export class BoardRenderer {
     depthWrite: false,
   });
   private static DEFAULT_UNIT_SHADOW_MAT: THREE.Material | undefined;
+
+  /**
+   * The city's upright art card (renderOrder 36) writes depth through the tile centre, which
+   * clips the back half of a garrisoned unit's ground decals (shadow, base disc, ready /
+   * promote / veteran rings). On city tiles, draw those decals after the card (37–39, still
+   * before the sprite at 40) with depth testing switched off just for their own draw call.
+   * Materials can be shared between units, so depthTest is toggled around each draw only.
+   */
+  private static layerUnitBaseOverCity(group: THREE.Object3D, onCity: boolean): void {
+    for (const child of group.children) {
+      if (!(child instanceof THREE.Mesh) || child.userData.unitId) continue;
+      const ud = child.userData as { baseRenderOrder?: number; cityLayered?: boolean };
+      if (onCity) {
+        if (ud.cityLayered) continue;
+        ud.baseRenderOrder = child.renderOrder;
+        ud.cityLayered = true;
+        child.renderOrder = 37 + Math.min(2, Math.max(0, child.renderOrder - 2));
+        child.onBeforeRender = (_r, _s, _c, _g, material) => {
+          const m = material as THREE.Material & { userData: { savedDepthTest?: boolean } };
+          m.userData.savedDepthTest = m.depthTest;
+          m.depthTest = false;
+        };
+        child.onAfterRender = (_r, _s, _c, _g, material) => {
+          const m = material as THREE.Material & { userData: { savedDepthTest?: boolean } };
+          m.depthTest = m.userData.savedDepthTest ?? true;
+        };
+      } else if (ud.cityLayered) {
+        child.renderOrder = ud.baseRenderOrder ?? child.renderOrder;
+        ud.cityLayered = false;
+        child.onBeforeRender = () => {};
+        child.onAfterRender = () => {};
+      }
+    }
+  }
   public readonly boardRoot = new THREE.Group();
   public readonly fxGroup = new THREE.Group();
 
@@ -951,11 +985,10 @@ export class BoardRenderer {
       const disc = entry.built.shadowDisc;
       if (onCity) {
         disc.material = BoardRenderer.CITY_UNIT_SHADOW_MAT;
-        disc.renderOrder = 37;
       } else if (disc.material === BoardRenderer.CITY_UNIT_SHADOW_MAT) {
         disc.material = BoardRenderer.DEFAULT_UNIT_SHADOW_MAT ?? disc.material;
-        disc.renderOrder = 2;
       }
+      BoardRenderer.layerUnitBaseOverCity(entry.built.group, onCity);
       const prevMeta = this.unitBaseMeta.get(unit.id);
       this.unitBaseMeta.set(unit.id, {
         isHumanOwner,

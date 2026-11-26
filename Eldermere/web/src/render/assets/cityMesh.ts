@@ -1288,12 +1288,15 @@ export function createCityBoardObject(city: City): THREE.Group {
     m.receiveShadow = false;
     m.frustumCulled = false;
   }
+  const standardPivot = new THREE.Group();
   const faceCamera = (_r: THREE.WebGLRenderer, _s: THREE.Scene, camera: THREE.Camera): void => {
     const e = camera.matrixWorld.elements;
     const yaw = Math.atan2(e[8], e[10]);
     if (pivot.rotation.y !== yaw) {
       pivot.rotation.y = yaw;
       pivot.updateMatrixWorld(true);
+      standardPivot.rotation.y = yaw;
+      standardPivot.updateMatrixWorld(true);
     }
   };
   upright.onBeforeRender = faceCamera;
@@ -1327,7 +1330,11 @@ export function createCityBoardObject(city: City): THREE.Group {
   }
 
   if (city.isCapital) {
-    addRoyalStandard(root, banners, -0.5 * s, 0.74 * s, primaryColor, city.x * 0.7 + city.y * 1.1);
+    // The standard turns with the camera (like the card) and stands at the city's left edge,
+    // just in front of the card plane, so it never cuts across the garrisoned unit up front.
+    standardPivot.position.y = 0;
+    root.add(standardPivot);
+    addRoyalStandard(standardPivot, banners, -0.82 * s, 0.06, primaryColor, city.x * 0.7 + city.y * 1.1);
   }
 
   return root;
