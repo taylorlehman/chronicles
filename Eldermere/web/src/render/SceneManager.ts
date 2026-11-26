@@ -7,8 +7,15 @@ const INITIAL_AZIMUTH_RAD = THREE.MathUtils.degToRad(45);
 const CAMERA_DISTANCE = 46;
 const BASE_FRUSTUM_HALF_HEIGHT = 11.5;
 const MIN_ZOOM = 0.38;
-const MAX_ZOOM = 2.6;
+const MAX_ZOOM = 3.2;
 const MAX_FRAME_DT = 0.033;
+/** Opening framing: target on-screen tile width = clamp(min(viewport w, h) / divisor, min, max) px. */
+const OPENING_REVEAL_SPAN_TILES = 5; // starting capital reveals radius 2 → a 5×5 patch
+/** 1.0 = viewport fully inside the revealed diamond; lower lets a little fog show at the corners. */
+const OPENING_FOG_COVER = 0.7;
+const OPENING_MAX_ZOOM = 3.2;
+/** Approximate on-screen width (world units) of one tile at the 45° isometric azimuth. */
+const OPENING_TILE_SCREEN_UNITS = 2.0 * Math.SQRT2;
 const PAN_DAMP_LAMBDA = 11.5;
 const ZOOM_DAMP_LAMBDA = 12.5;
 const ORBIT_DAMP_LAMBDA = 10.5;
@@ -400,6 +407,30 @@ export class SceneManager {
     this.idleOrbitEnabled = enabled;
     if (!enabled) {
       this.desiredAzimuth = this.currentAzimuth;
+    }
+  }
+
+  /**
+   * Opening-turn framing: zoom in on the capital until the revealed starting patch (a 5×5
+   * square, drawn as an isometric diamond) fills most of the viewport, so the player sees
+   * their city and unit up close with as little Fog as possible.
+   */
+  public frameOpeningZoom(instant = true): void {
+    const width = Math.max(this.container.clientWidth, 1);
+    const height = Math.max(this.container.clientHeight, 1);
+    const aspect = width / height;
+    // Revealed diamond size in world units on screen (45° azimuth, ELEVATION_RAD tilt).
+    const diamondW = OPENING_REVEAL_SPAN_TILES * OPENING_TILE_SCREEN_UNITS;
+    const diamondH = diamondW * Math.sin(ELEVATION_RAD);
+    // A viewport (vw × vh) fits inside a diamond (W × H) when vw/W + vh/H <= 1.
+    // With vw = 2·h·aspect/zoom and vh = 2·h/zoom, solve for zoom.
+    const fullCoverZoom = 2 * BASE_FRUSTUM_HALF_HEIGHT * (aspect / diamondW + 1 / diamondH);
+    const zoom = THREE.MathUtils.clamp(fullCoverZoom * OPENING_FOG_COVER, 1.2, OPENING_MAX_ZOOM);
+    this.desiredZoom = zoom;
+    if (instant) {
+      this.currentZoom = zoom;
+      this.camera.zoom = zoom;
+      this.camera.updateProjectionMatrix();
     }
   }
 

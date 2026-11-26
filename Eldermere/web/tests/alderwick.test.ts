@@ -4,6 +4,7 @@ import { TUTORIAL_STEPS } from '../src/ui/TutorialController';
 import {
   ALDERWICK_ASSETS,
   ALDERWICK_FULL_TITLE,
+  ALDERWICK_POSES,
   RESIGN_CHRONICLE,
   SUPERPOWER_SHOWCASE,
   VICTORY_CHRONICLE,
@@ -19,6 +20,13 @@ describe('Alderwick the Star-Keeper — Assets, Tutorial & Endgame Chronicles', 
       magic: './assets/wizard/alderwick-magic.webp',
     });
     expect(ALDERWICK_FULL_TITLE).toBe('Alderwick the Star-Keeper');
+  });
+
+  it('ships a bundled head-to-toe sprite for every speech-bubble pose', () => {
+    expect(Object.keys(ALDERWICK_POSES).sort()).toEqual(['cheer', 'console', 'greet', 'idea', 'point']);
+    for (const [pose, path] of Object.entries(ALDERWICK_POSES)) {
+      expect(path).toBe(`./assets/wizard/alderwick-full-${pose}.webp`);
+    }
   });
 
   it('covers all 7 scripted tutorial steps and all 4 faction superpowers', () => {

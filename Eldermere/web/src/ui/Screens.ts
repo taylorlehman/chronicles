@@ -1,8 +1,8 @@
 import { ALL_FACTIONS, FACTION_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
 import { AGE_ROMAN } from '../game/rules';
 import type { Difficulty, FactionId, GameState, MapSize, PlayerAge, PlayerId } from '../game/types';
+import { mountAlderwickDialogue } from './AlderwickSpeech';
 import {
-  ALDERWICK_ASSETS,
   ALDERWICK_FULL_TITLE,
   RESIGN_CHRONICLE,
   VICTORY_CHRONICLE,
@@ -117,54 +117,6 @@ function esc(value: string): string {
 
 function formatStars(text: string): string {
   return esc(text).replace(/★/g, renderIcon('star', 'icon icon-xs icon-star'));
-}
-
-function renderVictoryLaurelsSvg(): string {
-  return `
-    <svg class="victory-laurel-svg" viewBox="0 0 260 180" fill="none" aria-hidden="true">
-      <defs>
-        <linearGradient id="laurelGold" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stop-color="#fef08a" />
-          <stop offset="50%" stop-color="#f59e0b" />
-          <stop offset="100%" stop-color="#b45309" />
-        </linearGradient>
-      </defs>
-      <!-- Radiant Crown at apex -->
-      <g transform="translate(106 4)" stroke="url(#laurelGold)" stroke-width="2.2" stroke-linejoin="round">
-        <path d="M4 30h40l-4-18-9 8-7-14-7 14-9-8-4 18z" fill="url(#laurelGold)" fill-opacity="0.32" />
-        <path d="M7 35h34" stroke-linecap="round" />
-        <circle cx="24" cy="4" r="2.2" fill="#fef08a" stroke="none" />
-        <circle cx="9" cy="10" r="1.8" fill="#fef08a" stroke="none" />
-        <circle cx="39" cy="10" r="1.8" fill="#fef08a" stroke="none" />
-      </g>
-      <!-- Left Laurel Branch -->
-      <g stroke="url(#laurelGold)" stroke-width="2" fill="url(#laurelGold)" fill-opacity="0.24" stroke-linecap="round">
-        <path d="M96 164C54 148 34 114 42 66" fill="none" stroke-width="2.5" />
-        <path d="M42 66c-12 2-18 11-16 20 9-2 15-10 16-20z" />
-        <path d="M40 84c-13 4-18 13-14 22 9-3 14-12 14-22z" />
-        <path d="M44 103c-12 6-16 15-10 23 8-4 12-13 10-23z" />
-        <path d="M53 122c-10 8-12 17-5 24 7-5 9-14 5-24z" />
-        <path d="M68 140c-8 9-8 18 1 22 6-6 6-14-1-22z" />
-        <path d="M45 78c10-6 17-3 20 6-9 2-16-1-20-6z" />
-        <path d="M47 98c10-5 17-1 19 8-9 1-16-2-19-8z" />
-        <path d="M54 118c10-4 17 1 18 10-9 0-15-4-18-10z" />
-        <path d="M66 137c10-2 16 4 15 12-8-1-13-6-15-12z" />
-      </g>
-      <!-- Right Laurel Branch (mirrored) -->
-      <g transform="translate(260 0) scale(-1 1)" stroke="url(#laurelGold)" stroke-width="2" fill="url(#laurelGold)" fill-opacity="0.24" stroke-linecap="round">
-        <path d="M96 164C54 148 34 114 42 66" fill="none" stroke-width="2.5" />
-        <path d="M42 66c-12 2-18 11-16 20 9-2 15-10 16-20z" />
-        <path d="M40 84c-13 4-18 13-14 22 9-3 14-12 14-22z" />
-        <path d="M44 103c-12 6-16 15-10 23 8-4 12-13 10-23z" />
-        <path d="M53 122c-10 8-12 17-5 24 7-5 9-14 5-24z" />
-        <path d="M68 140c-8 9-8 18 1 22 6-6 6-14-1-22z" />
-        <path d="M45 78c10-6 17-3 20 6-9 2-16-1-20-6z" />
-        <path d="M47 98c10-5 17-1 19 8-9 1-16-2-19-8z" />
-        <path d="M54 118c10-4 17 1 18 10-9 0-15-4-18-10z" />
-        <path d="M66 137c10-2 16 4 15 12-8-1-13-6-15-12z" />
-      </g>
-    </svg>
-  `;
 }
 
 function renderConfettiHtml(heraldryColor: string): string {
@@ -575,74 +527,31 @@ export class GameOverOverlay {
     const humanFactionId: FactionId = humanPlayer?.faction ?? 'humans';
     const winnerFaction = FACTION_DEFINITIONS[winnerFactionId];
     const winnerHeraldry = FACTION_HERALDRY[winnerFactionId];
-    const championUnit = UNIT_DEFINITIONS[winnerFaction.uniqueUnit];
     const subtitle = this.formatWinSubtitle(state);
 
-    const championSpriteHtml = renderUnitThumbOrIcon(
-      championUnit.type,
-      winnerFactionId,
-      renderUnitIcon(championUnit.type, 'icon icon-xl'),
-      'thumb-3d victory-champion-sprite',
-    );
 
     if (isVictory) {
-      const chronicle = VICTORY_CHRONICLE[winnerFactionId];
       this.root.innerHTML = `
         <div class="victory-curtain" style="--winner-heraldry: ${winnerHeraldry};">
           <div class="victory-sunburst" aria-hidden="true"></div>
           ${renderConfettiHtml(winnerHeraldry)}
 
           <div class="victory-stage">
-            <div class="victory-emblem-showcase">
-              ${renderVictoryLaurelsSvg()}
-              <div class="victory-hero-cluster">
-                <div class="victory-champion-frame">
-                  ${championSpriteHtml}
-                </div>
-                <span class="victory-crest-medallion" style="background: ${winnerHeraldry};">
-                  ${renderFactionCrest(winnerFactionId, 'icon victory-crest-icon')}
-                </span>
-              </div>
-            </div>
-
             <div class="victory-faction-pill">
-              <span class="faction-dot" style="background: ${winnerHeraldry};"></span>
+              <span class="victory-pill-crest" style="background: ${winnerHeraldry};">
+                ${renderFactionCrest(winnerFactionId, 'icon')}
+              </span>
               <span>${esc(winnerFaction.name)} &middot; ${esc(winnerFaction.realm)}</span>
             </div>
 
             <h2 class="victory-headline">VICTORY!</h2>
             <p class="victory-subtitle">${esc(subtitle)}</p>
 
-            <div class="chronicle-story-card is-victory">
-              <p class="chronicle-epilogue">${esc(chronicle.epilogue)}</p>
-              <div class="chronicle-alderwick-row">
-                <span class="chronicle-alderwick-avatar">
-                  <img
-                    src="${ALDERWICK_ASSETS.magic}"
-                    alt="${ALDERWICK_FULL_TITLE}"
-                    width="52"
-                    height="52"
-                    draggable="false"
-                  />
-                </span>
-                <div class="chronicle-alderwick-copy">
-                  <span class="chronicle-alderwick-speaker">
-                    ${renderIcon('star', 'icon icon-xs icon-star')}
-                    <span>${ALDERWICK_FULL_TITLE}</span>
-                  </span>
-                  <p class="chronicle-alderwick-quote">“${esc(chronicle.alderwickQuote)}”</p>
-                </div>
-              </div>
-            </div>
-
-            <button type="button" class="btn btn-cta victory-cta-btn" data-action="view-scores">
-              <span>View Final Scores &rarr;</span>
-            </button>
+            <div class="alderwick-endgame-host" data-alderwick-host></div>
           </div>
         </div>
       `;
     } else {
-      const defeatChronicle = getDefeatChronicle(humanFactionId, winner?.faction ?? null);
       this.root.innerHTML = `
         <div class="defeat-curtain" style="--winner-heraldry: ${winnerHeraldry};">
           <div class="defeat-glow" aria-hidden="true"></div>
@@ -666,41 +575,36 @@ export class GameOverOverlay {
             </p>
             <p class="victory-subtitle">${esc(subtitle)}</p>
 
-            <div class="chronicle-story-card is-defeat">
-              <p class="chronicle-epilogue">${esc(defeatChronicle.epilogue)}</p>
-              <div class="chronicle-alderwick-row">
-                <span class="chronicle-alderwick-avatar">
-                  <img
-                    src="${ALDERWICK_ASSETS.portrait}"
-                    alt="${ALDERWICK_FULL_TITLE}"
-                    width="52"
-                    height="52"
-                    draggable="false"
-                  />
-                </span>
-                <div class="chronicle-alderwick-copy">
-                  <span class="chronicle-alderwick-speaker">
-                    ${renderIcon('star', 'icon icon-xs icon-star')}
-                    <span>${ALDERWICK_FULL_TITLE}</span>
-                  </span>
-                  <p class="chronicle-alderwick-quote">“${esc(defeatChronicle.alderwickQuote)}”</p>
-                </div>
-              </div>
-            </div>
-
-            <button type="button" class="btn btn-cta victory-cta-btn" data-action="view-scores">
-              <span>View Final Scores &rarr;</span>
-            </button>
+            <div class="alderwick-endgame-host" data-alderwick-host></div>
           </div>
         </div>
       `;
     }
 
-    const viewScoresBtn = this.root.querySelector<HTMLButtonElement>('[data-action="view-scores"]');
-    viewScoresBtn?.addEventListener('click', () => {
-      this.stage = 'scores';
-      this.render();
-    });
+    const host = this.root.querySelector<HTMLElement>('[data-alderwick-host]');
+    if (host) {
+      const chronicle = isVictory
+        ? VICTORY_CHRONICLE[winnerFactionId]
+        : getDefeatChronicle(humanFactionId, winner?.faction ?? null);
+      mountAlderwickDialogue(
+        host,
+        [
+          {
+            pose: isVictory ? 'cheer' : 'console',
+            bodyHtml: `
+              <p class="alderwick-bubble-lead">${esc(chronicle.alderwickQuote)}</p>
+              <p class="alderwick-bubble-narration">${esc(chronicle.epilogue)}</p>
+            `,
+            actionLabel: 'View Final Scores',
+          },
+        ],
+        () => {
+          this.stage = 'scores';
+          this.render();
+        },
+        'is-inline',
+      );
+    }
   }
 
   private renderScoresStage(data: GameOverData, isVictory: boolean): void {
@@ -798,7 +702,7 @@ export class ResignationOverlay {
   constructor(container: HTMLElement, callbacks: ResignationCallbacks) {
     this.callbacks = callbacks;
     this.root = document.createElement('div');
-    this.root.className = 'modal-backdrop resignation-screen hidden';
+    this.root.className = 'alderwick-stage-backdrop resignation-screen hidden';
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
     this.root.setAttribute('aria-label', 'Campaign Resigned');
@@ -830,73 +734,45 @@ export class ResignationOverlay {
     const heraldry = FACTION_HERALDRY[data.faction];
     const resignChronicle = RESIGN_CHRONICLE[data.faction];
 
-    this.root.innerHTML = `
-      <div class="modal-panel resignation-panel" style="--resign-heraldry: ${heraldry};">
-        <div class="resignation-kicker">
-          ${renderIcon('banner', 'icon icon-sm')}
-          <span>Chronicle Bookmarked &middot; Resigned</span>
-        </div>
-
-        <div class="resignation-crest-wrap" aria-hidden="true">
-          <span class="resignation-crest-medallion" style="background: ${heraldry};">
-            ${renderFactionCrest(data.faction, 'icon resignation-crest-svg')}
-          </span>
-        </div>
-
-        <h2 class="resignation-headline">A Chapter Set Aside</h2>
-        <p class="resignation-realm-line">
-          ${esc(fDef.name)} &middot; ${esc(fDef.realm)}
-        </p>
-        <p class="resignation-copy">
-          ${esc(resignChronicle.epilogue)}
-        </p>
-
-        <div class="chronicle-alderwick-card is-resign">
-          <span class="chronicle-alderwick-avatar">
-            <img
-              src="${ALDERWICK_ASSETS.portrait}"
-              alt="${ALDERWICK_FULL_TITLE}"
-              width="50"
-              height="50"
-              draggable="false"
-            />
-          </span>
-          <div class="chronicle-alderwick-copy">
-            <span class="chronicle-alderwick-speaker">
-              ${renderIcon('star', 'icon icon-xs icon-star')}
-              <span>${ALDERWICK_FULL_TITLE}</span>
+    mountAlderwickDialogue(
+      this.root,
+      [
+        {
+          pose: 'console',
+          headerHtml: `
+            <span class="resignation-bubble-crest" style="background: ${heraldry};" aria-hidden="true">
+              ${renderFactionCrest(data.faction, 'icon')}
             </span>
-            <p class="chronicle-alderwick-quote">“${esc(resignChronicle.alderwickQuote)}”</p>
-          </div>
-        </div>
-
-        <div class="resignation-stats-grid" role="list" aria-label="Campaign Summary">
-          <div class="resignation-stat-card" role="listitem">
-            <span class="resignation-stat-label">Age Reached</span>
-            <strong class="resignation-stat-val">Age ${AGE_ROMAN[data.age ?? 1]}</strong>
-          </div>
-          <div class="resignation-stat-card" role="listitem">
-            <span class="resignation-stat-label">Cities</span>
-            <strong class="resignation-stat-val">${data.citiesCount}</strong>
-          </div>
-          <div class="resignation-stat-card" role="listitem">
-            <span class="resignation-stat-label">Glory Score</span>
-            <strong class="resignation-stat-val">${data.score.toLocaleString()}</strong>
-          </div>
-        </div>
-
-        <button type="button" class="btn btn-cta resignation-cta-btn" data-action="return-title">
-          <span>Return to Title</span>
-          ${renderIcon('chevronRight', 'icon icon-sm')}
-        </button>
-      </div>
-    `;
-
-    this.root
-      .querySelector<HTMLButtonElement>('[data-action="return-title"]')
-      ?.addEventListener('click', () => {
+            <strong class="resignation-bubble-title">A Chapter Set Aside</strong>
+            <span class="resignation-bubble-realm">${esc(fDef.name)} &middot; ${esc(fDef.realm)}</span>
+          `,
+          bodyHtml: `
+            <p class="alderwick-bubble-lead">${esc(resignChronicle.alderwickQuote)}</p>
+            <p class="alderwick-bubble-narration">${esc(resignChronicle.epilogue)}</p>
+            <div class="resignation-stats-grid" role="list" aria-label="Campaign Summary">
+              <div class="resignation-stat-card" role="listitem">
+                <span class="resignation-stat-label">Age Reached</span>
+                <strong class="resignation-stat-val">Age ${AGE_ROMAN[data.age ?? 1]}</strong>
+              </div>
+              <div class="resignation-stat-card" role="listitem">
+                <span class="resignation-stat-label">Cities</span>
+                <strong class="resignation-stat-val">${data.citiesCount}</strong>
+              </div>
+              <div class="resignation-stat-card" role="listitem">
+                <span class="resignation-stat-label">Glory Score</span>
+                <strong class="resignation-stat-val">${data.score.toLocaleString()}</strong>
+              </div>
+            </div>
+          `,
+          actionLabel: 'Return to Title',
+        },
+      ],
+      () => {
         this.hide();
         this.callbacks.onReturnToTitle();
-      });
+      },
+      'is-resign',
+    );
   }
+
 }

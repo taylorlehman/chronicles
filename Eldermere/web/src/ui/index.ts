@@ -1,5 +1,6 @@
 import '../styles/main.css';
 import '../styles/tabletop-theme.css';
+import '../styles/alderwick-speech.css';
 
 export { TopBar, type TopBarCallbacks, type TopBarViewModel } from './TopBar';
 export {

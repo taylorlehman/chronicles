@@ -11,6 +11,21 @@ export const ALDERWICK_ASSETS = {
   magic: './assets/wizard/alderwick-magic.webp',
 } as const;
 
+/**
+ * Head-to-toe, transparent-background Alderwick sprites used by the speech-bubble host
+ * (tutorial, resignation, victory & defeat). Each faces toward the viewer's right so the
+ * speech bubble sits beside him.
+ */
+export type AlderwickPose = 'greet' | 'point' | 'idea' | 'cheer' | 'console';
+
+export const ALDERWICK_POSES: Record<AlderwickPose, string> = {
+  greet: './assets/wizard/alderwick-full-greet.webp',
+  point: './assets/wizard/alderwick-full-point.webp',
+  idea: './assets/wizard/alderwick-full-idea.webp',
+  cheer: './assets/wizard/alderwick-full-cheer.webp',
+  console: './assets/wizard/alderwick-full-console.webp',
+};
+
 export const ALDERWICK_NAME = 'Alderwick';
 export const ALDERWICK_FULL_TITLE = 'Alderwick the Star-Keeper';
 

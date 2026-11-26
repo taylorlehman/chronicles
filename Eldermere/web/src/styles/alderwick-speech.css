@@ -1,0 +1,634 @@
+/* ==========================================================================
+   Alderwick Speech-Bubble Host
+   Head-to-toe wizard sprite + comic speech bubble. Used for the tutorial
+   (intro, live steps, "one more thing"), resignation, victory and defeat.
+   ========================================================================== */
+
+:root {
+  --bubble-paper: #fffaf0;
+  --bubble-ink: #1c2434;
+  --bubble-line: #1c2434;
+}
+
+/* --------------------------------------------------------------------------
+   Full-screen stage backdrop (tutorial intro/outro, resignation)
+   -------------------------------------------------------------------------- */
+.alderwick-stage-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: calc(var(--safe-top) + 16px) calc(var(--safe-right) + 14px) calc(var(--safe-bottom) + 12px)
+    calc(var(--safe-left) + 14px);
+  background: linear-gradient(
+    180deg,
+    rgba(8, 14, 28, 0.2) 0%,
+    rgba(8, 14, 28, 0.5) 40%,
+    rgba(8, 14, 28, 0.84) 100%
+  );
+  pointer-events: auto;
+}
+
+.alderwick-stage-backdrop.hidden {
+  display: none !important;
+}
+
+.alderwick-stage-backdrop.resignation-screen {
+  z-index: 85;
+}
+
+/* --------------------------------------------------------------------------
+   Scene layout
+   -------------------------------------------------------------------------- */
+.alderwick-scene {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 18px;
+  text-align: left;
+}
+
+.alderwick-scene.is-stage {
+  width: min(780px, 100%);
+}
+
+.alderwick-figure-wrap {
+  position: relative;
+  align-self: end;
+  pointer-events: none;
+}
+
+.alderwick-figure {
+  display: block;
+  width: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+  filter: drop-shadow(0 10px 12px rgba(0, 0, 0, 0.32));
+  animation: alderwickIdleBob 3.4s ease-in-out infinite;
+  transform-origin: 50% 100%;
+}
+
+.is-stage .alderwick-figure {
+  height: clamp(230px, 50vh, 430px);
+}
+
+.is-stage.is-inline .alderwick-figure {
+  height: clamp(190px, 38vh, 330px);
+}
+
+.alderwick-figure-shadow {
+  position: absolute;
+  left: 16%;
+  right: 14%;
+  bottom: -6px;
+  height: 16px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.42) 0%, rgba(0, 0, 0, 0) 70%);
+  z-index: -1;
+}
+
+/* --------------------------------------------------------------------------
+   Bubble
+   -------------------------------------------------------------------------- */
+.alderwick-bubble {
+  --tail-y: 34%;
+  /*
+   * The bubble is always parchment-light, so pin the light-theme ink & surface tokens here.
+   * Dark faction themes (Orcs, Dwarves) otherwise cascade pale ink into the bubble text.
+   * Accent / CTA tokens are left alone so buttons keep the player's faction color.
+   */
+  --ui-ink: #1c2434;
+  --ui-ink-muted: #505d73;
+  --ui-surface: linear-gradient(180deg, #faf6ec 0%, #ede6d6 100%);
+  --ui-surface-solid: #f4efe3;
+  --ui-surface-elevated: #fcf9f2;
+  --ui-surface-recessed: #e4dcc9;
+  --ui-border-color: #c9a24b;
+  --ui-border-strong: #9f7a27;
+  --ui-hairline: rgba(28, 36, 52, 0.14);
+  --ui-inset-highlight: inset 0 2px 0 rgba(255, 255, 255, 0.85), inset 0 -2px 0 rgba(140, 114, 64, 0.25);
+  --tt-label-bg: #f4efe3;
+  --tt-label-ink: #1c2434;
+  --tt-label-border: #c9a24b;
+  position: relative;
+  background: var(--bubble-paper);
+  color: var(--bubble-ink);
+  border: 3px solid var(--bubble-line);
+  border-radius: 22px;
+  padding: 18px 18px 14px;
+  box-shadow:
+    0 5px 0 rgba(28, 36, 52, 0.92),
+    0 16px 30px rgba(0, 0, 0, 0.32);
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 48px);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Tail pointing LEFT toward Alderwick (side-by-side layout) */
+.alderwick-bubble::before,
+.alderwick-bubble::after {
+  content: '';
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.alderwick-bubble::before {
+  left: -25px;
+  top: var(--tail-y);
+  border-width: 13px 25px 13px 0;
+  border-color: transparent var(--bubble-line) transparent transparent;
+}
+
+.alderwick-bubble::after {
+  left: -18px;
+  top: calc(var(--tail-y) + 4px);
+  border-width: 9px 19px 9px 0;
+  border-color: transparent var(--bubble-paper) transparent transparent;
+}
+
+.alderwick-bubble-name {
+  position: absolute;
+  top: -14px;
+  left: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 11px 3px 9px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f2cf7c 0%, #d9a73e 100%);
+  border: 2px solid var(--bubble-line);
+  color: #1d2b4a;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.alderwick-bubble-name .icon {
+  color: #1d2b4a;
+}
+
+.alderwick-bubble-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 8px;
+  min-width: 0;
+}
+
+.alderwick-bubble-header .tutorial-step-pill {
+  margin-left: auto;
+}
+
+.alderwick-bubble-body {
+  overflow-y: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.alderwick-bubble-body p {
+  margin: 0 0 9px;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 1.42;
+}
+
+.alderwick-bubble-body p:last-child {
+  margin-bottom: 0;
+}
+
+.alderwick-bubble-body strong {
+  font-weight: 900;
+  color: #1d2b4a;
+}
+
+.alderwick-bubble-lead {
+  font-size: 19px !important;
+  font-weight: 900 !important;
+  line-height: 1.25 !important;
+}
+
+.alderwick-bubble-narration {
+  font-style: italic;
+  color: var(--ui-ink-muted);
+  font-size: 14px !important;
+}
+
+.alderwick-bubble-signoff {
+  font-weight: 800 !important;
+  font-style: italic;
+}
+
+.alderwick-bubble-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.alderwick-bubble-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.alderwick-bubble-body .alderwick-ages-strip,
+.alderwick-bubble-body .alderwick-power-grid,
+.alderwick-bubble-body .resignation-stats-grid {
+  margin: 4px 0 10px;
+}
+
+.alderwick-bubble-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 12px;
+}
+
+.alderwick-bubble-cta {
+  margin-left: auto;
+  min-height: 46px;
+  padding: 9px 18px;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.alderwick-page-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.alderwick-page-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #cfc4ab;
+}
+
+.alderwick-page-dots i.is-active {
+  background: var(--ui-accent);
+}
+
+/* --------------------------------------------------------------------------
+   Compact variant — live tutorial steps (pinned under the top bar)
+   -------------------------------------------------------------------------- */
+.tutorial-banner.tutorial-alderwick-host {
+  justify-content: flex-start;
+}
+
+.alderwick-scene.is-compact {
+  column-gap: 14px;
+  align-items: start;
+  width: min(560px, 100%);
+  pointer-events: none;
+}
+
+.is-compact .alderwick-figure {
+  height: 184px;
+}
+
+.is-compact .alderwick-figure-wrap {
+  align-self: start;
+}
+
+.is-compact .alderwick-bubble {
+  --tail-y: 26px;
+  pointer-events: auto;
+  padding: 15px 13px 10px;
+  border-radius: 18px;
+  margin-top: 8px;
+  max-height: none;
+}
+
+.is-compact .alderwick-bubble-body p {
+  font-size: 14px;
+  line-height: 1.35;
+  margin-bottom: 6px;
+}
+
+.is-compact .alderwick-bubble-header {
+  margin: 0 0 5px;
+}
+
+.is-compact .alderwick-bubble-actions {
+  margin-top: 6px;
+}
+
+.is-compact .tutorial-next-btn,
+.is-compact .tutorial-progress-pill,
+.is-compact button {
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Inline variant — inside Victory / Defeat curtains
+   -------------------------------------------------------------------------- */
+.alderwick-endgame-host {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.victory-stage:has(.alderwick-endgame-host),
+.defeat-stage:has(.alderwick-endgame-host) {
+  max-width: 760px;
+}
+
+.victory-pill-crest {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  border: 1.5px solid rgba(254, 240, 138, 0.6);
+  color: #ffffff;
+}
+
+.victory-pill-crest .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* Resignation header inside bubble */
+.resignation-bubble-crest {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  border: 2px solid var(--ui-rim);
+  color: #ffffff;
+}
+
+.resignation-bubble-crest .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.resignation-bubble-title {
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.resignation-bubble-realm {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ui-ink-muted);
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   Motion
+   -------------------------------------------------------------------------- */
+.alderwick-scene.is-entering .alderwick-figure-wrap {
+  animation: alderwickEnter 520ms cubic-bezier(0.22, 1.3, 0.36, 1) both;
+}
+
+.alderwick-scene.is-entering .alderwick-bubble {
+  animation: alderwickBubblePop 380ms cubic-bezier(0.22, 1.4, 0.36, 1) 140ms both;
+  transform-origin: 0% 40%;
+}
+
+.alderwick-scene.is-nudged .alderwick-bubble {
+  animation: alderwickBubbleNudge 420ms ease-in-out;
+}
+
+@keyframes alderwickIdleBob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-4px) rotate(-0.6deg);
+  }
+}
+
+@keyframes alderwickEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(26px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes alderwickBubblePop {
+  0% {
+    opacity: 0;
+    transform: scale(0.82);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes alderwickBubbleNudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alderwick-figure,
+  .alderwick-scene.is-entering .alderwick-figure-wrap,
+  .alderwick-scene.is-entering .alderwick-bubble,
+  .alderwick-scene.is-nudged .alderwick-bubble {
+    animation: none !important;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Narrow / portrait phones — stack: bubble above, Alderwick below-left
+   -------------------------------------------------------------------------- */
+@media (max-width: 640px) {
+  .alderwick-scene.is-stage {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 20px;
+  }
+
+  .is-stage .alderwick-bubble {
+    order: -1;
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - clamp(170px, 30vh, 250px) - 52px);
+  }
+
+  .is-stage .alderwick-figure-wrap {
+    justify-self: start;
+    margin-left: 6px;
+  }
+
+  .is-stage .alderwick-figure,
+  .is-stage.is-inline .alderwick-figure {
+    height: clamp(170px, 30vh, 250px);
+  }
+
+  /* Tail pointing DOWN toward Alderwick's hat/face */
+  .is-stage .alderwick-bubble::before {
+    left: 64px;
+    top: auto;
+    bottom: -25px;
+    border-width: 25px 13px 0 13px;
+    border-color: var(--bubble-line) transparent transparent transparent;
+  }
+
+  .is-stage .alderwick-bubble::after {
+    left: 68px;
+    top: auto;
+    bottom: -18px;
+    border-width: 19px 9px 0 9px;
+    border-color: var(--bubble-paper) transparent transparent transparent;
+  }
+
+  .is-stage .alderwick-bubble {
+    transform-origin: 20% 100%;
+  }
+
+  .alderwick-bubble-body p {
+    font-size: 15px;
+  }
+
+  .alderwick-bubble-lead {
+    font-size: 17.5px !important;
+  }
+
+  .alderwick-bubble-cta {
+    flex: 1 1 auto;
+  }
+
+  /* Compact tutorial host on phones */
+  .is-compact .alderwick-figure {
+    height: 132px;
+  }
+
+  .alderwick-scene.is-compact {
+    column-gap: 10px;
+  }
+
+  .is-compact .alderwick-bubble-body p {
+    font-size: 13px;
+  }
+
+  .is-compact .tutorial-hint-note {
+    display: none;
+  }
+
+  .victory-stage .victory-headline,
+  .defeat-stage .defeat-headline {
+    font-size: clamp(38px, 11vw, 56px);
+  }
+}
+
+/* Short landscape screens: shrink figures so the bubble keeps room */
+@media (max-height: 520px) {
+  .is-stage .alderwick-figure,
+  .is-stage.is-inline .alderwick-figure {
+    height: clamp(150px, 58vh, 260px);
+  }
+
+  .is-compact .alderwick-figure {
+    height: 110px;
+  }
+}
+
+/* Android WebView: no blur / heavy shadows over the WebGL canvas */
+html.android-webview .alderwick-stage-backdrop {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.android-webview .alderwick-figure {
+  filter: none;
+}
+
+html.android-webview .alderwick-bubble {
+  box-shadow: 0 5px 0 rgba(28, 36, 52, 0.92);
+}
+
+/* --------------------------------------------------------------------------
+   "Oh, by the way…" — spotlight the top-bar Star-Shard (Age/Superpower circle)
+   -------------------------------------------------------------------------- */
+html.alderwick-spotlight-shard .top-bar {
+  z-index: 82;
+}
+
+html.alderwick-spotlight-shard .top-bar .top-cluster-left,
+html.alderwick-spotlight-shard .top-bar .top-cluster-right {
+  opacity: 0.35;
+}
+
+/* Keep the bubble clear of the top bar so the Star-Shard stays visible */
+.alderwick-stage-backdrop:has(.is-star-shard-tip) {
+  padding-top: calc(var(--safe-top) + 100px);
+}
+
+html.alderwick-spotlight-shard .sp-round-wrap::after {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 3px solid #fbe8a6;
+  box-shadow: 0 0 0 4px rgba(232, 193, 104, 0.35), 0 0 22px 6px rgba(251, 232, 166, 0.65);
+  pointer-events: none;
+  animation: alderwickShardPulse 1.3s ease-in-out infinite;
+}
+
+@keyframes alderwickShardPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.14);
+    opacity: 0.55;
+  }
+}
+
+/* The single "by the way" bubble sits a little lower-weight than the intro */
+.is-star-shard-tip .alderwick-bubble-body p {
+  margin-bottom: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.alderwick-spotlight-shard .sp-round-wrap::after {
+    animation: none;
+  }
+}

@@ -760,6 +760,7 @@ export class AppController {
     const capital = getPlayerCities(state, this.humanPlayerId).find((c) => c.isCapital);
     if (capital) {
       sceneManager.focusOnWorld(tileToWorld(capital.x, capital.y, state.mapSize, 0), true);
+      sceneManager.frameOpeningZoom();
     }
 
     sceneManager.onUpdate((dt, elapsed) => {
