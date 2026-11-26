@@ -379,13 +379,14 @@ describe('Movement, Terrain, Vision & Traits', () => {
     expect(afterAtk.canEscapeMove).toBe(true);
     expect(afterAtk.actedThisTurn).toBe(false);
 
+    // Sentinels have 1 MOV (balance pass), so they fade back a single tile.
     const escapeMoves = getValidMoves(res1.state, sentinel.id);
-    expect(escapeMoves).toContainEqual({ x: 3, y: 5 });
+    expect(escapeMoves).toContainEqual({ x: 4, y: 5 });
 
     const res2 = applyAction(res1.state, {
       type: 'MOVE_UNIT',
       unitId: sentinel.id,
-      to: { x: 3, y: 5 },
+      to: { x: 4, y: 5 },
     });
     expect(res2.state.units[sentinel.id].actedThisTurn).toBe(true);
     expect(res2.state.units[sentinel.id].canEscapeMove).toBe(false);
@@ -1273,10 +1274,10 @@ describe('4-Pillar Atomic Branching Tech Tree & Capstone Mechanics', () => {
     });
     expect(getPlayer(atkRes.state, player.id)!.gold).toBe(goldBefore + 3);
 
-    // Black Gate Horde: Berserkers cost 4★ & +3 maxHP
+    // Black Gate Horde: Berserkers cost 4★ & +3 maxHP (18 base after the balance pass)
     player.techs.push('orcs_shield_wall', 'orcs_uruk_breeding', 'orcs_black_gate');
     expect(getUnitCost(state, player.id, 'uruk_berserker')).toBe(4);
-    expect(getUnitTrainMaxHp(state, player.id, 'uruk_berserker')).toBe(18);
+    expect(getUnitTrainMaxHp(state, player.id, 'uruk_berserker')).toBe(21);
   });
 
   it('Elves atomic pillars & capstones: Lothlorien Sanctum, Woodland Aim, Galadhrim Precision, Graceful Guard, Rings of Preservation', () => {

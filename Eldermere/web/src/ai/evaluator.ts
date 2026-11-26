@@ -5,10 +5,15 @@ import {
   UNIT_DEFINITIONS,
   canUnitCapture,
   canUnitExploreRuins,
+  getEffectiveAttack,
+  getEffectiveDefense,
   getFactionTechs,
   getTile,
+  getUnitCost,
   getUnitRange,
+  getUnitTrainMaxHp,
   predictCombat,
+  unitHasTrait,
   tileIndex,
   type City,
   type CityRewardChoice,
@@ -22,6 +27,14 @@ import {
   type UnitType,
 } from '../game/index';
 import type { DifficultyConfig, FactionAIProfile } from './types';
+import {
+  FAR,
+  expectedIncomingDamage,
+  terrainDefenseAt,
+  unitPower,
+  type StrategicContext,
+  type UnitRole,
+} from './strategy';
 
 export interface SpatialContext {
   player: PlayerState;
@@ -160,9 +173,14 @@ export function chooseCityReward(
   }
   if (levelReached === 3) {
     const threatened = (ctx.cityThreats[city.id] ?? 0) > 0;
+    const frontier = ctx.enemyCities.some((c) => chebyshev(c, city) <= 6);
     if (
       !city.hasWalls &&
-      (threatened || city.isCapital || profile.faction === 'dwarves' || profile.faction === 'humans')
+      (threatened ||
+        frontier ||
+        city.isCapital ||
+        profile.faction === 'dwarves' ||
+        profile.faction === 'humans')
     ) {
       return 'city_wall';
     }
@@ -188,13 +206,21 @@ export function chooseCityReward(
     }
     return valuableOuterTiles >= 2 ? 'border_growth' : 'pop_growth';
   }
-  // Lv 5+: Champion (free Veteran unique unit) vs Park (+250 Glory & +1★/turn)
-  const centerTile = getTile(state, city.x, city.y);
-  const canSpawnChampion = centerTile !== null && centerTile.unitId === null;
-  if (canSpawnChampion && state.turn < state.config.maxTurns - 3) {
-    return 'champion';
+  // Lv 5+: Champion (free Veteran unique unit that ignores unit caps) vs Park (+250 Glory & +1★/turn).
+  // Real games have no turn limit (maxTurns = 0): Glory never decides them, so the champion is
+  // worth far more than a park once the economy is rolling. With a Glory limit, parks win late.
+  const gloryEndgame = state.config.maxTurns > 0 && state.turn >= state.config.maxTurns - 6;
+  if (gloryEndgame) return 'park';
+  let spawnable = false;
+  for (let dy = -2; dy <= 2 && !spawnable; dy++) {
+    for (let dx = -2; dx <= 2 && !spawnable; dx++) {
+      const t = getTile(state, city.x + dx, city.y + dy);
+      if (t && t.unitId === null && t.terrain !== 'water' && t.terrain !== 'mountain') spawnable = true;
+    }
   }
-  return 'park';
+  // Late in a long game with a huge army, an occasional park keeps the Glory race honest.
+  if (!spawnable || (ctx.ownUnits.length >= 30 && city.parks === 0)) return 'park';
+  return 'champion';
 }
 
 /** Score researching a specific tech. */
@@ -303,8 +329,13 @@ export function scoreTech(
     }
   }
 
-  // Glory value: T1 = 100pts, T2 = 200pts, T3 = 350pts (more appealing late game)
-  if (state.turn >= state.config.maxTurns - 6) {
+  // Military unlocks matter more when the standing army is thin.
+  if (tech.unlocksUnits.length > 0 && ctx.ownUnits.length <= ctx.ownCities.length) {
+    score += 10;
+  }
+
+  // Glory value: T1 = 100pts, T2 = 200pts, T3 = 350pts (only relevant with a Glory turn limit)
+  if (state.config.maxTurns > 0 && state.turn >= state.config.maxTurns - 6) {
     score += tech.tier === 3 ? 36 : tech.tier === 2 ? 22 : 12;
     if (techId === 'elves_rings_preservation') {
       score += ctx.player.techs.length * 6;
@@ -425,14 +456,27 @@ function isHoldingRuins(state: GameState, unit: Unit): boolean {
 }
 
 /** Score explicitly capturing a neutral village or enemy city on Turn N+1. */
+/** Easy grace period: the human player's cities are off limits until `humanGraceTurns`. */
+export function isGraceProtectedCity(
+  state: GameState,
+  tile: Tile | null,
+  diff: DifficultyConfig | undefined,
+): boolean {
+  if (!diff || state.turn >= diff.humanGraceTurns || !tile?.isCityCenter || !tile.cityId) return false;
+  const city = state.cities[tile.cityId];
+  return !!city && !!state.players.find((p) => p.id === city.ownerId)?.isHuman;
+}
+
 export function scoreCapture(
   state: GameState,
   unit: Unit,
   profile: FactionAIProfile,
+  diff?: DifficultyConfig,
 ): number {
   if (!canUnitCapture(state, unit.id)) return -999;
   const tile = getTile(state, unit.x, unit.y);
   if (!tile) return -999;
+  if (isGraceProtectedCity(state, tile, diff)) return -50;
 
   let score = 260;
   if (tile.isCityCenter && tile.cityId) {
@@ -461,6 +505,29 @@ export function scoreExploreRuins(
   return score;
 }
 
+/** Estimated damage `attacker` (at its current tile) deals to `defender`. */
+function estimateDamage(state: GameState, attacker: Unit, defender: Unit, defHp: number): number {
+  const atk = getEffectiveAttack(state, attacker);
+  const aF = atk * (unitHasTrait(state, attacker, 'bloodlust') ? 1 : attacker.hp / attacker.maxHp);
+  const tile = getTile(state, defender.x, defender.y);
+  const owner = state.players.find((p) => p.id === defender.ownerId);
+  const terr = tile && owner ? terrainDefenseAt(state, defender, tile, owner.faction) : 1;
+  const dF = getEffectiveDefense(state, defender) * (Math.max(0, defHp) / defender.maxHp) * terr;
+  if (aF + dF <= 0) return 0;
+  return Math.round((aF / (aF + dF)) * atk * 4.5);
+}
+
+/** Can `unit` still strike `target` this turn (from where it stands or after a dash move)? */
+function canStillReach(state: GameState, unit: Unit, target: Coord): boolean {
+  if (unit.actedThisTurn || unit.canEscapeMove) return false;
+  if (unit.hasAttacked && !unit.canPersistAttack) return false;
+  const range = getUnitRange(state, unit);
+  const d = chebyshev(unit, target);
+  if (d <= range) return true;
+  if (unit.hasMoved || !unitHasTrait(state, unit, 'dash')) return false;
+  return d <= UNIT_DEFINITIONS[unit.type].movement + range;
+}
+
 /** Score attacking a specific enemy unit. */
 export function scoreAttack(
   state: GameState,
@@ -469,11 +536,11 @@ export function scoreAttack(
   ctx: SpatialContext,
   profile: FactionAIProfile,
   diff: DifficultyConfig,
+  sctx?: StrategicContext,
 ): number {
   if (canUnitCapture(state, attacker.id) || canUnitExploreRuins(state, attacker.id)) return -999;
 
   const preview = predictCombat(state, attacker.id, defender.id);
-  const defSpec = UNIT_DEFINITIONS[defender.type];
   const defTile = getTile(state, defender.x, defender.y);
 
   let score =
@@ -491,30 +558,45 @@ export function scoreAttack(
     }
   }
 
+  if (preview.willAdvance && isGraceProtectedCity(state, defTile, diff)) score -= 80;
+
   if (preview.defenderKilled) {
-    score += 85 + defSpec.cost * 8;
-    // Orcs Spoils of War (+2★ on kill)
-    if (profile.faction === 'orcs') score += 18;
-    // Rohirrim Knight Persist chain potential
+    score += 70 + unitPower(defender) * 9;
+    if (profile.faction === 'orcs') score += 18; // Spoils of War (+2★ on kill)
     if (UNIT_DEFINITIONS[attacker.type].traits.includes('persist')) score += 16;
+  } else {
+    // Focus fire: soften a target that friends can still finish this turn.
+    const remaining = defender.hp - preview.attackerDamage;
+    let followUp = 0;
+    for (const u of ctx.ownUnits) {
+      if (u.id === attacker.id || !canStillReach(state, u, defender)) continue;
+      followUp += estimateDamage(state, u, defender, remaining);
+      if (followUp >= remaining) break;
+    }
+    if (followUp >= remaining) score += 34 * diff.focusFire;
+    score += (1 - defender.hp / defender.maxHp) * 16 * diff.focusFire;
   }
 
   if (preview.attackerKilled && !preview.defenderKilled) {
-    score -= 75 * profile.selfPreservation;
+    score -= 75 * profile.selfPreservation + unitPower(attacker) * 5;
   } else if (preview.attackerKilled && preview.defenderKilled) {
     score -= 20 * profile.selfPreservation;
   }
 
-  // Defending own capital
-  if (ctx.ownCapital && chebyshev(defender, ctx.ownCapital) <= 2) {
-    score += 55;
-  }
+  // Protect our cities: enemies on / next to our city centers are top priority.
+  let nearOwnCity = Infinity;
+  for (const c of ctx.ownCities) nearOwnCity = Math.min(nearOwnCity, chebyshev(defender, c));
+  if (nearOwnCity === 0) score += 150;
+  else if (nearOwnCity === 1) score += 40;
+  else if (nearOwnCity === 2) score += 18;
+  if (ctx.ownCapital && chebyshev(defender, ctx.ownCapital) <= 2) score += 20;
 
   // Attacking enemy garrisoned on a city
   if (defTile?.isCityCenter && defTile.cityId) {
     const city = state.cities[defTile.cityId];
     if (city && city.ownerId !== attacker.ownerId) {
       score += city.isCapital ? 48 : 34;
+      if (sctx?.targetCity && sctx.targetCity.id === city.id) score += 15;
       // Approachable early pressure on Easy against human capital
       if (
         ctx.humanCapital &&
@@ -530,6 +612,20 @@ export function scoreAttack(
   // Ranged units love free poke (0 retaliation)
   if (preview.retaliationDamage === 0 && preview.attackerDamage > 0) {
     score += 18;
+  }
+
+  // Exposure after a melee kill-and-advance.
+  if (sctx && preview.willAdvance) {
+    const idx = tileIndex(defender.x, defender.y, state.mapSize);
+    const inc =
+      expectedIncomingDamage(state, ctx, sctx, attacker, idx, ctx.enemyUnits.indexOf(defender)) * 0.85;
+    if (inc >= attacker.hp) score -= 28 * profile.selfPreservation * diff.dangerAwareness;
+  }
+
+  // Easy: leave the human alone unless they are in our face during the grace period.
+  const defOwner = state.players.find((p) => p.id === defender.ownerId);
+  if (defOwner?.isHuman && state.turn < diff.humanGraceTurns && nearOwnCity > 2) {
+    score *= 0.5;
   }
 
   return score;
@@ -550,13 +646,33 @@ function countNewlyRevealed(state: GameState, player: PlayerState, to: Coord, ra
   return count;
 }
 
-function nearestDistance(from: Coord, targets: Coord[]): number {
-  let best = Infinity;
-  for (const t of targets) {
-    const d = chebyshev(from, t);
-    if (d < best) best = d;
-  }
-  return best;
+/** Danger penalty for ending the turn on tile `idx` (0 = safe). */
+export function dangerPenalty(
+  state: GameState,
+  unit: Unit,
+  idx: number,
+  ctx: SpatialContext,
+  profile: FactionAIProfile,
+  diff: DifficultyConfig,
+  sctx: StrategicContext,
+  role: UnitRole,
+): number {
+  const inc = expectedIncomingDamage(state, ctx, sctx, unit, idx);
+  if (inc <= 0) return 0;
+  const committed = role === 'attack' && sctx.overwhelming;
+  const aware =
+    diff.dangerAwareness *
+    profile.selfPreservation *
+    (committed ? 0.3 : role === 'attack' || role === 'defend' ? 0.6 : 1);
+  if (inc >= unit.hp) return (40 + unitPower(unit) * 5) * aware;
+  return 28 * (inc / unit.hp) * aware;
+}
+
+function fieldProgress(field: Int16Array, fromIdx: number, toIdx: number, weight: number): number {
+  const a = field[fromIdx];
+  const b = field[toIdx];
+  if (a >= FAR || b >= FAR) return b < FAR ? weight * 0.5 : 0;
+  return (a - b) * weight;
 }
 
 /** Score moving a unit to `to`. */
@@ -567,6 +683,8 @@ export function scoreMove(
   ctx: SpatialContext,
   profile: FactionAIProfile,
   diff: DifficultyConfig,
+  sctx?: StrategicContext,
+  hereDanger = 0,
 ): number {
   const destTile: Tile | null = getTile(state, to.x, to.y);
   if (!destTile) return -999;
@@ -575,12 +693,16 @@ export function scoreMove(
   if (canUnitCapture(state, unit.id) || canUnitExploreRuins(state, unit.id)) return -999;
 
   const spec = UNIT_DEFINITIONS[unit.type];
+  const size = state.mapSize;
+  const fromIdx = tileIndex(unit.x, unit.y, size);
+  const toIdx = tileIndex(to.x, to.y, size);
+  const role: UnitRole = sctx?.roles.get(unit.id) ?? 'hold';
   let score = 0;
 
   // Never walk off an active village/city capture or ruins unless stepping onto an even better capture!
-  const currentlyCapturing = isHoldingCapture(state, unit);
-  if (currentlyCapturing) {
-    score -= 170;
+  const fromTileCap = getTile(state, unit.x, unit.y);
+  if (isHoldingCapture(state, unit)) {
+    score += isGraceProtectedCity(state, fromTileCap, diff) ? 20 : -170;
   } else if (isHoldingRuins(state, unit)) {
     score -= 150;
   }
@@ -599,6 +721,9 @@ export function scoreMove(
       ) {
         capScore *= diff.earlyHumanCapitalPressure;
       }
+      const owner = state.players.find((p) => p.id === city.ownerId);
+      // Easy grace period: leave the human's cities alone entirely.
+      if (owner?.isHuman && state.turn < diff.humanGraceTurns) capScore = -30;
       score += capScore;
     }
   } else if (destTile.hasVillage && !destTile.cityId) {
@@ -612,110 +737,123 @@ export function scoreMove(
   // Fog-of-war exploration
   let visionRadius = destTile.terrain === 'mountain' ? 2 : 1;
   if (
-    profile.faction === 'elves' &&
     ctx.player.techs.includes('elves_keen_sight') &&
     (destTile.terrain === 'forest' || destTile.terrain === 'ancient_woods')
   ) {
     visionRadius = Math.max(visionRadius, 2);
   }
   const newFog = countNewlyRevealed(state, ctx.player, to, visionRadius);
-  const exploreMult = state.turn <= 10 ? 1.35 : 0.75;
+  const exploreMult =
+    (state.turn <= 10 ? 1.35 : 0.6) * (role === 'explore' || role === 'expand' ? 1.3 : 0.45);
   score += newFog * 6.5 * exploreMult * profile.expansionWeight;
 
-  // Escape / retreat behavior when wounded or using post-attack Escape
-  const hpRatio = unit.hp / unit.maxHp;
-  const shouldRetreat = unit.canEscapeMove || hpRatio <= 0.35;
-  if (shouldRetreat && ctx.enemyUnits.length > 0) {
-    const curEnemyDist = nearestDistance(unit, ctx.enemyUnits);
-    const newEnemyDist = nearestDistance(to, ctx.enemyUnits);
-    score += (newEnemyDist - curEnemyDist) * 16 * profile.selfPreservation;
+  if (!sctx) return score;
+
+  // Role-driven goal progress (BFS distance fields; flyers use straight-line distance).
+  const flying = spec.traits.includes('flying');
+  switch (role) {
+    case 'expand':
+      score += fieldProgress(sctx.distVillage, fromIdx, toIdx, 30 * profile.expansionWeight);
+      break;
+    case 'explore':
+      score += fieldProgress(sctx.distFog, fromIdx, toIdx, 16);
+      break;
+    case 'defend': {
+      const city = sctx.defendCity.get(unit.id);
+      if (city) {
+        const d0 = chebyshev(unit, city);
+        const d1 = chebyshev(to, city);
+        score += (d0 - d1) * 22;
+        if (d1 <= 1) score += 8;
+        const threat = sctx.threats[city.id];
+        const center = getTile(state, city.x, city.y);
+        if (d1 === 0 && threat?.enemyAdjacent && center && center.unitId === null) score += 55;
+      }
+      break;
+    }
+    case 'attack': {
+      // Advance in waves: don't step into the enemy's strike zone without local support.
+      const friends = sctx.friendPower[toIdx] + (chebyshev(unit, to) > 2 ? unitPower(unit) : 0);
+      const foes = sctx.enemyReachPower[toIdx];
+      const supported =
+        foes === 0 || sctx.overwhelming || friends >= foes * (0.7 + 0.3 * profile.selfPreservation);
+      const w = 20 * profile.attackWeight * (supported ? 1 : 0.25 + 0.4 * (1 - diff.dangerAwareness));
+      if (flying && sctx.targetCity) {
+        score += (chebyshev(unit, sctx.targetCity) - chebyshev(to, sctx.targetCity)) * w;
+      } else {
+        score += fieldProgress(sctx.distTarget, fromIdx, toIdx, w);
+      }
+      break;
+    }
+    case 'hold': {
+      const f = sctx.frontierCity;
+      if (f) {
+        const pen = (d: number) => (d === 0 ? 2.5 : Math.max(0, d - 2));
+        score += (pen(chebyshev(unit, f)) - pen(chebyshev(to, f))) * 10;
+      }
+      break;
+    }
+    case 'retreat':
+      score += fieldProgress(sctx.distHome, fromIdx, toIdx, 18);
+      if (destTile.cityId && state.cities[destTile.cityId]?.ownerId === unit.ownerId) score += 8;
+      break;
+    default:
+      break;
   }
 
-  // Move toward unclaimed neutral villages
-  if (ctx.neutralVillages.length > 0 && !unit.canEscapeMove) {
-    const curDist = nearestDistance(unit, ctx.neutralVillages);
-    const newDist = nearestDistance(to, ctx.neutralVillages);
-    if (newDist < curDist) {
-      score += (36 * profile.expansionWeight) / Math.max(1, newDist);
-    }
-  }
-
-  // Move toward ancient ruins
-  if (ctx.ruins.length > 0 && !unit.canEscapeMove) {
-    const curDist = nearestDistance(unit, ctx.ruins);
-    const newDist = nearestDistance(to, ctx.ruins);
-    if (newDist < curDist) {
-      score += (24 * profile.expansionWeight) / Math.max(1, newDist);
-    }
-  }
-
-  // Move toward enemy cities / units (or defend threatened own capital)
-  if (!shouldRetreat) {
-    if (ctx.ownCapital && (ctx.cityThreats[ctx.ownCapital.id] ?? 0) > 0) {
-      const curCapDist = chebyshev(unit, ctx.ownCapital);
-      const newCapDist = chebyshev(to, ctx.ownCapital);
-      if (newCapDist < curCapDist && curCapDist <= 5) {
-        score += 28;
-      }
-    }
-
-    if (ctx.enemyCities.length > 0) {
-      const curDist = nearestDistance(unit, ctx.enemyCities);
-      const newDist = nearestDistance(to, ctx.enemyCities);
-      if (newDist < curDist) {
-        score += (24 * profile.attackWeight) / Math.max(1, newDist);
-      }
-    } else if (ctx.enemyUnits.length > 0) {
-      const curDist = nearestDistance(unit, ctx.enemyUnits);
-      const newDist = nearestDistance(to, ctx.enemyUnits);
-      if (newDist < curDist) {
-        score += (18 * profile.attackWeight) / Math.max(1, newDist);
-      }
-    } else if (newFog === 0 && ctx.neutralVillages.length === 0) {
-      // Push toward center of the map to find opponents
-      const center = { x: Math.floor(state.mapSize / 2), y: Math.floor(state.mapSize / 2) };
-      const curDist = chebyshev(unit, center);
-      const newDist = chebyshev(to, center);
-      if (newDist < curDist) score += 10;
-    }
-
-    // Dash-attack setup: reward stepping into attack range of an enemy
-    const unitRange = getUnitRange(state, unit);
-    if (!unit.hasAttacked && spec.traits.includes('dash')) {
-      for (const enemy of ctx.enemyUnits) {
-        const d = chebyshev(to, enemy);
-        if (d <= unitRange && (unitRange === 1 || d >= 1)) {
-          score += 22 * profile.attackWeight;
-          // Prefer keeping ranged units at max range rather than adjacent
-          if (unitRange > 1 && d === 1) score -= 14 * profile.selfPreservation;
-          break;
-        }
+  // Easy grace period: don't loiter next to the human's cities (no surprise pile-on later).
+  if (diff.humanGraceTurns > state.turn && ctx.humanCapital) {
+    for (const c of ctx.enemyCities) {
+      if (chebyshev(c, to) <= 1 && state.players.find((p) => p.id === c.ownerId)?.isHuman) {
+        score -= 15;
+        break;
       }
     }
   }
+
+  // Danger: prefer tiles the enemy cannot punish next turn (relative to staying put).
+  const there = dangerPenalty(state, unit, toIdx, ctx, profile, diff, sctx, role);
+  score += hereDanger - there;
 
   // Terrain & Faction Positioning Synergy
-  const nearEnemy = ctx.enemyUnits.some((e) => chebyshev(to, e) <= 2);
+  const contested = sctx.enemyReach[toIdx].length > 0;
   if (destTile.terrain === 'forest' || destTile.terrain === 'ancient_woods') {
-    if (profile.faction === 'elves') {
-      score += spec.range > 1 ? 14 : 10;
-    } else if (nearEnemy) {
-      score += 7;
-    }
+    if (profile.faction === 'elves') score += spec.range > 1 ? 10 : 6;
+    else if (contested) score += 6;
   }
   if (destTile.terrain === 'mountain') {
-    if (profile.faction === 'dwarves') score += 14;
-    else if (nearEnemy) score += 8;
+    if (profile.faction === 'dwarves') score += contested ? 12 : 4;
+    else if (contested) score += 7;
   }
-  if (profile.faction === 'humans' && destTile.hasRoad) {
-    score += 7;
+  if (profile.faction === 'humans' && destTile.hasRoad) score += 3;
+
+  // Ranged units prefer to keep a tile between themselves and enemy melee.
+  if (spec.range > 1 && contested) {
+    for (const e of ctx.enemyUnits) {
+      if (chebyshev(e, to) === 1 && UNIT_DEFINITIONS[e.type].range === 1) {
+        score -= 10 * profile.selfPreservation;
+        break;
+      }
+    }
   }
 
-  // Slight penalty for camping on own city center when unthreatened (blocks unit training!)
+  // Keep city centers free so the city can keep training (unless it must be garrisoned).
+  const fromTile = getTile(state, unit.x, unit.y);
+  if (fromTile?.isCityCenter && fromTile.cityId) {
+    const city = state.cities[fromTile.cityId];
+    if (city && city.ownerId === unit.ownerId) {
+      const threat = sctx.threats[city.id];
+      const mustHold = threat?.enemyAdjacent && threat.enemyPower > threat.ownPower * 0.5;
+      if (!mustHold && sctx.cityHasRoom[city.id]) score += 16;
+      else if (mustHold) score -= 40;
+    }
+  }
   if (destTile.isCityCenter && destTile.cityId) {
     const city = state.cities[destTile.cityId];
-    if (city && city.ownerId === unit.ownerId && (ctx.cityThreats[city.id] ?? 0) === 0) {
-      score -= 10;
+    if (city && city.ownerId === unit.ownerId) {
+      const threat = sctx.threats[city.id];
+      if (threat?.enemyAdjacent) score += 35;
+      else if (sctx.cityHasRoom[city.id]) score -= 14;
     }
   }
 
@@ -740,7 +878,7 @@ export function scoreRecover(
 
   let score = 0;
   if (hpRatio <= 0.45) {
-    score = 48 * missingRatio * profile.selfPreservation + (inFriendlyBorders ? 12 : 0);
+    score = 48 * missingRatio * profile.selfPreservation + (inFriendlyBorders ? 14 : 0);
   } else if (hpRatio <= 0.7 && (isHoldingCapture(state, unit) || isHoldingRuins(state, unit))) {
     // Great to top up HP while holding a village/city capture or ruins
     score = 26 * profile.selfPreservation;
@@ -757,49 +895,56 @@ export function scoreTrainUnit(
   unitType: UnitType,
   ctx: SpatialContext,
   profile: FactionAIProfile,
+  sctx?: StrategicContext,
 ): number {
   const spec = UNIT_DEFINITIONS[unitType];
   const factionDef = FACTION_DEFINITIONS[ctx.player.faction];
   const pref = profile.unitPreferences[unitType] ?? 1.0;
+  const cost = getUnitCost(state, ctx.player.id, unitType);
+  const hp = getUnitTrainMaxHp(state, ctx.player.id, unitType);
+  const power = (spec.attack + spec.defense * 0.8) * (spec.range > 1 ? 1.15 : 1) * (hp / 10);
 
-  let score = 22 * pref;
+  // Once gold stops being the bottleneck, unit slots are: buy the strongest unit per slot.
+  const rich = ctx.player.gold >= 12 + cost * 2;
+  let score = 10 + power * (rich ? 6 : 4) * pref - cost * (rich ? 0.8 : 2.6);
 
-  // Unique unit priority
-  if (unitType === factionDef.uniqueUnit) {
-    score += 28 * profile.uniqueUnitWeight;
-  }
+  if (unitType === factionDef.uniqueUnit) score += 10 * profile.uniqueUnitWeight;
 
   // Threat urgency near this city
   const localThreat = ctx.cityThreats[city.id] ?? 0;
   if (localThreat > 0) {
     score += 30;
-    if (unitType === 'defender' || unitType === 'ironbreaker' || unitType === 'warrior' || unitType === 'uruk_berserker') {
-      score += 24;
-    }
-    if (unitType === 'catapult') {
-      score -= 22; // Don't spawn fragile catapults right under siege
-    }
+    if (spec.range === 1 && spec.defense >= 2) score += 18;
+    if (unitType === 'catapult') score -= 30; // Don't spawn fragile catapults right under siege
+  } else if (unitType === 'defender' && profile.faction !== 'dwarves') {
+    score -= 10; // Passive unit: only worth it as a garrison
   }
 
-  // Early scouting & village grabbing (turns 1..6)
-  if (state.turn <= 6 && ctx.ownUnits.length < ctx.ownCities.length + 2) {
-    score += 18;
-    if (unitType === 'rider' || unitType === 'warrior' || unitType === 'archer') {
-      score += 12;
-    }
+  // Early village grabbing: cheap and fast units first.
+  const expanding = state.turn <= 14 && ctx.neutralVillages.length + ctx.ruins.length > 0;
+  if (expanding) {
+    if (unitType === 'rider') score += 16;
+    if (unitType === 'warrior') score += 10;
+    if (unitType === 'catapult') score -= 25;
   }
 
-  // Balance army composition: slight diminishing returns for stacking one unit type
-  const sameTypeCount = ctx.ownUnits.filter((u) => u.type === unitType).length;
-  score -= sameTypeCount * 4;
-
-  // Capapults are awesome when enemy cities are visible
-  if (unitType === 'catapult' && ctx.enemyCities.length > 0 && localThreat === 0) {
-    score += 16;
+  // Army composition: ranged share and a little variety.
+  const army = ctx.ownUnits.filter((u) => UNIT_DEFINITIONS[u.type].movement > 0);
+  const rangedNow = army.filter((u) => UNIT_DEFINITIONS[u.type].range > 1 && u.type !== 'catapult').length;
+  const rangedShare = army.length > 0 ? rangedNow / army.length : 0;
+  if (spec.range > 1 && unitType !== 'catapult') {
+    score += (profile.rangedShare - rangedShare) * 40;
   }
+  const sameTypeCount = army.filter((u) => u.type === unitType).length;
+  score -= sameTypeCount * 1.5;
 
-  // Slight cost efficiency factor
-  score -= spec.cost * 1.5;
+  // Siege engines for walled targets (but never a catapult-only army).
+  if (unitType === 'catapult') {
+    const catapults = army.filter((u) => u.type === 'catapult').length;
+    const walledTarget = sctx?.targetCity?.hasWalls ?? ctx.enemyCities.some((c) => c.hasWalls);
+    if (walledTarget && catapults < 2 && army.length >= 4) score += 18;
+    else score -= 14 + catapults * 10;
+  }
 
   return score;
 }

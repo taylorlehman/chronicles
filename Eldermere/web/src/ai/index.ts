@@ -1,4 +1,4 @@
-export { planAITurn } from './planner';
+export { planAITurn, type PlanOptions } from './planner';
 export { DIFFICULTY_CONFIGS, FACTION_AI_PROFILES } from './profiles';
 export {
   buildSpatialContext,

@@ -35,13 +35,18 @@ export const FACTION_AI_PROFILES: Record<FactionId, FactionAIProfile> = {
       catapult: 0.9,
       rohirrim_knight: 1.7,
     },
+    // Fast cavalry expansion, then mounted raids on weak neighbours.
+    aggressionTurn: 12,
+    attackRatio: 1.05,
+    armyPerCity: 1.4,
+    rangedShare: 0.2,
   },
   orcs: {
     faction: 'orcs',
-    attackWeight: 1.35,
-    selfPreservation: 0.6,
-    expansionWeight: 1.1,
-    economyWeight: 0.95,
+    attackWeight: 1.3,
+    selfPreservation: 0.75,
+    expansionWeight: 1.15,
+    economyWeight: 1.15,
     techWeight: 1.0,
     uniqueUnitWeight: 1.4,
     techBonuses: {
@@ -62,13 +67,18 @@ export const FACTION_AI_PROFILES: Record<FactionId, FactionAIProfile> = {
       orcs_fell_volley: 18,
     },
     unitPreferences: {
-      warrior: 1.15,
-      rider: 1.25,
+      warrior: 1.0,
+      rider: 1.7,
       defender: 0.95,
-      archer: 1.1,
+      archer: 1.2,
       catapult: 1.0,
-      uruk_berserker: 1.85,
+      uruk_berserker: 1.6,
     },
+    // Early, relentless pressure fuelled by Spoils of War.
+    aggressionTurn: 10,
+    attackRatio: 0.9,
+    armyPerCity: 1.5,
+    rangedShare: 0.2,
   },
   elves: {
     faction: 'elves',
@@ -103,6 +113,11 @@ export const FACTION_AI_PROFILES: Record<FactionId, FactionAIProfile> = {
       catapult: 0.95,
       elven_sentinel: 1.85,
     },
+    // Ranged skirmishers: poke from forests, strike when the enemy is softened.
+    aggressionTurn: 13,
+    attackRatio: 1.1,
+    armyPerCity: 1.4,
+    rangedShare: 0.55,
   },
   dwarves: {
     faction: 'dwarves',
@@ -137,22 +152,59 @@ export const FACTION_AI_PROFILES: Record<FactionId, FactionAIProfile> = {
       catapult: 1.1,
       ironbreaker: 1.9,
     },
+    // Turtle behind mountains and walls, then push with an Ironbreaker phalanx.
+    aggressionTurn: 18,
+    attackRatio: 1.3,
+    armyPerCity: 1.6,
+    rangedShare: 0.15,
   },
 };
 
+/**
+ * Difficulty presets. Separation comes mainly from decision quality (noise, danger
+ * awareness, focus fire, neglected units), tempo (aggression timing, army size,
+ * techs per turn) and how eagerly the AI picks on the human player. No preset
+ * receives free gold, units or vision.
+ */
 export const DIFFICULTY_CONFIGS: Record<Difficulty, DifficultyConfig> = {
+  /** "Squire": slower, smaller armies, sloppy tactics and a long grace period for the human. */
   easy: {
     difficulty: 'easy',
-    noiseRange: 12,
-    economySkipChance: 0.18,
-    earlyHumanCapitalPressure: 0.45,
+    noiseRange: 14,
+    economySkipChance: 0.3,
+    earlyHumanCapitalPressure: 0.4,
     productionThreshold: 18,
+    dangerAwareness: 0.35,
+    focusFire: 0.25,
+    aggressionDelay: 1.8,
+    attackRatioMult: 1.45,
+    armyTargetMult: 0.6,
+    armyCapMult: 1.6,
+    trainSkipChance: 0.45,
+    maxTechsPerTurn: 1,
+    unitNeglectChance: 0.3,
+    humanTargetBias: 0.4,
+    humanGraceTurns: 45,
   },
+  /** "Captain": plays to win with coordinated attacks, but without cheating. */
   normal: {
     difficulty: 'normal',
     noiseRange: 3,
     economySkipChance: 0,
     earlyHumanCapitalPressure: 1.0,
     productionThreshold: 5,
+    dangerAwareness: 1.0,
+    focusFire: 1.0,
+    aggressionDelay: 1.0,
+    attackRatioMult: 1.0,
+    armyTargetMult: 1.0,
+    armyCapMult: Infinity,
+    trainSkipChance: 0,
+    maxTechsPerTurn: 2,
+    unitNeglectChance: 0,
+    // A short opening truce and a slight preference for fighting other AIs keep the
+    // first campaign against the player from landing before they have found their feet.
+    humanTargetBias: 0.85,
+    humanGraceTurns: 12,
   },
 };
