@@ -1287,9 +1287,9 @@ html.android-webview .tt-faction-showcase {
 
 /* Tutorial Codex Target Highlight & Dimmed Sibling Cards */
 .tech-card.is-tutorial-target {
-  border: 2.5px solid var(--ui-gold) !important;
+  border: 3px solid #f5b833 !important;
   background: var(--ui-surface-elevated);
-  box-shadow: 0 0 0 2px var(--ui-gold);
+  box-shadow: 0 0 0 3px rgba(245, 184, 51, 0.42), 0 8px 20px rgba(217, 119, 6, 0.28);
   opacity: 1 !important;
 }
 
@@ -1589,7 +1589,6 @@ html.android-webview .tutorial-modal-panel,
 html.android-webview .tutorial-intro-list,
 html.android-webview .tutorial-complete-crest,
 html.android-webview .tutorial-modal-cta,
-html.android-webview .tech-card.is-tutorial-target,
 html.android-webview .tech-card.is-tutorial-locked,
 html.android-webview .tech-tutorial-badge,
 html.android-webview .resignation-screen,
@@ -1605,7 +1604,9 @@ html.android-webview .tt-resume-btn {
 }
 
 html.android-webview .tech-card.is-tutorial-target {
-  border: 2.5px solid var(--ui-gold) !important;
+  box-shadow: none !important;
+  transition: none !important;
+  border: 3px solid #f5b833 !important;
 }
 
 html.android-webview .tutorial-modal-panel,
@@ -1819,12 +1820,13 @@ html.android-webview .action-tile.is-tech-locked .action-tile-visual {
 }
 
 html.android-webview .tech-confirm-scrim {
-  background: rgba(8, 12, 22, 0.78) !important;
+  background: transparent !important;
 }
 
 html.android-webview .tech-confirm-card {
   background: var(--ui-surface-solid) !important;
-  border-bottom: 4px solid var(--ui-border-strong) !important;
+  border: 3px solid var(--ui-accent-bright) !important;
+  border-bottom: 5px solid var(--ui-border-strong) !important;
 }
 
 /* --------------------------------------------------------------------------

@@ -279,6 +279,7 @@ export class AppController {
         this.pendingEndTurnAfterTutorial = false;
         this.tutorialScenario = null;
         this.tutorial.endTutorial(true);
+        this.syncTutorialHighlights();
         this.persistActiveCampaign();
         const vm = this.buildLeaderboardViewModel();
         if (vm) this.leaderboardModal.update(vm);
@@ -291,6 +292,7 @@ export class AppController {
 
     this.tutorial = new TutorialController(this.hudRoot, {
       onStageChange: () => {
+        this.syncTutorialHighlights();
         this.persistActiveCampaign();
       },
       onOcclusionChange: (topPx, bottomPx) => {
@@ -301,6 +303,7 @@ export class AppController {
         this.syncTutorialContext();
         this.focusTutorialCameraForStage('stars');
         this.syncTutorialProgress();
+        this.syncTutorialHighlights();
         this.resumeSceneAfterOpaqueSheet();
       },
       onAdvanceFromStars: () => {
@@ -308,6 +311,7 @@ export class AppController {
         this.syncTutorialContext();
         this.syncTutorialProgress();
         this.focusTutorialCameraForStage('upgrade');
+        this.syncTutorialHighlights();
         this.refreshHUD();
       },
       onCompleteDismiss: () => {
@@ -315,6 +319,7 @@ export class AppController {
         const shouldFinishTurn = this.pendingEndTurnAfterTutorial;
         this.pendingEndTurnAfterTutorial = false;
         this.tutorialScenario = null;
+        this.syncTutorialHighlights();
         this.persistActiveCampaign();
         this.resumeSceneAfterOpaqueSheet();
         this.refreshHUD();
@@ -325,6 +330,7 @@ export class AppController {
       onEndTutorial: () => {
         this.pendingEndTurnAfterTutorial = false;
         this.tutorialScenario = null;
+        this.syncTutorialHighlights();
         this.persistActiveCampaign();
         this.refreshHUD();
       },
@@ -411,6 +417,7 @@ export class AppController {
     }
     if (this.cityRewardModal.isOpen()) {
       this.cityRewardModal.close();
+      this.tutorial.setSuppressed(false);
       this.resumeSceneAfterOpaqueSheet();
       triggerAndroidHaptic('tap');
       return true;
@@ -792,6 +799,7 @@ export class AppController {
     } else {
       this.tutorial.hide();
     }
+    this.syncTutorialHighlights();
     this.refreshHUD();
     this.persistActiveCampaign();
   }
@@ -1277,6 +1285,7 @@ export class AppController {
     this.badges?.setLethalTargets(lethalCoords);
 
     triggerAndroidHaptic('select');
+    this.syncTutorialHighlights();
     this.refreshActionBar();
   }
 
@@ -1307,6 +1316,7 @@ export class AppController {
     this.board?.clearHighlights();
     this.badges?.setSelectedCoord(null);
     this.badges?.setLethalTargets([]);
+    this.syncTutorialHighlights();
     this.refreshActionBar();
   }
 
@@ -1439,6 +1449,7 @@ export class AppController {
   }
 
   private async handleCityRewardChoice(cityId: string, reward: CityRewardChoice): Promise<void> {
+    this.tutorial.setSuppressed(false);
     this.resumeSceneAfterOpaqueSheet();
     await this.handleHumanAction({
       type: 'CHOOSE_CITY_REWARD',
@@ -1447,13 +1458,42 @@ export class AppController {
     });
   }
 
+  private syncTutorialHighlights(): void {
+    if (!this.board || !this.state) return;
+    if (!this.tutorial.isActive() || !this.tutorialScenario) {
+      this.board.setTutorialResourceTargets([]);
+      this.board.setTutorialTileTargets([]);
+      return;
+    }
+    const stage = this.tutorial.getStage();
+    if (stage === 'upgrade') {
+      const unharvested = this.tutorialScenario.resourceCoords.filter((coord) =>
+        Boolean(getTile(this.state!, coord.x, coord.y)?.resource),
+      );
+      this.board.setTutorialResourceTargets(unharvested);
+      this.board.setTutorialTileTargets([]);
+      return;
+    }
+    if (stage === 'train') {
+      this.board.setTutorialResourceTargets([]);
+      const cap = this.tutorialScenario.capitalCoord;
+      const isCapSelected = Boolean(
+        this.selectedCoord && this.selectedCoord.x === cap.x && this.selectedCoord.y === cap.y,
+      );
+      this.board.setTutorialTileTargets(isCapSelected ? [] : [cap]);
+      return;
+    }
+    this.board.setTutorialResourceTargets([]);
+    this.board.setTutorialTileTargets([]);
+  }
+
   private focusTutorialCameraForStage(stage: TutorialStage): void {
     if (!this.state || !this.sceneManager) return;
     const scenario = this.tutorialScenario;
     if (!scenario) return;
 
     let target: Coord | null = null;
-    if (stage === 'stars' || stage === 'upgrade') {
+    if (stage === 'stars' || stage === 'upgrade' || stage === 'train') {
       target = scenario.capitalCoord;
     } else if (stage === 'move') {
       target = {
@@ -1514,6 +1554,14 @@ export class AppController {
       return !targetTechId || action.techId === targetTechId;
     }
 
+    if (stage === 'train') {
+      if (action.type !== 'TRAIN_UNIT') return false;
+      if (action.unitType !== 'warrior') return false;
+      if (!scenario || !this.state) return true;
+      const capTile = getTile(this.state, scenario.capitalCoord.x, scenario.capitalCoord.y);
+      return !capTile?.cityId || action.cityId === capTile.cityId;
+    }
+
     if (stage === 'end_turn') {
       return action.type === 'END_TURN';
     }
@@ -1533,7 +1581,7 @@ export class AppController {
       case 'combat':
         return 'Tap the red target ring on the rival warrior guarding that Village—send them packing!';
       case 'capture':
-        return 'Don’t forget the prize! Tap the glowing Capture button on the Village to claim your second city.';
+        return 'Don’t forget the prize! Tap the glowing Claim button on the Village to claim your second city.';
       case 'codex': {
         const targetTechId = this.getTutorialTargetTechId();
         const targetTechName = targetTechId ? TECH_DEFINITIONS[targetTechId]?.name : null;
@@ -1541,6 +1589,8 @@ export class AppController {
           ? `Crack open the Codex medallion in the bottom-left and research ${targetTechName}!`
           : 'Crack open the Codex medallion in the bottom-left and research a technology!';
       }
+      case 'train':
+        return 'Tap your capital city, then tap Warrior to train a new recruit!';
       case 'end_turn':
         return 'Almost there! Tap End Turn in the bottom-right to finish your first turn of the Chronicle.';
       default:
@@ -1610,27 +1660,7 @@ export class AppController {
     this.tutorial.setContext(ctx);
   }
 
-  private computeTutorialSubProgress(stage: TutorialStage | null): string | null {
-    if (!this.state || !stage) return null;
-
-    if (stage === 'upgrade') {
-      const capital = getPlayerCities(this.state, this.humanPlayerId).find((c) => c.isCapital);
-      if (capital && capital.pendingLevelRewards.length > 0) {
-        return 'Choose City Reward!';
-      }
-      if (this.tutorialScenario) {
-        let harvested = 0;
-        for (const coord of this.tutorialScenario.resourceCoords) {
-          const tile = getTile(this.state, coord.x, coord.y);
-          if (tile && !tile.resource) {
-            harvested += 1;
-          }
-        }
-        return `${harvested}/2 harvested`;
-      }
-      return null;
-    }
-
+  private computeTutorialSubProgress(_stage: TutorialStage | null): string | null {
     return null;
   }
 
@@ -1648,6 +1678,7 @@ export class AppController {
       if (action.type === 'HARVEST_TILE') {
         this.syncTutorialContext();
         this.syncTutorialProgress();
+        this.syncTutorialHighlights();
       } else if (action.type === 'CHOOSE_CITY_REWARD') {
         const capital = getPlayerCities(nextState, this.humanPlayerId).find((c) => c.isCapital);
         if (capital && capital.level >= 2) {
@@ -1712,6 +1743,7 @@ export class AppController {
         this.clearSelection();
         this.syncTutorialContext();
         this.tutorial.setStage('codex', null);
+        this.refreshHUD();
       }
       return;
     }
@@ -1720,7 +1752,19 @@ export class AppController {
       if (action.type === 'RESEARCH_TECH') {
         this.techModal.close();
         this.clearSelection();
+        this.tutorial.setStage('train', null);
+        this.focusTutorialCameraForStage('train');
+        this.syncTutorialHighlights();
+        this.refreshHUD();
+      }
+      return;
+    }
+
+    if (stage === 'train') {
+      if (action.type === 'TRAIN_UNIT') {
+        this.clearSelection();
         this.tutorial.setStage('end_turn', null);
+        this.syncTutorialHighlights();
         this.refreshHUD();
       }
     }
@@ -2016,10 +2060,15 @@ export class AppController {
     if (!cityWithReward) return false;
 
     this.cancelSuperpowerTargeting();
+    const isTutorialReward = this.tutorial.isActive() && this.tutorial.getStage() === 'upgrade';
+    if (isTutorialReward) {
+      this.tutorial.setSuppressed(true);
+    }
     this.cityRewardModal.open({
       city: cityWithReward,
       levelReached: cityWithReward.pendingLevelRewards[0],
       faction: human.faction,
+      tutorialMode: isTutorialReward,
     });
     this.pauseSceneBehindOpaqueSheet();
     return true;
@@ -2260,8 +2309,18 @@ export class AppController {
       canResearchTech(this.state!, human.id, t.id),
     ).length;
     const remainingUnitsCount = this.getReadyHumanUnits().length;
-    const isTutorialEndTurnStep =
-      this.tutorial.isActive() && this.tutorial.getStage() === 'end_turn';
+    const tutorialStage = this.tutorial.isActive() ? this.tutorial.getStage() : null;
+    const isTutorialEndTurnStep = tutorialStage === 'end_turn';
+    const tutorialTargetIdleAction: 'tech' | 'end-turn' | null =
+      tutorialStage === 'codex' ? 'tech' : tutorialStage === 'end_turn' ? 'end-turn' : null;
+    const tutorialTargetActionId: string | null =
+      tutorialStage === 'upgrade'
+        ? 'harvest'
+        : tutorialStage === 'capture'
+          ? 'capture-city'
+          : tutorialStage === 'train'
+            ? 'train_warrior'
+            : null;
     const allUnitsActed = remainingUnitsCount === 0 || isTutorialEndTurnStep;
     const combatPreview = this.buildCombatPreview();
 
@@ -2288,6 +2347,8 @@ export class AppController {
         selectedCity: null,
         selectedTile: null,
         combatPreview,
+        tutorialTargetIdleAction,
+        tutorialTargetActionId,
       });
       return;
     }
@@ -2318,6 +2379,8 @@ export class AppController {
       selectedCity,
       selectedTile,
       combatPreview,
+      tutorialTargetIdleAction,
+      tutorialTargetActionId,
     };
     this.actionBar.update(vm);
   }

@@ -1,20 +1,28 @@
-import { FACTION_DEFINITIONS } from '../game/data';
-import type { FactionId } from '../game/types';
+import { TECH_DEFINITIONS } from '../game/data';
+import type { FactionId, TechId } from '../game/types';
 import { ALDERWICK_FULL_TITLE, SUPERPOWER_SHOWCASE, type AlderwickPose } from './alderwick';
 import { mountAlderwickDialogue, renderAlderwickScene, type AlderwickDialoguePage } from './AlderwickSpeech';
-import { renderActionIcon, renderIcon, type IconName } from './icons';
+import { renderIcon, type IconName } from './icons';
 import { markTutorialCompleted } from './persistence';
-import { render3DThumbImg } from './thumbs';
+import { getTechIconKey, render3DThumbImg } from './thumbs';
 
-export type TutorialStepId = 'stars' | 'upgrade' | 'move' | 'combat' | 'capture' | 'codex' | 'end_turn';
+export type TutorialStepId =
+  | 'stars'
+  | 'upgrade'
+  | 'move'
+  | 'combat'
+  | 'capture'
+  | 'codex'
+  | 'train'
+  | 'end_turn';
 export type TutorialStage = 'intro' | TutorialStepId | 'complete';
 
 export interface TutorialBannerContext {
-  resourceThumbKey?: string;   // e.g. 'resource_berries', 'resource_game', 'resource_metal' (or 'berries', 'game', 'ore')
-  resourceLabel?: string;      // e.g. 'Berries', 'Wild Game', 'Ore Vein'
-  targetTechId?: string;
-  targetTechName?: string;     // e.g. 'Farming'
-  faction?: FactionId;         // Optional faction for biome-matched 3D resource thumbnail & faction callouts
+  resourceThumbKey?: string;
+  resourceLabel?: string;
+  targetTechId?: TechId;
+  targetTechName?: string;
+  faction?: FactionId;
 }
 
 export interface TutorialStep {
@@ -29,43 +37,49 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     id: 'stars',
     icon: 'star',
     title: 'Stars: Eldermere’s Magic',
-    body: 'See those twinkling Stars (★)? That’s pure Starlight from the First Dawn! Spend them to harvest, train troops, and study lore—growing and capturing cities fills your coffers faster each turn.',
+    body: 'See those glowing Stars (★) up top? Spend them to harvest, train troops, and study lore—growing cities earns more each turn!',
   },
   {
     id: 'upgrade',
     icon: 'wheat',
     title: 'Grow Your Capital',
-    body: 'Every grand empire begins with a humble harvest! Tap both resource tiles inside your borders to level up your capital, pick a City Reward, and earn more Stars (★) each turn.',
+    body: 'Every grand empire begins with a humble harvest! Tap both resource tiles inside your borders to level up your capital.',
   },
   {
     id: 'move',
     icon: 'compass',
     title: 'March Into the Fog',
-    body: 'Time to stretch those boots, Commander! Tap your unit at your capital, then tap the glowing blue ring to the east to advance toward the rival outpost.',
+    body: 'Time to explore, Commander! Tap the glowing blue ring to the east to march toward the rival outpost.',
   },
   {
     id: 'combat',
     icon: 'swords',
     title: 'Clash With a Rival',
-    body: 'Aha—an uninvited guest at that Village! Tap the red target ring on the rival warrior to send them packing and clear the settlement.',
+    body: 'An uninvited guest at that Village! Tap the red target ring on the rival warrior to clear the settlement.',
   },
   {
     id: 'capture',
     icon: 'crown',
     title: 'Claim the Village',
-    body: 'Splendidly struck! With the Village clear, tap the glowing Capture button to raise your banner and claim your second city.',
+    body: 'Splendidly struck! Tap the glowing Claim button below to raise your banner over your second city.',
   },
   {
     id: 'codex',
     icon: 'codex',
     title: 'Crack Open Your Codex',
-    body: 'A sharp mind wins as many crowns as a sharp blade! Tap the Codex medallion in the bottom-left and research a technology to power up your realm.',
+    body: 'A sharp mind wins as many crowns as a sharp blade! Tap Codex below and research a technology.',
+  },
+  {
+    id: 'train',
+    icon: 'helm',
+    title: 'Train a Unit',
+    body: 'Every realm needs more boots! Tap your capital city, then tap Warrior to train a new recruit.',
   },
   {
     id: 'end_turn',
     icon: 'endTurnHumans',
     title: 'Turn the Page',
-    body: 'Magnificent first turn! Eldermere is turn-based: tapping End Turn lets rival realms move and showers you with fresh Stars (★) from your cities. Tap End Turn now!',
+    body: 'Magnificent first turn! Tap End Turn below so rival realms can move and your cities grant fresh Stars (★).',
   },
 ];
 
@@ -76,7 +90,8 @@ const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
   combat: 3,
   capture: 4,
   codex: 5,
-  end_turn: 6,
+  train: 6,
+  end_turn: 7,
 };
 
 /** Which full-body Alderwick pose accompanies each scripted step. */
@@ -87,27 +102,20 @@ const STEP_POSE: Record<TutorialStepId, AlderwickPose> = {
   combat: 'point',
   capture: 'cheer',
   codex: 'idea',
+  train: 'point',
   end_turn: 'point',
 };
-
-/** Cheeky one-liners about what a rival's Superpower could do to the player's capital. */
-const RIVAL_SUPERPOWER_THREAT: Record<FactionId, string> = {
-  humans: 'I’d hate to see a Human Watchtower sprout up right on your doorstep.',
-  orcs: 'I’d hate to see your lovely capital turned into an Orc volcano.',
-  elves: 'I’d hate to see the Elves eclipse your sky. They get terribly smug about it.',
-  dwarves: 'I’d hate to see a Dwarven Fire Drake take a nap on your rooftops.',
-};
-
-function normalizeResourceThumbKey(key: string): string {
-  const normalized = key.trim().toLowerCase().replace(/^resource_/, '');
-  if (normalized === 'metal') return 'ore';
-  return normalized;
-}
 
 /** Lifts & pulses the top-bar Age/Superpower circle while Alderwick points it out. */
 function setStarShardSpotlight(on: boolean): void {
   if (typeof document === 'undefined') return;
   document.documentElement.classList.toggle('alderwick-spotlight-shard', on);
+}
+
+/** Dims the board & left/center TopBar clusters while spotlighting the top-right Stars pill. */
+function setStarsSpotlight(on: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.classList.toggle('alderwick-spotlight-stars', on);
 }
 
 export function isTutorialStepStage(stage: TutorialStage | null): stage is TutorialStepId {
@@ -122,7 +130,7 @@ export interface TutorialCallbacks {
   onEndTutorial?: () => void;
   onModalOpen?: () => void;
   onModalClose?: () => void;
-  /** Screen pixels covered by the top bar / Alderwick's bottom bubble during live steps (0, 0 when clear). */
+  /** Screen pixels covered by the top bar / Alderwick's bubble during live steps (0, 0 when clear). */
   onOcclusionChange?: (topPx: number, bottomPx: number) => void;
 }
 
@@ -135,6 +143,7 @@ function esc(value: string): string {
 }
 
 export class TutorialController {
+  private readonly starsScrimEl: HTMLElement;
   private readonly bannerEl: HTMLElement;
   private readonly modalEl: HTMLElement;
   private readonly callbacks: TutorialCallbacks;
@@ -143,9 +152,20 @@ export class TutorialController {
   private context: TutorialBannerContext = {};
   private nudgeMessage: string | null = null;
   private nudgeTimer: number | null = null;
+  private suppressed = false;
 
   constructor(container: HTMLElement, callbacks: TutorialCallbacks = {}) {
     this.callbacks = callbacks;
+
+    this.starsScrimEl = document.createElement('div');
+    this.starsScrimEl.className = 'tutorial-stars-scrim hidden';
+    this.starsScrimEl.setAttribute('aria-hidden', 'true');
+    this.starsScrimEl.addEventListener('click', () => {
+      if (this.stage === 'stars') {
+        this.nudge('Tap “Got It!” above so we can grow your capital first.');
+      }
+    });
+    container.appendChild(this.starsScrimEl);
 
     this.bannerEl = document.createElement('aside');
     this.bannerEl.className = 'tutorial-banner tutorial-alderwick-host hidden';
@@ -181,16 +201,25 @@ export class TutorialController {
     });
   }
 
-  /** Lets the camera slide the board up so the focus point stays visible above Alderwick. */
+  /** Lets the camera slide the board so the focus point stays visible clear of Alderwick. */
   private reportOcclusion(): void {
     const cb = this.callbacks.onOcclusionChange;
     if (!cb) return;
     let top = 0;
     let bottom = 0;
-    if (isTutorialStepStage(this.stage) && !this.bannerEl.classList.contains('hidden')) {
+    if (
+      !this.suppressed &&
+      isTutorialStepStage(this.stage) &&
+      !this.bannerEl.classList.contains('hidden')
+    ) {
       const scene = this.bannerEl.querySelector<HTMLElement>('.alderwick-scene') ?? this.bannerEl;
-      bottom = Math.max(0, window.innerHeight - scene.getBoundingClientRect().top);
-      top = document.querySelector('.top-bar')?.getBoundingClientRect().bottom ?? 0;
+      if (this.stage === 'stars') {
+        top = Math.max(0, scene.getBoundingClientRect().bottom);
+        bottom = 0;
+      } else {
+        bottom = Math.max(0, window.innerHeight - scene.getBoundingClientRect().top);
+        top = document.querySelector('.top-bar')?.getBoundingClientRect().bottom ?? 0;
+      }
     }
     const key = `${Math.round(top)}:${Math.round(bottom)}`;
     if (key === this.lastOcclusion) return;
@@ -198,17 +227,32 @@ export class TutorialController {
     cb(top, bottom);
   }
 
-  /** True while the tutorial is in progress (intro or any of the 7 scripted steps). */
+  /** Temporarily hides the compact banner while another modal (e.g. CityRewardModal) hosts Alderwick. */
+  public setSuppressed(suppressed: boolean): void {
+    if (this.suppressed === suppressed) return;
+    this.suppressed = suppressed;
+    this.bannerEl.classList.toggle('is-suppressed', suppressed);
+    if (suppressed) {
+      this.starsScrimEl.classList.add('hidden');
+      setStarsSpotlight(false);
+    } else if (this.stage === 'stars') {
+      this.starsScrimEl.classList.remove('hidden');
+      setStarsSpotlight(true);
+    }
+    this.scheduleOcclusionReport();
+  }
+
+  /** True while the tutorial is in progress (intro or any of the 8 scripted steps). */
   public isActive(): boolean {
     return this.stage !== null && this.stage !== 'complete';
   }
 
-  /** True when either the Tutorial Intro or Tutorial Complete ("One More Thing...") modal is open. */
+  /** True when either the Tutorial Intro or Tutorial Complete ("Oh! By the way...") modal is open. */
   public isModalOpen(): boolean {
     return this.stage === 'intro' || this.stage === 'complete';
   }
 
-  /** True when End Turn should be blocked so the player completes steps 1-6 before ending the turn. */
+  /** True when End Turn should be blocked so the player completes steps 1-7 before ending the turn. */
   public isBlockingEndTurn(): boolean {
     return isTutorialStepStage(this.stage) && this.stage !== 'end_turn';
   }
@@ -230,8 +274,13 @@ export class TutorialController {
     const wasModalOpen = this.isModalOpen();
     this.clearNudgeTimer();
     this.nudgeMessage = null;
+    this.suppressed = false;
+    this.bannerEl.classList.remove('is-suppressed');
     this.stage = nextStage;
     setStarShardSpotlight(nextStage === 'complete');
+    setStarsSpotlight(nextStage === 'stars');
+    this.starsScrimEl.classList.toggle('hidden', nextStage !== 'stars');
+    this.bannerEl.classList.toggle('is-top-aligned', nextStage === 'stars');
     this.scheduleOcclusionReport();
     this.subProgress = subProgress;
 
@@ -270,7 +319,7 @@ export class TutorialController {
       return;
     }
 
-    // Active scripted step (1/7 .. 7/7) — compact talking-head bar
+    // Active scripted step (1/8 .. 8/8) — compact talking-head bar
     this.modalEl.classList.add('hidden');
     this.modalEl.innerHTML = '';
     this.renderBanner(nextStage);
@@ -365,16 +414,23 @@ export class TutorialController {
 
   public destroy(): void {
     this.clearNudgeTimer();
+    setStarShardSpotlight(false);
+    setStarsSpotlight(false);
     this.occlusionObserver?.disconnect();
     window.removeEventListener('eldermere:bottom-hud-resize', this.handleLayoutChange);
     window.removeEventListener('resize', this.handleLayoutChange);
     if (this.occlusionRaf !== null) window.cancelAnimationFrame(this.occlusionRaf);
+    this.starsScrimEl.remove();
     this.bannerEl.remove();
     this.modalEl.remove();
   }
 
   private hideElements(): void {
     setStarShardSpotlight(false);
+    setStarsSpotlight(false);
+    this.suppressed = false;
+    this.starsScrimEl.classList.add('hidden');
+    this.bannerEl.classList.remove('is-top-aligned', 'is-suppressed');
     this.scheduleOcclusionReport();
     delete this.bannerEl.dataset.renderedStep;
     this.bannerEl.classList.add('hidden');
@@ -390,42 +446,76 @@ export class TutorialController {
     }
   }
 
+  private formatStepBodyHtml(stepId: TutorialStepId, step: TutorialStep): string {
+    switch (stepId) {
+      case 'stars':
+        return 'See those glowing <strong>Stars (★)</strong> up top? Spend them to harvest, train troops, and study lore—growing cities earns more each turn!';
+      case 'capture':
+        return 'Splendidly struck! Tap the glowing <strong>Claim</strong> button below to raise your banner over your second city.';
+      case 'codex': {
+        const techName = this.context.targetTechName;
+        if (techName) {
+          return `A sharp mind wins as many crowns as a sharp blade! Tap <strong>Codex</strong> below and research <strong>“${esc(techName)}”</strong>.`;
+        }
+        return 'A sharp mind wins as many crowns as a sharp blade! Tap <strong>Codex</strong> below and research a technology.';
+      }
+      case 'train':
+        return 'Every realm needs more boots! Tap your capital city, then tap <strong>Warrior</strong> to train a new recruit.';
+      case 'end_turn':
+        return 'Magnificent first turn! Tap <strong>End Turn</strong> below so rival realms can move and your cities grant fresh Stars (★).';
+      default:
+        return esc(step.body);
+    }
+  }
+
+  private renderCodexTargetIcon(): string {
+    const techId = this.context.targetTechId;
+    const tech = techId ? TECH_DEFINITIONS[techId] : undefined;
+    const faction: FactionId = this.context.faction ?? 'humans';
+    const iconKey = tech ? getTechIconKey(tech) : 'road';
+    const label = tech?.name ?? this.context.targetTechName ?? 'Technology';
+    const thumbImg = render3DThumbImg(iconKey, faction, 'tutorial-tech-thumb', label);
+    const visual = thumbImg || renderIcon('codex', 'icon icon-lg');
+    return `<div class="tutorial-tech-icon-box" aria-hidden="true">${visual}</div>`;
+  }
+
   private renderBanner(stepId: TutorialStepId, pulse = false): void {
     const idx = STEP_INDEX_BY_ID[stepId];
     const step = TUTORIAL_STEPS[idx];
     if (!step) return;
 
     const total = TUTORIAL_STEPS.length;
-    let bodyText = step.body;
-    if (stepId === 'codex' && this.context.targetTechName) {
-      bodyText = `A sharp mind wins as many crowns as a sharp blade! Tap the Codex medallion in the bottom-left and research “${this.context.targetTechName}” (highlighted in gold).`;
-    }
-
-    let resourceCalloutHtml = '';
-    if (stepId === 'upgrade' && this.context.resourceThumbKey) {
-      const thumbKey = normalizeResourceThumbKey(this.context.resourceThumbKey);
-      const label = this.context.resourceLabel?.trim() || 'Resource';
-      const faction = this.context.faction ?? 'humans';
-      const thumbImg = render3DThumbImg(thumbKey, faction, 'tutorial-resource-thumb', label);
-      const thumbVisual = thumbImg || renderActionIcon(thumbKey, 'icon icon-sm');
-      resourceCalloutHtml = `
-        <div class="tutorial-resource-callout">
-          <span class="tutorial-resource-thumb-wrap" aria-hidden="true">${thumbVisual}</span>
-          <span class="tutorial-resource-label">Gather: <strong>${esc(label)}</strong> (&times;2)</span>
-        </div>
-      `;
-    }
+    const bodyCopyHtml = this.formatStepBodyHtml(stepId, step);
+    const mainBodyHtml =
+      stepId === 'codex'
+        ? `
+          <div class="tutorial-tech-row">
+            <p class="tutorial-body">${bodyCopyHtml}</p>
+            ${this.renderCodexTargetIcon()}
+          </div>
+        `
+        : `<p class="tutorial-body">${bodyCopyHtml}</p>`;
 
     const nextBtnHtml =
       stepId === 'stars'
         ? `<button type="button" class="btn btn-cta tutorial-next-btn" data-tutorial-next><span>Got It!</span>${renderIcon('chevronRight', 'icon icon-xs')}</button>`
         : '';
-    const progressHtml = this.subProgress
-      ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
-      : '';
+    const progressHtml =
+      stepId !== 'upgrade' && this.subProgress
+        ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
+        : '';
     const nudgeHtml = this.nudgeMessage
       ? `<div class="tutorial-nudge" role="status">${esc(this.nudgeMessage)}</div>`
       : '';
+
+    const hasInteractiveFooter = Boolean(nextBtnHtml || progressHtml);
+    const actionsHtml = hasInteractiveFooter
+      ? `
+        ${nextBtnHtml}
+        ${progressHtml}
+        <span class="tutorial-hint-note">End anytime in Scores</span>
+      `
+      : `<span class="tutorial-hint-note is-only-hint">End anytime in Scores</span>`;
 
     // Only replay the pop-in when the step itself changes (not on sub-progress/nudge refreshes).
     const isNewStep = this.bannerEl.dataset.renderedStep !== stepId;
@@ -436,22 +526,17 @@ export class TutorialController {
       variant: 'compact',
       animate: isNewStep,
       nudged: pulse,
-      extraClass: 'tutorial-alderwick-scene',
+      extraClass: `tutorial-alderwick-scene${stepId === 'stars' ? ' is-stars-step' : ''}${hasInteractiveFooter ? '' : ' is-hint-only-actions'}`,
       headerHtml: `
         <span class="tutorial-icon-badge" aria-hidden="true">${renderIcon(step.icon, 'icon icon-xs')}</span>
         <strong class="tutorial-title">${esc(step.title)}</strong>
         <span class="tutorial-step-pill">${idx + 1} / ${total}</span>
       `,
       bodyHtml: `
-        <p class="tutorial-body">${esc(bodyText)}</p>
-        ${resourceCalloutHtml}
+        ${mainBodyHtml}
         ${nudgeHtml}
       `,
-      actionsHtml: `
-        ${nextBtnHtml}
-        ${progressHtml}
-        <span class="tutorial-hint-note">End anytime in Scores</span>
-      `,
+      actionsHtml,
     });
 
     if (stepId === 'stars') {
@@ -463,20 +548,16 @@ export class TutorialController {
           this.callbacks.onAdvanceFromStars?.();
         });
     }
+    this.scheduleOcclusionReport();
   }
 
   private renderIntroModal(): void {
-    const factionDef = this.context.faction ? FACTION_DEFINITIONS[this.context.faction] : null;
-    const commanderLine = factionDef
-      ? `You lead <strong>${esc(factionDef.name)}</strong> of <strong>${esc(factionDef.realm)}</strong>, and your rivals are already stirring.`
-      : 'Your realm is ready, and your rivals are already stirring.';
-
     const pages: AlderwickDialoguePage[] = [
       {
         pose: 'greet',
         bodyHtml: `
           <p class="alderwick-bubble-lead">Well met, Commander!</p>
-          <p>I am <strong>${ALDERWICK_FULL_TITLE}</strong>, Grand Chronicler of Eldermere and keeper of this rather splendid tabletop. I’ll be your guide for your very first turn.</p>
+          <p>I am <strong>${ALDERWICK_FULL_TITLE}</strong>, Grand Chronicler of Eldermere. I’ll be your guide for your very first turn.</p>
         `,
         actionLabel: 'Nice to meet you!',
       },
@@ -484,21 +565,6 @@ export class TutorialController {
         pose: 'point',
         bodyHtml: `
           <p>Long ago, the <strong>Star-Crown</strong> kept Eldermere’s four realms at peace. When it shattered, so did the peace. Now every realm fights to reforge it.</p>
-          <p>${commanderLine}</p>
-        `,
-        actionLabel: 'How do I win?',
-      },
-      {
-        pose: 'idea',
-        bodyHtml: `
-          <p>A Chronicle is won one turn at a time:</p>
-          <ul class="alderwick-bubble-list">
-            <li><span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('wheat', 'icon icon-xs')}</span><span>Harvest resources &amp; grow your capital</span></li>
-            <li><span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('compass', 'icon icon-xs')}</span><span>March into the Fog &amp; claim Villages</span></li>
-            <li><span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('swords', 'icon icon-xs')}</span><span>Battle rival banners</span></li>
-            <li><span class="tutorial-intro-icon" aria-hidden="true">${renderIcon('codex', 'icon icon-xs')}</span><span>Research your Codex &amp; rise through the Ages</span></li>
-          </ul>
-          <p>Shall we begin?</p>
         `,
         actionLabel: 'Begin the Chronicle',
       },
@@ -512,19 +578,13 @@ export class TutorialController {
     const playerFaction: FactionId = this.context.faction ?? 'humans';
     const yourPower =
       SUPERPOWER_SHOWCASE.find((entry) => entry.faction === playerFaction)?.powerName ?? 'Superpower';
-    const rivals = SUPERPOWER_SHOWCASE.filter((entry) => entry.faction !== playerFaction);
-    const rivalNames = rivals.map((entry) => entry.realmLabel);
-    const rivalList = `${rivalNames.slice(0, -1).join(', ')} and ${rivalNames[rivalNames.length - 1]}`;
-    const threat = rivals.find((entry) => entry.faction === 'orcs') ?? rivals[0];
-    const threatLine = threat ? RIVAL_SUPERPOWER_THREAT[threat.faction] : '';
 
     const pages: AlderwickDialoguePage[] = [
       {
         pose: 'idea',
         bodyHtml: `
           <p class="alderwick-bubble-lead">Oh! By the way, Commander…</p>
-          <p>See that circle at the <strong>top of your screen</strong>? That’s your realm’s <strong>Star-Shard</strong>. Research enough <strong>Codex</strong> technologies to reach <strong>Age III</strong> and it unleashes your Superpower: <strong>${esc(yourPower)}</strong>.</p>
-          <p>Mind you, the ${esc(rivalList)} have shards too, and they’re dreadfully trigger-happy. ${threatLine} So… get there first?</p>
+          <p>That circle up top is your <strong>Star-Shard</strong>. Reach <strong>Age III</strong> in your Codex to unleash <strong>${esc(yourPower)}</strong>!</p>
           <p class="alderwick-bubble-signoff">Good luck! I’ll be watching. With snacks.</p>
         `,
         actionLabel: 'Challenge accepted!',

@@ -13,6 +13,7 @@ const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
   'combat',
   'capture',
   'codex',
+  'train',
   'end_turn',
   'complete',
 ];

@@ -81,6 +81,9 @@ export interface ActionBarViewModel {
   selectedCity: SelectedCityInfo | null;
   selectedTile: SelectedTileInfo | null;
   combatPreview: CombatPreviewDisplay | null;
+  /** Optional guided-tutorial attention cues for bottom dock & selection drawer actions. */
+  tutorialTargetIdleAction?: 'tech' | 'end-turn' | null;
+  tutorialTargetActionId?: string | null;
 }
 
 export interface ActionBarCallbacks {
@@ -274,12 +277,14 @@ export class ActionBar {
         : '';
 
     const shouldGlow = vm.isHumanTurn && vm.allUnitsActed;
+    const isCodexTarget = vm.tutorialTargetIdleAction === 'tech';
+    const isEndTurnTarget = vm.tutorialTargetIdleAction === 'end-turn';
 
     return `
       <div class="idle-bottom-bar" role="toolbar" aria-label="Turn controls">
         <button
           type="button"
-          class="tt-dock-btn tt-dock-btn-codex idle-codex-btn"
+          class="tt-dock-btn tt-dock-btn-codex idle-codex-btn${isCodexTarget ? ' is-tutorial-target' : ''}"
           data-idle-action="tech"
           title="Open Tech Codex"
           aria-label="Open Tech Codex"
@@ -293,7 +298,7 @@ export class ActionBar {
 
         <button
           type="button"
-          class="tt-dock-btn tt-dock-btn-end idle-end-turn-btn ${shouldGlow ? 'all-done' : ''}"
+          class="tt-dock-btn tt-dock-btn-end idle-end-turn-btn ${shouldGlow ? 'all-done' : ''}${isEndTurnTarget ? ' is-tutorial-target' : ''}"
           data-idle-action="end-turn"
           title="${vm.isHumanTurn ? 'End Turn (Space)' : 'Rival turn in progress'}"
           aria-label="${vm.isHumanTurn ? 'End Turn' : 'Rival Turn'}"
@@ -410,7 +415,11 @@ export class ActionBar {
         });
         actionsHtml = `
           <div class="action-tile-row" role="list">
-            ${sorted.map((opt) => this.renderActionTile(opt, 'unit', vm.isHumanTurn, owner.faction)).join('')}
+            ${sorted
+              .map((opt) =>
+                this.renderActionTile(opt, 'unit', vm.isHumanTurn, owner.faction, vm.tutorialTargetActionId ?? null),
+              )
+              .join('')}
           </div>
         `;
       }
@@ -434,7 +443,9 @@ export class ActionBar {
         actionsHtml = `
           <div class="action-tile-row" role="list">
             ${vm.selectedCity.trainOptions
-              .map((opt) => this.renderActionTile(opt, 'city', vm.isHumanTurn, owner.faction))
+              .map((opt) =>
+                this.renderActionTile(opt, 'city', vm.isHumanTurn, owner.faction, vm.tutorialTargetActionId ?? null),
+              )
               .join('')}
           </div>
         `;
@@ -465,7 +476,9 @@ export class ActionBar {
         actionsHtml = `
           <div class="action-tile-row" role="list">
             ${vm.selectedTile.actions
-              .map((opt) => this.renderActionTile(opt, 'tile', vm.isHumanTurn, vm.playerFaction))
+              .map((opt) =>
+                this.renderActionTile(opt, 'tile', vm.isHumanTurn, vm.playerFaction, vm.tutorialTargetActionId ?? null),
+              )
               .join('')}
           </div>
         `;
@@ -497,6 +510,7 @@ export class ActionBar {
     scope: 'unit' | 'city' | 'tile',
     isHumanTurn: boolean,
     faction: FactionId,
+    tutorialTargetActionId: string | null = null,
   ): string {
     const isEnabled = isHumanTurn && opt.enabled && Boolean(opt.action);
     const isTechLocked = Boolean(!opt.enabled && opt.requiredTechId && isHumanTurn);
@@ -504,6 +518,13 @@ export class ActionBar {
     const isHeroAction = opt.id === 'capture-city' || opt.id === 'explore-ruins';
     const isExploreRuins = opt.id === 'explore-ruins';
     const isUnique = Boolean(opt.unitType && UNIT_DEFINITIONS[opt.unitType]?.faction !== null);
+    const isTutorialTarget =
+      isEnabled &&
+      Boolean(
+        tutorialTargetActionId &&
+          (tutorialTargetActionId === opt.id ||
+            (tutorialTargetActionId === 'harvest' && opt.id.startsWith('harvest_'))),
+      );
     const label = shortActionLabel(opt);
     const lockText = isTechLocked ? null : shortDisabledReason(opt, isHumanTurn);
 
@@ -549,6 +570,7 @@ export class ActionBar {
       isHeroAction ? 'is-capture' : '',
       isExploreRuins ? 'is-ruins' : '',
       isUnique ? 'is-unique' : '',
+      isTutorialTarget ? 'is-tutorial-target' : '',
       isTechLocked ? 'is-tech-locked' : isEnabled ? '' : 'is-disabled',
     ]
       .filter(Boolean)

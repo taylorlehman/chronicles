@@ -8,6 +8,14 @@
   --bubble-paper: #fffaf0;
   --bubble-ink: #1c2434;
   --bubble-line: #1c2434;
+
+  /* Unified Alderwick typography scale (desktop > 640px) */
+  --alderwick-lead-size: 22px;
+  --alderwick-title-size: 18.5px;
+  --alderwick-body-size: 18.5px;
+  --alderwick-cta-size: 16px;
+  --alderwick-nudge-size: 15.5px;
+  --alderwick-pill-size: 12px;
 }
 
 /* --------------------------------------------------------------------------
@@ -164,7 +172,7 @@
   background: linear-gradient(180deg, #f2cf7c 0%, #d9a73e 100%);
   border: 2px solid var(--bubble-line);
   color: #1d2b4a;
-  font-size: 12px;
+  font-size: var(--alderwick-pill-size);
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -185,6 +193,7 @@
 
 .alderwick-bubble-header .tutorial-step-pill {
   margin-left: auto;
+  font-size: var(--alderwick-pill-size);
 }
 
 .alderwick-bubble-body {
@@ -195,9 +204,9 @@
 
 .alderwick-bubble-body p {
   margin: 0 0 9px;
-  font-size: 15.5px;
-  font-weight: 600;
-  line-height: 1.42;
+  font-size: var(--alderwick-body-size);
+  font-weight: 650;
+  line-height: 1.36;
 }
 
 .alderwick-bubble-body p:last-child {
@@ -210,9 +219,9 @@
 }
 
 .alderwick-bubble-lead {
-  font-size: 19px !important;
+  font-size: var(--alderwick-lead-size) !important;
   font-weight: 900 !important;
-  line-height: 1.25 !important;
+  line-height: 1.22 !important;
 }
 
 .alderwick-bubble-narration {
@@ -262,7 +271,7 @@
   margin-left: auto;
   min-height: 46px;
   padding: 9px 18px;
-  font-size: 15px;
+  font-size: var(--alderwick-cta-size);
   font-weight: 900;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -303,6 +312,27 @@
   transition: bottom 220ms ease;
 }
 
+.tutorial-banner.tutorial-alderwick-host.is-suppressed {
+  display: none !important;
+}
+
+.tutorial-banner.tutorial-alderwick-host.is-top-aligned {
+  top: calc(var(--safe-top) + 78px) !important;
+  bottom: auto !important;
+  z-index: 83;
+  justify-content: flex-end;
+  align-items: flex-start;
+}
+
+.tutorial-banner.is-top-aligned .alderwick-scene.is-compact {
+  align-items: center;
+}
+
+.tutorial-banner.is-top-aligned .is-compact .alderwick-bubble {
+  margin-bottom: 0;
+  margin-top: 8px;
+}
+
 .alderwick-scene.is-compact {
   column-gap: 12px;
   align-items: end;
@@ -311,7 +341,7 @@
 }
 
 .is-compact .alderwick-figure {
-  height: 176px;
+  height: 168px;
 }
 
 .is-compact .alderwick-figure-wrap {
@@ -325,9 +355,9 @@
 .is-compact .alderwick-bubble {
   --tail-y: auto;
   pointer-events: auto;
-  padding: 17px 16px 12px;
+  padding: 17px 16px 13px;
   border-radius: 18px;
-  margin-bottom: 26px;
+  margin-bottom: 22px;
   max-height: none;
 }
 
@@ -343,14 +373,15 @@
 }
 
 .is-compact .alderwick-bubble-body p {
-  font-size: 17px;
+  font-size: var(--alderwick-body-size);
   font-weight: 650;
-  line-height: 1.4;
+  line-height: 1.36;
   margin-bottom: 6px;
 }
 
 .is-compact .tutorial-title {
-  font-size: 17px !important;
+  font-size: var(--alderwick-title-size) !important;
+  line-height: 1.15;
 }
 
 .is-compact .alderwick-bubble-header {
@@ -361,8 +392,49 @@
   margin-top: 8px;
 }
 
+.is-compact .tutorial-next-btn {
+  min-height: 40px;
+  padding: 7px 16px;
+  font-size: var(--alderwick-cta-size);
+}
+
 .is-compact .tutorial-nudge {
-  font-size: 15px;
+  margin-top: 6px;
+  font-size: var(--alderwick-nudge-size);
+  line-height: 1.28;
+}
+
+/* Target tech icon inline inside Step 6 (Codex) speech bubble */
+.tutorial-tech-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.tutorial-tech-row .tutorial-body {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+
+.tutorial-tech-icon-box {
+  flex: 0 0 56px;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--ui-surface-recessed);
+  border: 2px solid var(--ui-border-color);
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.tutorial-tech-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  display: block;
 }
 
 .is-compact .tutorial-next-btn,
@@ -511,9 +583,19 @@
    Narrow / portrait phones — stack: bubble above, Alderwick below-left
    -------------------------------------------------------------------------- */
 @media (max-width: 640px) {
+  :root {
+    /* Unified Alderwick typography scale (mobile portrait <= 640px) */
+    --alderwick-lead-size: 20px;
+    --alderwick-title-size: 17.5px;
+    --alderwick-body-size: 17.5px;
+    --alderwick-cta-size: 15.5px;
+    --alderwick-nudge-size: 15px;
+    --alderwick-pill-size: 11.5px;
+  }
+
   .alderwick-scene.is-stage {
     grid-template-columns: minmax(0, 1fr);
-    row-gap: 20px;
+    row-gap: 18px;
   }
 
   .is-stage .alderwick-bubble {
@@ -529,6 +611,14 @@
   .is-stage .alderwick-figure,
   .is-stage.is-inline .alderwick-figure {
     height: clamp(170px, 30vh, 250px);
+  }
+
+  .is-stage.is-star-shard-tip {
+    row-gap: 14px;
+  }
+
+  .is-stage.is-star-shard-tip .alderwick-figure {
+    height: clamp(156px, 26vh, 215px);
   }
 
   /* Tail pointing DOWN toward Alderwick's hat/face */
@@ -553,11 +643,12 @@
   }
 
   .alderwick-bubble-body p {
-    font-size: 15px;
+    font-size: var(--alderwick-body-size);
+    line-height: 1.34;
   }
 
   .alderwick-bubble-lead {
-    font-size: 17.5px !important;
+    font-size: var(--alderwick-lead-size) !important;
   }
 
   .alderwick-bubble-cta {
@@ -566,37 +657,52 @@
 
   /* Compact tutorial host on phones */
   .is-compact .alderwick-figure {
-    height: 128px;
+    height: 114px;
   }
 
   .alderwick-scene.is-compact {
-    column-gap: 6px;
+    column-gap: 8px;
   }
 
   .is-compact .alderwick-bubble {
-    padding: 15px 12px 10px;
-    margin-bottom: 18px;
+    padding: 15px 13px 11px;
+    margin-bottom: 14px;
   }
 
   .is-compact .alderwick-bubble::before {
-    bottom: 22px;
+    bottom: 20px;
   }
 
   .is-compact .alderwick-bubble::after {
-    bottom: 26px;
+    bottom: 24px;
   }
 
   .is-compact .alderwick-bubble-body p {
-    font-size: 16px;
-    line-height: 1.36;
+    font-size: var(--alderwick-body-size);
+    line-height: 1.34;
   }
 
   .is-compact .tutorial-title {
-    font-size: 15.5px !important;
+    font-size: var(--alderwick-title-size) !important;
   }
 
   .is-compact .tutorial-hint-note {
     display: none;
+  }
+
+  .is-compact.is-hint-only-actions .alderwick-bubble-actions {
+    display: none;
+  }
+
+  .tutorial-tech-icon-box {
+    flex: 0 0 50px;
+    width: 50px;
+    height: 50px;
+  }
+
+  .tutorial-tech-thumb {
+    width: 42px;
+    height: 42px;
   }
 
   .victory-stage .victory-headline,
@@ -671,14 +777,245 @@ html.alderwick-spotlight-shard .sp-round-wrap::after {
   }
 }
 
-/* The single "by the way" bubble sits a little lower-weight than the intro */
+/* The single "by the way" bubble sits sleek & compact while keeping the unified font scale */
+.is-star-shard-tip .alderwick-bubble {
+  padding: 15px 16px 13px;
+}
+
 .is-star-shard-tip .alderwick-bubble-body p {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
+}
+
+.is-star-shard-tip .alderwick-bubble-actions {
+  margin-top: 10px;
+}
+
+/* --------------------------------------------------------------------------
+   Step 1 ("Stars: Eldermere's Magic") — dim screen & spotlight top-right Stars pill
+   -------------------------------------------------------------------------- */
+.tutorial-stars-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(8, 14, 28, 0.56);
+  pointer-events: auto;
+}
+
+.tutorial-stars-scrim.hidden {
+  display: none !important;
+}
+
+.top-pill-stars {
+  position: relative;
+}
+
+html.alderwick-spotlight-stars .top-bar {
+  z-index: 82;
+}
+
+html.alderwick-spotlight-stars .top-bar .top-cluster-left,
+html.alderwick-spotlight-stars .top-bar .top-cluster-center {
+  opacity: 0.32;
+  pointer-events: none;
+}
+
+html.alderwick-spotlight-stars .top-bar .top-cluster-left *,
+html.alderwick-spotlight-stars .top-bar .top-cluster-center * {
+  pointer-events: none !important;
+}
+
+html.alderwick-spotlight-stars .top-pill-stars {
+  border-color: #f5b833 !important;
+  animation: tutorialPillPulse 1.6s ease-in-out infinite;
+}
+
+html.alderwick-spotlight-stars .top-pill-stars::after {
+  content: '';
+  position: absolute;
+  inset: -7px;
+  border-radius: 16px;
+  border: 3px solid #fbe8a6;
+  box-shadow: 0 0 0 4px rgba(232, 193, 104, 0.38), 0 0 22px 6px rgba(251, 232, 166, 0.72);
+  pointer-events: none;
+  animation: alderwickShardPulse 1.3s ease-in-out infinite;
+}
+
+html.android-webview.alderwick-spotlight-stars .top-pill-stars::after {
+  box-shadow: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Slide 9 — Keep TopBar Stars bright & un-grayed while Tech Codex / Confirm is open
+   -------------------------------------------------------------------------- */
+html.tech-modal-open .top-bar {
+  z-index: 50;
+  pointer-events: none;
+}
+
+html.tech-modal-open .top-bar * {
+  pointer-events: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Slide 6 — City Reward Modal with Alderwick explaining & recommending Workshop
+   -------------------------------------------------------------------------- */
+.modal-backdrop.reward-modal.has-alderwick {
+  z-index: 82;
+}
+
+.reward-modal-stack {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.reward-alderwick-scene {
+  width: min(540px, 100%);
+  pointer-events: none;
+}
+
+.reward-alderwick-scene .alderwick-bubble {
+  margin-bottom: 6px;
+}
+
+.reward-modal-stack .reward-modal-panel {
+  width: min(460px, 100%);
+}
+
+@media (max-width: 767px) {
+  .reward-modal-stack {
+    width: 100%;
+    gap: 10px;
+  }
+
+  .reward-alderwick-scene {
+    width: 100%;
+    padding: 0 10px;
+  }
+
+  .reward-modal-stack .reward-modal-panel {
+    width: 100%;
+  }
+}
+
+.reward-card.is-tutorial-recommended {
+  border: 3px solid #f5b833 !important;
+  box-shadow: 0 0 0 2px rgba(245, 184, 51, 0.38), 0 8px 20px rgba(217, 119, 6, 0.24);
+  padding-top: 10px;
+  padding-bottom: 12px;
+  gap: 4px;
+  animation: tutorialCardAttention 2.2s ease-in-out infinite;
+}
+
+.reward-rec-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fde047 0%, #eab308 100%);
+  border: 1.5px solid #1c2434;
+  color: #1c2434;
+  font-size: 10.5px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+html.android-webview .reward-card.is-tutorial-recommended {
+  box-shadow: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Unified Tutorial Interactive Attention Motion (Web & Android WebView safe)
+   Pure transform animations avoid Skia/ANGLE shadow/blur glitches on WebView.
+   -------------------------------------------------------------------------- */
+@keyframes tutorialAttentionShake {
+  0%,
+  36%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  6% {
+    transform: translateY(-4px) rotate(-4deg) scale(1.06);
+  }
+  14% {
+    transform: translateY(-5px) rotate(4deg) scale(1.08);
+  }
+  22% {
+    transform: translateY(-3px) rotate(-2.5deg) scale(1.04);
+  }
+  30% {
+    transform: translateY(-1px) rotate(1.5deg) scale(1.01);
+  }
+}
+
+@keyframes tutorialCardAttention {
+  0%,
+  40%,
+  100% {
+    transform: translateY(0) scale(1) rotate(0deg);
+  }
+  10% {
+    transform: translateY(-3px) scale(1.022) rotate(-0.6deg);
+  }
+  20% {
+    transform: translateY(-3px) scale(1.025) rotate(0.6deg);
+  }
+  30% {
+    transform: translateY(-1px) scale(1.01) rotate(-0.3deg);
+  }
+}
+
+@keyframes tutorialPillPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+.idle-codex-btn.is-tutorial-target .tt-dock-medallion,
+.idle-end-turn-btn.is-tutorial-target .tt-dock-medallion {
+  border-color: #fde047 !important;
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.55), 0 0 20px rgba(250, 204, 21, 0.72) !important;
+  animation: tutorialAttentionShake 2.0s ease-in-out infinite !important;
+}
+
+.action-tile.is-tutorial-target {
+  animation: tutorialAttentionShake 2.0s ease-in-out infinite;
+}
+
+.action-tile.is-tutorial-target .action-tile-visual {
+  border-color: #fde047 !important;
+  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.52), 0 0 16px rgba(250, 204, 21, 0.6) !important;
+}
+
+.tech-card.is-tutorial-target {
+  animation: tutorialCardAttention 2.0s ease-in-out infinite;
+}
+
+html.android-webview .idle-codex-btn.is-tutorial-target .tt-dock-medallion,
+html.android-webview .idle-end-turn-btn.is-tutorial-target .tt-dock-medallion,
+html.android-webview .action-tile.is-tutorial-target .action-tile-visual {
+  box-shadow: none !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html.alderwick-spotlight-shard .sp-round-wrap::after {
-    animation: none;
+  html.alderwick-spotlight-shard .sp-round-wrap::after,
+  html.alderwick-spotlight-stars .top-pill-stars,
+  html.alderwick-spotlight-stars .top-pill-stars::after,
+  .idle-codex-btn.is-tutorial-target .tt-dock-medallion,
+  .idle-end-turn-btn.is-tutorial-target .tt-dock-medallion,
+  .action-tile.is-tutorial-target,
+  .tech-card.is-tutorial-target,
+  .reward-card.is-tutorial-recommended {
+    animation: none !important;
   }
 }
 

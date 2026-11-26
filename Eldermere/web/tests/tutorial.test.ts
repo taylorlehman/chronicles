@@ -67,9 +67,9 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
     },
   );
 
-  describe.each<FactionId>(ALL_FACTIONS)('Full 6-step scripted tutorial sequence for %s', (faction) => {
+  describe.each<FactionId>(ALL_FACTIONS)('Full 8-step scripted tutorial sequence for %s', (faction) => {
     it.each<MapSize>([16, 18])(
-      'executes Upgrade -> Move -> Fight Orc on Village -> Capture -> Codex -> End Turn legally on %ix%i',
+      'executes Upgrade -> Move -> Fight Orc on Village -> Capture -> Codex -> Train Warrior -> End Turn legally on %ix%i',
       (mapSize) => {
         const { state: initialState, scenario } = createTutorialGame({
           humanFaction: faction,
@@ -236,7 +236,27 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
         state = techRes.state;
         expect(state.players[0].techs).toContain(targetTech!.id);
 
-        // Step 6: End Turn cycles through rival turns and starts Turn 2 with higher Star income
+        // Step 7: Train a Warrior at the unoccupied capital (all 4 factions have >= 2★ left!)
+        expect(state.players[0].gold).toBeGreaterThanOrEqual(2);
+        const capTileAfterCodex = getTile(state, scenario.capitalCoord.x, scenario.capitalCoord.y)!;
+        expect(capTileAfterCodex.unitId).toBeNull();
+
+        const trainRes = applyAction(state, {
+          type: 'TRAIN_UNIT',
+          cityId: capital!.id,
+          unitType: 'warrior',
+        });
+        expect(
+          trainRes.events.some(
+            (e) => e.type === 'UNIT_TRAINED' && e.cityId === capital!.id && e.unitType === 'warrior',
+          ),
+        ).toBe(true);
+        state = trainRes.state;
+        const capTileAfterTrain = getTile(state, scenario.capitalCoord.x, scenario.capitalCoord.y)!;
+        expect(capTileAfterTrain.unitId).not.toBeNull();
+        expect(state.units[capTileAfterTrain.unitId!].type).toBe('warrior');
+
+        // Step 8: End Turn cycles through rival turns and starts Turn 2 with higher Star income
         const goldBeforeEndTurn = state.players[0].gold;
         const incomeAfterUpgrades = state.players[0].goldPerTurn;
         expect(incomeAfterUpgrades).toBeGreaterThan(initialIncome);

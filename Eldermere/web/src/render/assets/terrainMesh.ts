@@ -178,6 +178,7 @@ export interface BuiltTileMesh {
   windmillBlades: THREE.Object3D | null;
   floatingMotes: THREE.Object3D[];
   smokePuffs: THREE.Object3D[];
+  resourceGroup?: THREE.Group;
 }
 
 export function createTileMesh(
@@ -332,13 +333,14 @@ export function createTileMesh(
   }
 
   // Improvements or resources
+  let resourceGroup: THREE.Group | undefined;
   if (tile.improvement && !tile.isCityCenter) {
     windmillBlades = addImprovementMesh(group, tile.improvement, tile.terrain === 'mountain');
   } else if (tile.resource && !tile.isCityCenter && !tile.hasVillage) {
-    addResourceProp(group, tile.resource, tile, floatingMotes);
+    resourceGroup = addResourceProp(group, tile.resource, tile, floatingMotes);
   }
 
-  return { group, hitMesh, animatedTrees, waterMesh, windmillBlades, floatingMotes, smokePuffs };
+  return { group, hitMesh, animatedTrees, waterMesh, windmillBlades, floatingMotes, smokePuffs, resourceGroup };
 }
 
 function getLandTopMaterial(tile: Tile, topColor: string): THREE.MeshStandardMaterial {
@@ -862,9 +864,10 @@ function addResourceProp(
   resource: ResourceType,
   tile: Tile,
   floatingMotes: THREE.Object3D[],
-): void {
+): THREE.Group | undefined {
   switch (resource) {
     case 'berries': {
+      const resGroup = new THREE.Group();
       const bushMat = getTexturedMaterial('foliage', {
         color: '#2f8540',
         roughness: 0.86,
@@ -880,14 +883,16 @@ function addResourceProp(
         const b = new THREE.Mesh(berryBushGeo, bushMat);
         b.position.set(ox, TILE_TOP_Y + oy, oz);
         b.castShadow = true;
-        group.add(b);
+        resGroup.add(b);
         const dot = new THREE.Mesh(flowerGeo, berryMat);
         dot.position.set(ox + 0.08, TILE_TOP_Y + oy + 0.14, oz + 0.06);
-        group.add(dot);
+        resGroup.add(dot);
       });
-      break;
+      group.add(resGroup);
+      return resGroup;
     }
     case 'game': {
+      const resGroup = new THREE.Group();
       const deer = new THREE.Group();
       const coatMat = getFlatMaterial(tile.biome === 'orcs' ? '#7a6154' : '#b87a44');
       const antlerMat = getFlatMaterial('#efe8d8');
@@ -925,10 +930,12 @@ function addResourceProp(
 
       deer.position.set(0.04, TILE_TOP_Y, 0.06);
       deer.rotation.y = hash(tile.x, tile.y, 500) * Math.PI * 2;
-      group.add(deer);
-      break;
+      resGroup.add(deer);
+      group.add(resGroup);
+      return resGroup;
     }
     case 'ore': {
+      const resGroup = new THREE.Group();
       const oreMat = getFlatMaterial('#f59e0b', {
         roughness: 0.34,
         metalness: 0.58,
@@ -946,11 +953,13 @@ function addResourceProp(
         c.scale.set(0.85, 1.3, 0.85);
         c.rotation.set(0.3, i * 1.1, 0.25);
         c.castShadow = true;
-        group.add(c);
+        resGroup.add(c);
       });
-      break;
+      group.add(resGroup);
+      return resGroup;
     }
     case 'mithril': {
+      const resGroup = new THREE.Group();
       const mithrilMat = getFlatMaterial('#93c5fd', {
         roughness: 0.30,
         metalness: 0.62,
@@ -968,9 +977,10 @@ function addResourceProp(
         c.scale.set(0.9, 1.55, 0.9);
         c.rotation.set(0.22, i * 1.3, -0.2);
         c.castShadow = true;
-        group.add(c);
+        resGroup.add(c);
       });
-      break;
+      group.add(resGroup);
+      return resGroup;
     }
     case 'ruins': {
       const stoneMat = getTexturedMaterial('stone_masonry', {
@@ -1024,6 +1034,7 @@ function addResourceProp(
       break;
     }
   }
+  return undefined;
 }
 
 function addNeutralVillage(

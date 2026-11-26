@@ -121,8 +121,15 @@ export class TechModal {
     return this.openState;
   }
 
+  private syncOpenClass(): void {
+    if (typeof document !== 'undefined') {
+      document.documentElement.classList.toggle('tech-modal-open', this.openState);
+    }
+  }
+
   public open(vm: TechModalViewModel): void {
     this.openState = true;
+    this.syncOpenClass();
     this.pendingTechId = null;
     this.blockedTechId = null;
     this.lastVm = vm;
@@ -139,6 +146,7 @@ export class TechModal {
 
   public openToTech(vm: TechModalViewModel, techId: TechId): void {
     this.openState = true;
+    this.syncOpenClass();
     this.pendingTechId = null;
     this.blockedTechId = null;
     this.lastVm = vm;
@@ -181,6 +189,7 @@ export class TechModal {
   public close(): void {
     if (!this.openState) return;
     this.openState = false;
+    this.syncOpenClass();
     this.pendingTechId = null;
     this.blockedTechId = null;
     this.root.classList.add('hidden');
@@ -188,6 +197,8 @@ export class TechModal {
   }
 
   public destroy(): void {
+    this.openState = false;
+    this.syncOpenClass();
     window.removeEventListener('keydown', this.onKeyDown);
     this.root.remove();
   }
@@ -422,9 +433,8 @@ export class TechModal {
         <div class="tech-tree-grid tech-carousel" data-tech-carousel>
           ${pillarsHtml}
         </div>
-
-        ${overlayHtml}
       </div>
+      ${overlayHtml}
     `;
 
     this.bindEvents();
@@ -450,7 +460,6 @@ export class TechModal {
     cost: number,
     player: PlayerState,
   ): string {
-    const remainingGold = Math.max(0, player.gold - cost);
     const ageLabel =
       tech.tier === 3 ? 'Age III · Capstone' : `Age ${AGE_ROMAN[tech.tier]}`;
 
@@ -464,13 +473,6 @@ export class TechModal {
               <h3 class="tech-confirm-title">Research ${esc(tech.name)}?</h3>
               <p class="tech-confirm-summary">${formatStars(tech.summary)}</p>
             </div>
-          </div>
-          <div class="tech-confirm-cost-row">
-            <span class="tech-confirm-cost-label">Cost</span>
-            <span class="tech-confirm-cost-val">
-              <strong>${cost}${renderIcon('star', 'icon icon-sm icon-star')}</strong>
-              <span class="tech-confirm-balance">(${player.gold} &rarr; ${remainingGold}${renderIcon('star', 'icon icon-xs icon-star')})</span>
-            </span>
           </div>
           <div class="tech-confirm-actions">
             <button type="button" class="btn btn-secondary tech-confirm-cancel" data-confirm-cancel>

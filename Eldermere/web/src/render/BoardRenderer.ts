@@ -302,6 +302,34 @@ export class BoardRenderer {
   private static readonly LETHAL_SPIKE_Z_GEO = new THREE.BoxGeometry(0.045, 0.045, 0.22);
   private static readonly LETHAL_CROWN_GEO = new THREE.OctahedronGeometry(0.085, 0);
 
+  // Shared tutorial highlight ring geometries & materials (pulsing gold attention rings)
+  private static readonly TUTORIAL_RING_GEO = (() => {
+    const g = new THREE.RingGeometry(0.56, 0.74, 28);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private static readonly TUTORIAL_FILL_GEO = (() => {
+    const g = new THREE.CircleGeometry(0.56, 28);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private static readonly TUTORIAL_RING_MAT = new THREE.MeshBasicMaterial({
+    color: '#fde047',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.94,
+    depthTest: false,
+    depthWrite: false,
+  });
+  private static readonly TUTORIAL_FILL_MAT = new THREE.MeshBasicMaterial({
+    color: '#facc15',
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.22,
+    depthTest: false,
+    depthWrite: false,
+  });
+
   private mapSize = 0;
   private initialized = false;
   private lastBorderFingerprint: string | null = null;
@@ -324,6 +352,7 @@ export class BoardRenderer {
   private cityCrystals: THREE.Object3D[] = [];
   private cityFlames: THREE.Object3D[] = [];
   private floatingMotes: THREE.Object3D[] = [];
+  private tileResourceGroups = new Map<string, { group: THREE.Group; baseY: number; phase: number }>();
 
   private tilesByCoord = new Map<string, Tile>();
   private cityCoords = new Set<string>();
@@ -346,6 +375,10 @@ export class BoardRenderer {
   private moveOverlayGroup = new THREE.Group();
   private attackOverlayGroup = new THREE.Group();
   private superpowerOverlayGroup = new THREE.Group();
+  private tutorialOverlayGroup = new THREE.Group();
+  private tutorialResourceKeys = new Set<string>();
+  private tutorialResourceCoords: Coord[] = [];
+  private tutorialTileCoords: Coord[] = [];
 
   constructor(scene: THREE.Scene) {
     this.boardRoot.add(
@@ -379,6 +412,7 @@ export class BoardRenderer {
     this.overlaysGroup.add(this.selectedRing);
 
     this.overlaysGroup.add(
+      this.tutorialOverlayGroup,
       this.moveOverlayGroup,
       this.attackOverlayGroup,
       this.superpowerOverlayGroup,
@@ -563,8 +597,9 @@ export class BoardRenderer {
       this.windmillBlades = [];
       this.floatingMotes = [];
       this.tileSmokePuffs = [];
+      this.tileResourceGroups.clear();
 
-      for (const entry of this.tileEntries.values()) {
+      for (const [entryKey, entry] of this.tileEntries) {
         const b = entry.built;
         this.tileHitMeshes.push(b.hitMesh);
         if (b.animatedTrees.length > 0) this.animatedTrees.push(...b.animatedTrees);
@@ -572,6 +607,14 @@ export class BoardRenderer {
         if (b.windmillBlades) this.windmillBlades.push(b.windmillBlades);
         if (b.floatingMotes.length > 0) this.floatingMotes.push(...b.floatingMotes);
         if (b.smokePuffs.length > 0) this.tileSmokePuffs.push(...b.smokePuffs);
+        if (b.resourceGroup) {
+          const [tx, ty] = entryKey.split(',').map(Number);
+          this.tileResourceGroups.set(entryKey, {
+            group: b.resourceGroup,
+            baseY: b.resourceGroup.position.y,
+            phase: ((tx || 0) * 1.4 + (ty || 0) * 2.3) % (Math.PI * 2),
+          });
+        }
       }
     }
   }
@@ -600,6 +643,11 @@ export class BoardRenderer {
     this.windmillBlades = [];
     this.floatingMotes = [];
     this.tileSmokePuffs = [];
+    this.tileResourceGroups.clear();
+    clearGroup(this.tutorialOverlayGroup);
+    this.tutorialResourceKeys.clear();
+    this.tutorialResourceCoords = [];
+    this.tutorialTileCoords = [];
 
     for (const cloud of this.cloudObjects.values()) {
       this.disposeCloudFadeMaterials(cloud);
@@ -726,8 +774,9 @@ export class BoardRenderer {
       this.windmillBlades = [];
       this.floatingMotes = [];
       this.tileSmokePuffs = [];
+      this.tileResourceGroups.clear();
 
-      for (const entry of this.tileEntries.values()) {
+      for (const [entryKey, entry] of this.tileEntries) {
         const b = entry.built;
         this.tileHitMeshes.push(b.hitMesh);
         if (b.animatedTrees.length > 0) {
@@ -745,6 +794,17 @@ export class BoardRenderer {
         if (b.smokePuffs.length > 0) {
           this.tileSmokePuffs.push(...b.smokePuffs);
         }
+        if (b.resourceGroup) {
+          const [tx, ty] = entryKey.split(',').map(Number);
+          this.tileResourceGroups.set(entryKey, {
+            group: b.resourceGroup,
+            baseY: b.resourceGroup.position.y,
+            phase: ((tx || 0) * 1.4 + (ty || 0) * 2.3) % (Math.PI * 2),
+          });
+        }
+      }
+      if (this.tutorialResourceCoords.length > 0 || this.tutorialTileCoords.length > 0) {
+        this.rebuildTutorialOverlays();
       }
     }
 
@@ -1360,6 +1420,78 @@ export class BoardRenderer {
     }
   }
 
+  public setTutorialResourceTargets(coords: Coord[]): void {
+    const nextKeys = new Set(coords.map((c) => coordKey(c.x, c.y)));
+    for (const prevKey of this.tutorialResourceKeys) {
+      if (!nextKeys.has(prevKey)) {
+        const res = this.tileResourceGroups.get(prevKey);
+        if (res) {
+          res.group.position.y = res.baseY;
+          res.group.rotation.z = 0;
+          res.group.scale.set(1, 1, 1);
+        }
+      }
+    }
+    this.tutorialResourceKeys = nextKeys;
+    this.tutorialResourceCoords = coords.map((c) => ({ x: c.x, y: c.y }));
+    this.rebuildTutorialOverlays();
+  }
+
+  public setTutorialTileTargets(coords: Coord[]): void {
+    this.tutorialTileCoords = coords.map((c) => ({ x: c.x, y: c.y }));
+    this.rebuildTutorialOverlays();
+  }
+
+  private rebuildTutorialOverlays(): void {
+    clearGroup(this.tutorialOverlayGroup);
+    if (this.mapSize <= 0) return;
+
+    const seen = new Set<string>();
+    const combined: Coord[] = [];
+    for (const c of [...this.tutorialResourceCoords, ...this.tutorialTileCoords]) {
+      const k = coordKey(c.x, c.y);
+      if (seen.has(k)) continue;
+      seen.add(k);
+      combined.push(c);
+    }
+
+    for (const c of combined) {
+      const key = coordKey(c.x, c.y);
+      const tile = this.tilesByCoord.get(key);
+      const isMountain =
+        this.mountainCoords.has(key) ||
+        Boolean(tile && tile.terrain === 'mountain' && !tile.isCityCenter && !tile.hasVillage);
+      const isCityOrVillage =
+        this.cityCoords.has(key) || Boolean(tile && (tile.isCityCenter || tile.hasVillage));
+
+      const overlayY = isMountain
+        ? TILE_TOP_Y + MOUNTAIN_LEDGE_Y + 0.03
+        : isCityOrVillage
+          ? TILE_TOP_Y + CITY_PLAZA_Y + 0.03
+          : TILE_TOP_Y + 0.045;
+      const pos = tileToWorld(c.x, c.y, this.mapSize, overlayY);
+      const phase = (c.x * 1.1 + c.y * 1.7) % (Math.PI * 2);
+
+      const fill = new THREE.Mesh(
+        BoardRenderer.TUTORIAL_FILL_GEO,
+        BoardRenderer.TUTORIAL_FILL_MAT,
+      );
+      fill.position.copy(pos);
+      fill.renderOrder = 30;
+      fill.userData = { isTutorialRing: true, phase };
+      this.tutorialOverlayGroup.add(fill);
+
+      const ring = new THREE.Mesh(
+        BoardRenderer.TUTORIAL_RING_GEO,
+        BoardRenderer.TUTORIAL_RING_MAT,
+      );
+      ring.position.set(pos.x, pos.y + 0.008, pos.z);
+      ring.renderOrder = 31;
+      ring.userData = { isTutorialRing: true, phase };
+      this.tutorialOverlayGroup.add(ring);
+    }
+  }
+
   public clearHighlights(): void {
     this.setSelectedTile(null);
     this.setMoveTargets([]);
@@ -1474,10 +1606,26 @@ export class BoardRenderer {
       cloud.group.position.x = cloud.baseX + Math.cos(elapsed * 0.45 + cloud.phase) * 0.05;
     }
 
-    // 6. Pulsing selection, move-dot & attack highlights
+    // 6. Pulsing selection, move-dot, tutorial & attack highlights
     if (this.selectedRing.visible) {
       const s = 1 + Math.sin(elapsed * 4.2) * 0.06;
       this.selectedRing.scale.set(s, s, 1);
+    }
+    for (const key of this.tutorialResourceKeys) {
+      const res = this.tileResourceGroups.get(key);
+      if (!res) continue;
+      const bounce = Math.abs(Math.sin(elapsed * 4.2 + res.phase));
+      res.group.position.y = res.baseY + bounce * 0.18;
+      res.group.rotation.z = Math.sin(elapsed * 8.4 + res.phase) * 0.11;
+      const pop = 1 + bounce * 0.14;
+      res.group.scale.set(pop, pop, pop);
+    }
+    for (const child of this.tutorialOverlayGroup.children) {
+      if (child.userData.isTutorialRing) {
+        const phase = (child.userData.phase as number) ?? 0;
+        const s = 1 + Math.sin(elapsed * 5.0 + phase) * 0.09;
+        child.scale.setScalar(s);
+      }
     }
     for (const child of this.moveOverlayGroup.children) {
       if (child.userData.isMoveDot) {
