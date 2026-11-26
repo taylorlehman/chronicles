@@ -202,4 +202,34 @@
         </LinearLayout>
     </FrameLayout>
 
+    <!-- Secret State Reset Confirmation Overlay (fades slowly before exiting) -->
+    <FrameLayout
+        android:id="@+id/state_cleared_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#B3080F1E"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/state_cleared_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_sizzle_pill"
+            android:fontFamily="serif"
+            android:gravity="center"
+            android:letterSpacing="0.06"
+            android:paddingHorizontal="28dp"
+            android:paddingVertical="16dp"
+            android:shadowColor="#CC040812"
+            android:shadowDy="2"
+            android:shadowRadius="6"
+            android:text="@string/state_cleared_message"
+            android:textColor="@color/eldermere_gold_bright"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
 </FrameLayout>

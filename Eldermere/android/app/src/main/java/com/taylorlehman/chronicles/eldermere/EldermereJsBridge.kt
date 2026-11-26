@@ -9,6 +9,7 @@ import android.webkit.JavascriptInterface
 class EldermereJsBridge(
     private val onGameReadyCallback: () -> Unit,
     private val onHapticCallback: (HapticStyle) -> Unit,
+    private val onResetAppStateAndExitCallback: () -> Unit = {},
 ) {
     @JavascriptInterface
     fun onGameReady() {
@@ -18,5 +19,10 @@ class EldermereJsBridge(
     @JavascriptInterface
     fun haptic(style: String?) {
         onHapticCallback(HapticStyle.fromWireValue(style))
+    }
+
+    @JavascriptInterface
+    fun resetAppStateAndExit() {
+        onResetAppStateAndExitCallback()
     }
 }

@@ -3,6 +3,7 @@ export type AndroidHapticStyle = 'tap' | 'select' | 'combat' | 'capture' | 'vict
 export interface EldermereAndroidBridge {
   onGameReady?: () => void;
   haptic?: (style: AndroidHapticStyle) => void;
+  resetAppStateAndExit?: () => void;
 }
 
 declare global {
@@ -34,6 +35,10 @@ export function notifyAndroidGameReady(): void {
   }
 }
 
+export function isAndroidApp(): boolean {
+  return typeof window !== 'undefined' && Boolean(window.EldermereAndroid);
+}
+
 export function triggerAndroidHaptic(style: AndroidHapticStyle): void {
   if (typeof window === 'undefined') return;
   try {
@@ -41,4 +46,17 @@ export function triggerAndroidHaptic(style: AndroidHapticStyle): void {
   } catch {
     // Ignore bridge failures when running outside Android WebView
   }
+}
+
+export function requestAndroidStateResetAndExit(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    if (typeof window.EldermereAndroid?.resetAppStateAndExit === 'function') {
+      window.EldermereAndroid.resetAppStateAndExit();
+      return true;
+    }
+  } catch {
+    // Ignore bridge failures when running outside Android WebView
+  }
+  return false;
 }

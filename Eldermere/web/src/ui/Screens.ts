@@ -8,8 +8,13 @@ import {
   VICTORY_CHRONICLE,
   getDefeatChronicle,
 } from './alderwick';
+import {
+  isAndroidApp,
+  requestAndroidStateResetAndExit,
+  triggerAndroidHaptic,
+} from './androidBridge';
 import { renderFactionCrest, renderIcon, renderUnitIcon, type IconName } from './icons';
-import type { SavedCampaignSummary } from './persistence';
+import { clearAllGameState, type SavedCampaignSummary } from './persistence';
 import { renderUnitThumbOrIcon } from './thumbs';
 
 export interface StartGameOptions {
@@ -191,6 +196,9 @@ export class TitleScreen {
   private difficulty: Difficulty = 'normal';
   private mapSize: MapSize = 16;
   private savedCampaign: SavedCampaignSummary | null = null;
+  private dwarfResetTaps = 0;
+  private lastDwarfTapMs = 0;
+  private isResettingState = false;
 
   constructor(container: HTMLElement, callbacks: TitleScreenCallbacks) {
     this.callbacks = callbacks;
@@ -215,6 +223,9 @@ export class TitleScreen {
   }
 
   public show(): void {
+    this.dwarfResetTaps = 0;
+    this.lastDwarfTapMs = 0;
+    this.isResettingState = false;
     this.root.classList.remove('hidden');
     this.syncSelectionState();
   }
@@ -339,11 +350,35 @@ export class TitleScreen {
 
     this.root.querySelectorAll<HTMLButtonElement>('[data-faction-pick]').forEach((btn) => {
       btn.addEventListener('click', () => {
+        if (this.isResettingState) return;
         const faction = btn.dataset.factionPick as FactionId;
-        if (faction && faction !== this.selectedFaction) {
+        if (!faction) return;
+
+        if (faction !== this.selectedFaction) {
           this.selectedFaction = faction;
           this.callbacks.onSelectFaction?.(faction);
           this.syncSelectionState();
+        }
+
+        if (faction === 'dwarves' && isAndroidApp()) {
+          const now = Date.now();
+          if (now - this.lastDwarfTapMs > 2500) {
+            this.dwarfResetTaps = 0;
+          }
+          this.dwarfResetTaps += 1;
+          this.lastDwarfTapMs = now;
+          if (this.dwarfResetTaps >= 4) {
+            this.isResettingState = true;
+            this.dwarfResetTaps = 0;
+            clearAllGameState();
+            this.savedCampaign = null;
+            this.syncResumeBanner();
+            triggerAndroidHaptic('capture');
+            requestAndroidStateResetAndExit();
+          }
+        } else {
+          this.dwarfResetTaps = 0;
+          this.lastDwarfTapMs = 0;
         }
       });
     });

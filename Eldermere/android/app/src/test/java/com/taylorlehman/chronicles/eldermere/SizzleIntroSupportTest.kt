@@ -19,6 +19,23 @@ class SizzleIntroSupportTest {
             seen = true
             markSeenCalls += 1
         }
+
+        override fun clearAll() {
+            seen = false
+        }
+    }
+
+    @Test
+    fun clearAll_resetsSeenFlagSoNextLaunchPlaysSizzleAgain() {
+        val store = InMemorySizzleStore(initialSeen = true)
+        assertEquals(SizzlePlaybackPhase.NOT_NEEDED, SizzleIntroStateMachine(store).phase)
+
+        store.clearAll()
+
+        val nextLaunchMachine = SizzleIntroStateMachine(store)
+        assertFalse(store.hasSeenSizzleVideo())
+        assertEquals(SizzlePlaybackPhase.WAITING_FOR_LOADING, nextLaunchMachine.phase)
+        assertTrue(nextLaunchMachine.shouldPrepareSizzle)
     }
 
     @Test

@@ -22,4 +22,5 @@
     <string name="sizzle_skip_cd">Skip intro video</string>
     <string name="sizzle_mute_cd">Mute intro video</string>
     <string name="sizzle_unmute_cd">Unmute intro video</string>
+    <string name="state_cleared_message">State has been cleared</string>
 </resources>

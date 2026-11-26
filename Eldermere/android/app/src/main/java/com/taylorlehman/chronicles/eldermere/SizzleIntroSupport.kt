@@ -10,6 +10,7 @@ import android.graphics.Matrix
 interface SizzleIntroStore {
     fun hasSeenSizzleVideo(): Boolean
     fun markSizzleVideoSeen()
+    fun clearAll()
 }
 
 class SharedPreferencesSizzleStore(context: Context) : SizzleIntroStore {
@@ -23,6 +24,10 @@ class SharedPreferencesSizzleStore(context: Context) : SizzleIntroStore {
 
     override fun markSizzleVideoSeen() {
         prefs.edit().putBoolean(KEY_HAS_SEEN_SIZZLE_VIDEO, true).apply()
+    }
+
+    override fun clearAll() {
+        prefs.edit().clear().commit()
     }
 
     companion object {

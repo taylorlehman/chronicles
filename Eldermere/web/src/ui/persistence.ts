@@ -190,3 +190,15 @@ export function markTutorialCompleted(): void {
     // Ignore
   }
 }
+
+export function clearAllGameState(): void {
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(SAVED_CAMPAIGN_KEY);
+    storage.removeItem(TUTORIAL_DONE_KEY);
+    storage.clear();
+  } catch {
+    // Ignore
+  }
+}

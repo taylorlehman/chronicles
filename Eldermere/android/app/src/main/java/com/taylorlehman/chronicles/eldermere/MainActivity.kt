@@ -19,10 +19,12 @@ import android.view.TextureView
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
+import android.webkit.WebStorage
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -56,8 +58,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var loadingFooter: LinearLayout
     private lateinit var loadingTipText: TextView
     private lateinit var loadingProgressBar: ProgressBar
+    private lateinit var stateClearedOverlay: FrameLayout
 
     private lateinit var assetLoader: WebViewAssetLoader
+    private lateinit var sizzleStore: SharedPreferencesSizzleStore
     private lateinit var sizzleStateMachine: SizzleIntroStateMachine
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -65,6 +69,7 @@ class MainActivity : AppCompatActivity() {
     private var isPageLoaded: Boolean = false
     private var isOverlayDismissed: Boolean = false
     private var isActivityResumed: Boolean = false
+    private var isResettingAppState: Boolean = false
     private var latestSafeInsets: SafeAreaInsets = SafeAreaInsets.ZERO
     private var progressAnimator: ValueAnimator? = null
     private var tipIndex: Int = 0
@@ -131,9 +136,11 @@ class MainActivity : AppCompatActivity() {
         loadingFooter = findViewById(R.id.loading_footer)
         loadingTipText = findViewById(R.id.loading_tip_text)
         loadingProgressBar = findViewById(R.id.loading_progress_bar)
+        stateClearedOverlay = findViewById(R.id.state_cleared_overlay)
         loadingTips = resources.getStringArray(R.array.loading_tips)
 
-        sizzleStateMachine = SizzleIntroStateMachine(SharedPreferencesSizzleStore(this))
+        sizzleStore = SharedPreferencesSizzleStore(this)
+        sizzleStateMachine = SizzleIntroStateMachine(sizzleStore)
 
         assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
@@ -524,6 +531,9 @@ class MainActivity : AppCompatActivity() {
             onHapticCallback = { style ->
                 mainHandler.post { performHaptic(style) }
             },
+            onResetAppStateAndExitCallback = {
+                mainHandler.post { handleSecretStateResetAndExit() }
+            },
         )
         webView.addJavascriptInterface(jsBridge, JS_BRIDGE_NAME)
 
@@ -666,6 +676,63 @@ class MainActivity : AppCompatActivity() {
             .start()
     }
 
+    private fun handleSecretStateResetAndExit() {
+        if (isResettingAppState || isFinishing || isDestroyed) return
+        isResettingAppState = true
+        Log.i(LOG_TAG, "Secret state reset triggered; clearing SharedPreferences and WebView storage")
+
+        try {
+            sizzleStore.clearAll()
+        } catch (t: Throwable) {
+            Log.w(LOG_TAG, "Error clearing SharedPreferences", t)
+        }
+        try {
+            WebStorage.getInstance().deleteAllData()
+        } catch (t: Throwable) {
+            Log.w(LOG_TAG, "Error clearing WebStorage", t)
+        }
+        try {
+            CookieManager.getInstance().removeAllCookies(null)
+            CookieManager.getInstance().flush()
+        } catch (t: Throwable) {
+            Log.w(LOG_TAG, "Error clearing WebView cookies", t)
+        }
+        try {
+            webView.clearCache(true)
+            webView.clearHistory()
+        } catch (t: Throwable) {
+            Log.w(LOG_TAG, "Error clearing WebView cache", t)
+        }
+
+        stateClearedOverlay.animate().cancel()
+        stateClearedOverlay.alpha = 0f
+        stateClearedOverlay.visibility = View.VISIBLE
+        stateClearedOverlay.animate()
+            .alpha(1f)
+            .setDuration(STATE_CLEARED_FADE_IN_MS)
+            .setInterpolator(DecelerateInterpolator())
+            .withEndAction {
+                if (isFinishing || isDestroyed) return@withEndAction
+                mainHandler.postDelayed(
+                    {
+                        if (isFinishing || isDestroyed) return@postDelayed
+                        stateClearedOverlay.animate()
+                            .alpha(0f)
+                            .setDuration(STATE_CLEARED_FADE_OUT_MS)
+                            .setInterpolator(DecelerateInterpolator())
+                            .withEndAction {
+                                if (!isFinishing && !isDestroyed) {
+                                    finishAndRemoveTask()
+                                }
+                            }
+                            .start()
+                    },
+                    STATE_CLEARED_HOLD_MS,
+                )
+            }
+            .start()
+    }
+
     private fun performHaptic(style: HapticStyle) {
         if (isDestroyed) return
         when (style) {
@@ -739,6 +806,7 @@ class MainActivity : AppCompatActivity() {
         loadingOverlay.animate().cancel()
         loadingTipText.animate().cancel()
         sizzleOverlay.animate().cancel()
+        stateClearedOverlay.animate().cancel()
         releaseSizzleMediaPlayer()
         webView.removeJavascriptInterface(JS_BRIDGE_NAME)
         webView.stopLoading()
@@ -750,5 +818,8 @@ class MainActivity : AppCompatActivity() {
         private const val LOG_TAG = "EldermereWeb"
         private const val JS_BRIDGE_NAME = "EldermereAndroid"
         private const val TIP_CYCLE_INTERVAL_MS = 1600L
+        private const val STATE_CLEARED_FADE_IN_MS = 200L
+        private const val STATE_CLEARED_HOLD_MS = 900L
+        private const val STATE_CLEARED_FADE_OUT_MS = 1600L
     }
 }
