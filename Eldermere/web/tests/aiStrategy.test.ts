@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { DIFFICULTY_CONFIGS, planAITurn } from '../src/ai/index';
 import { chooseCityReward, buildSpatialContext } from '../src/ai/evaluator';
 import { FACTION_AI_PROFILES } from '../src/ai/profiles';
+import { humanPressure, humanTargetWeight } from '../src/ai/strategy';
 import {
   ALL_FACTIONS,
-  applyAction,
   createGame,
   getTile,
   type FactionId,
@@ -12,7 +12,6 @@ import {
   type UnitType,
 } from '../src/game/index';
 import { runMatch, type SeatController } from '../src/sim/harness';
-import { planNoviceTurn } from '../src/sim/noviceBot';
 
 function aiSeats(difficulty: 'easy' | 'normal'): Record<FactionId, SeatController> {
   const c = {} as Record<FactionId, SeatController>;
@@ -115,46 +114,76 @@ describe('AI strategy & production (regressions for "civs stop producing units")
       engineMaxTurns: 0,
       turnCap: 40,
     });
+    let grewCount = 0;
     for (const p of rec.players) {
       const early = p.buckets[0];
       const mid = p.buckets[2];
       if (!early || !mid || mid.samples < 10) continue;
-      // Turns 21-30 vs 1-10: a surviving AI fields a clearly larger army.
+      if (mid.citiesSum / mid.samples < 2) continue; // empire collapsed under siege
+      // Turns 21-30 vs 1-10: a non-collapsed AI fields a clearly larger army.
       expect(mid.unitsSum / mid.samples).toBeGreaterThan(early.unitsSum / early.samples);
+      grewCount++;
     }
+    expect(grewCount).toBeGreaterThanOrEqual(2);
   }, 60_000);
 
-  it('easy AI leaves the human player\'s cities alone during its grace period', () => {
-    const grace = DIFFICULTY_CONFIGS.easy.humanGraceTurns;
-    for (const seed of [3, 8]) {
-      let state = createGame({ humanFaction: 'elves', difficulty: 'easy', mapSize: 16, maxTurns: 0, seed });
-      const humanId = state.players[0].id;
-      let lostBeforeGrace = 0;
-      while (state.phase === 'playing' && state.turn < grace) {
-        const p = state.players[state.activePlayerIndex];
-        const plan = p.id === humanId ? planNoviceTurn(state, p.id) : planAITurn(state, p.id, 'easy');
-        for (const a of plan) {
-          if (state.phase !== 'playing') break;
-          const res = applyAction(state, a);
-          state = res.state;
-          for (const ev of res.events) {
-            if (ev.type === 'CITY_CAPTURED' && ev.oldOwnerId === humanId) lostBeforeGrace++;
-          }
-        }
+  it('Squire (easy) also keeps training units without stalling cities', () => {
+    const rec = runMatch({
+      seed: 19,
+      mapSize: 16,
+      humanFaction: 'elves',
+      difficulty: 'easy',
+      labels: labels('ai:easy'),
+      controllers: aiSeats('easy'),
+      engineMaxTurns: 0,
+      turnCap: 40,
+    });
+    expect(rec.illegalActions).toBe(0);
+    for (const p of rec.players) {
+      for (let b = 1; b < p.buckets.length; b++) {
+        const bucket = p.buckets[b];
+        if (bucket.samples < 10) continue;
+        expect(bucket.trained, `Squire ${p.faction} stalled in turns ${b * 10 + 1}-${b * 10 + 10}`).toBeGreaterThan(0);
       }
-      expect(lostBeforeGrace).toBe(0);
+      const idleCouldTrain = p.buckets.reduce((a, x) => a + x.idleGoldCouldTrain, 0);
+      const samples = p.buckets.reduce((a, x) => a + x.samples, 0);
+      expect(idleCouldTrain / Math.max(1, samples)).toBeLessThan(0.05);
     }
   }, 60_000);
 
-  it('difficulty presets are separated by decision quality and tempo, not by cheating', () => {
+  it('uses a smooth, cliff-free difficulty pressure curve against the human player', () => {
+    for (const diff of [DIFFICULTY_CONFIGS.easy, DIFFICULTY_CONFIGS.normal]) {
+      let prevP = humanPressure(1, diff);
+      let prevW = humanTargetWeight(1, diff);
+      expect(prevP).toBeGreaterThan(0);
+      for (let t = 2; t <= 45; t++) {
+        const curP = humanPressure(t, diff);
+        const curW = humanTargetWeight(t, diff);
+        expect(curP).toBeGreaterThanOrEqual(prevP);
+        expect(curW).toBeGreaterThanOrEqual(prevW);
+        // No abrupt step-function cliff between consecutive turns.
+        expect(curP - prevP).toBeLessThan(0.12);
+        expect(curW - prevW).toBeLessThan(0.08);
+        prevP = curP;
+        prevW = curW;
+      }
+    }
+    expect(humanTargetWeight(10, DIFFICULTY_CONFIGS.easy)).toBeLessThan(
+      humanTargetWeight(10, DIFFICULTY_CONFIGS.normal),
+    );
+  });
+
+  it('difficulty presets are separated by decision quality and tempo, not by cheating or stalled cities', () => {
     const e = DIFFICULTY_CONFIGS.easy;
     const n = DIFFICULTY_CONFIGS.normal;
     expect(e.dangerAwareness).toBeLessThan(n.dangerAwareness);
     expect(e.focusFire).toBeLessThan(n.focusFire);
     expect(e.aggressionDelay).toBeGreaterThan(n.aggressionDelay);
     expect(e.maxTechsPerTurn).toBeLessThan(n.maxTechsPerTurn);
+    expect(e.maxEconActionsPerTurn).toBeLessThan(n.maxEconActionsPerTurn);
     expect(e.unitNeglectChance).toBeGreaterThan(n.unitNeglectChance);
-    expect(e.humanGraceTurns).toBeGreaterThan(n.humanGraceTurns);
+    expect(e.trainSkipChance).toBe(0);
+    expect(n.trainSkipChance).toBe(0);
     // Faction personalities: Orcs strike earliest, Dwarves turtle longest.
     expect(FACTION_AI_PROFILES.orcs.aggressionTurn).toBeLessThan(FACTION_AI_PROFILES.dwarves.aggressionTurn);
     expect(FACTION_AI_PROFILES.elves.rangedShare).toBeGreaterThan(FACTION_AI_PROFILES.orcs.rangedShare);
@@ -242,7 +271,14 @@ describe('AI tactics', () => {
     };
     const a = runMatch(spec);
     const b = runMatch(spec);
-    const strip = (r: typeof a) => ({ ...r, aiMs: 0, maxTurnMs: 0, slowestTurn: null });
+    const strip = (r: typeof a) => ({
+      ...r,
+      aiMs: 0,
+      maxTurnMs: 0,
+      aiTurnTimesMs: [],
+      slowestTurn: null,
+      players: r.players.map((p) => ({ ...p, maxTurnMs: 0, slowTurns60: 0, slowTurns100: 0 })),
+    });
     expect(strip(a)).toEqual(strip(b));
   }, 30_000);
 });

@@ -93,44 +93,10 @@ export class BoardRenderer {
   private static readonly CITY_UNIT_SHADOW_MAT = new THREE.MeshBasicMaterial({
     color: '#05080f',
     transparent: true,
-    opacity: 0.62,
+    opacity: 0.48,
     depthWrite: false,
   });
   private static DEFAULT_UNIT_SHADOW_MAT: THREE.Material | undefined;
-
-  /**
-   * The city's upright art card (renderOrder 36) writes depth through the tile centre, which
-   * clips the back half of a garrisoned unit's ground decals (shadow, base disc, ready /
-   * promote / veteran rings). On city tiles, draw those decals after the card (37–39, still
-   * before the sprite at 40) with depth testing switched off just for their own draw call.
-   * Materials can be shared between units, so depthTest is toggled around each draw only.
-   */
-  private static layerUnitBaseOverCity(group: THREE.Object3D, onCity: boolean): void {
-    for (const child of group.children) {
-      if (!(child instanceof THREE.Mesh) || child.userData.unitId) continue;
-      const ud = child.userData as { baseRenderOrder?: number; cityLayered?: boolean };
-      if (onCity) {
-        if (ud.cityLayered) continue;
-        ud.baseRenderOrder = child.renderOrder;
-        ud.cityLayered = true;
-        child.renderOrder = 37 + Math.min(2, Math.max(0, child.renderOrder - 2));
-        child.onBeforeRender = (_r, _s, _c, _g, material) => {
-          const m = material as THREE.Material & { userData: { savedDepthTest?: boolean } };
-          m.userData.savedDepthTest = m.depthTest;
-          m.depthTest = false;
-        };
-        child.onAfterRender = (_r, _s, _c, _g, material) => {
-          const m = material as THREE.Material & { userData: { savedDepthTest?: boolean } };
-          m.depthTest = m.userData.savedDepthTest ?? true;
-        };
-      } else if (ud.cityLayered) {
-        child.renderOrder = ud.baseRenderOrder ?? child.renderOrder;
-        ud.cityLayered = false;
-        child.onBeforeRender = () => {};
-        child.onAfterRender = () => {};
-      }
-    }
-  }
   public readonly boardRoot = new THREE.Group();
   public readonly fxGroup = new THREE.Group();
 
@@ -355,6 +321,8 @@ export class BoardRenderer {
   private unitBanners: THREE.Object3D[] = [];
   private tileSmokePuffs: THREE.Object3D[] = [];
   private citySmokePuffs: THREE.Object3D[] = [];
+  private cityCrystals: THREE.Object3D[] = [];
+  private cityFlames: THREE.Object3D[] = [];
   private floatingMotes: THREE.Object3D[] = [];
 
   private tilesByCoord = new Map<string, Tile>();
@@ -648,6 +616,8 @@ export class BoardRenderer {
     this.cityObjects.clear();
     this.cityBanners = [];
     this.citySmokePuffs = [];
+    this.cityCrystals = [];
+    this.cityFlames = [];
 
     for (const prev of this.unitEntries.values()) {
       disposeUnitSprite(prev.built);
@@ -855,6 +825,8 @@ export class BoardRenderer {
     if (citiesChanged) {
       this.cityBanners = [];
       this.citySmokePuffs = [];
+      this.cityCrystals = [];
+      this.cityFlames = [];
       for (const entry of this.cityEntries.values()) {
         const cityBanners = entry.mesh.userData.banners as THREE.Object3D[] | undefined;
         if (cityBanners && cityBanners.length > 0) {
@@ -863,6 +835,14 @@ export class BoardRenderer {
         const citySmoke = entry.mesh.userData.smokePuffs as THREE.Object3D[] | undefined;
         if (citySmoke && citySmoke.length > 0) {
           this.citySmokePuffs.push(...citySmoke);
+        }
+        const cityCrystals = entry.mesh.userData.crystals as THREE.Object3D[] | undefined;
+        if (cityCrystals && cityCrystals.length > 0) {
+          this.cityCrystals.push(...cityCrystals);
+        }
+        const cityFlames = entry.mesh.userData.flames as THREE.Object3D[] | undefined;
+        if (cityFlames && cityFlames.length > 0) {
+          this.cityFlames.push(...cityFlames);
         }
       }
     }
@@ -979,8 +959,7 @@ export class BoardRenderer {
 
       this.unitHitMeshes.push(entry.hitMesh);
 
-      // Units standing on a city sit over busy, same-palette city art: give them a darker,
-      // larger contact shadow drawn above the city's ground card so the sprite pops.
+      // Units standing on bright stone/ivory city plazas get a slightly deeper contact shadow.
       const onCity = Boolean(state.tiles[unit.y * state.mapSize + unit.x]?.isCityCenter);
       const disc = entry.built.shadowDisc;
       if (onCity) {
@@ -988,7 +967,6 @@ export class BoardRenderer {
       } else if (disc.material === BoardRenderer.CITY_UNIT_SHADOW_MAT) {
         disc.material = BoardRenderer.DEFAULT_UNIT_SHADOW_MAT ?? disc.material;
       }
-      BoardRenderer.layerUnitBaseOverCity(entry.built.group, onCity);
       const prevMeta = this.unitBaseMeta.get(unit.id);
       this.unitBaseMeta.set(unit.id, {
         isHumanOwner,
@@ -1569,6 +1547,22 @@ export class BoardRenderer {
     };
     updateSmoke(this.tileSmokePuffs);
     updateSmoke(this.citySmokePuffs);
+
+    // 8b. Hovering Starlight crystals, Ironspire Fire-Eye & flickering city beacon flames
+    for (const crystal of this.cityCrystals) {
+      const by = (crystal.userData.baseY as number) ?? crystal.position.y;
+      const phase = (crystal.userData.phase as number) ?? 0;
+      const spin = (crystal.userData.spinSpeed as number) ?? 1.2;
+      crystal.position.y = by + Math.sin(elapsed * 2.2 + phase) * 0.048;
+      crystal.rotation.y += dt * spin;
+    }
+    for (const flame of this.cityFlames) {
+      const phase = (flame.userData.phase as number) ?? 0;
+      const spin = (flame.userData.spinSpeed as number) ?? 1.4;
+      const pulse = Math.sin(elapsed * 7.2 + phase) * 0.5 + Math.sin(elapsed * 11.4 + phase * 1.7) * 0.5;
+      flame.scale.set(1 + pulse * 0.06, 1 + pulse * 0.14, 1 + pulse * 0.06);
+      flame.rotation.y += dt * spin;
+    }
 
     // 9. Ambient floating motes
     for (const mote of this.floatingMotes) {

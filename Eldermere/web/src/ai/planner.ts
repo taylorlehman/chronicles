@@ -47,15 +47,30 @@ import {
   scoreTrainUnit,
   type SpatialContext,
 } from './evaluator';
-import { DIFFICULTY_CONFIGS, FACTION_AI_PROFILES } from './profiles';
-import { assignRoles, buildStrategicContext, unitPower, type StrategicContext } from './strategy';
+import { DIFFICULTY_CONFIGS, resolveFactionProfile } from './profiles';
+import {
+  assignRoles,
+  buildStrategicContext,
+  computeReserveGold,
+  refreshCombatContext,
+  refreshDynamicContext,
+  rememberWarTarget,
+  unitPower,
+  type StrategicContext,
+} from './strategy';
 import type { DifficultyConfig, FactionAIProfile, ScoredAction } from './types';
 
-const MAX_ECONOMY_STEPS = 24;
+export interface StrategyReport {
+  turn: number;
+  warTargetId: string | null;
+  attacking: boolean;
+}
 
 export interface PlanOptions {
   /** Override the difficulty preset (used by the simulation harness for experiments). */
   config?: DifficultyConfig;
+  /** Observer for the turn's strategic decision (simulation metrics only). */
+  onStrategy?: (report: StrategyReport) => void;
 }
 
 function tileActionCost(action: GameAction): number {
@@ -80,17 +95,16 @@ function hashId(id: string): number {
 }
 
 /**
- * Deterministic, fast rules-based AI turn planner (ZERO LLMs).
+ * Deterministic, fast rules-based AI turn planner (ZERO LLMs, ZERO fog-of-war peeking).
  *
  * Turn structure (each step is validated by `applyAction` on a private clone, so the
  * returned list only ever contains legal actions and always ends with `END_TURN`):
  *  0. City rewards & promotions
- *  1. Strategy: goal fields, danger map, threats, war target, posture, army budget
- *  2. Techs and economy, leaving `reserveGold` for the army the AI wants
- *  3. Superpower (when it is actually worth it)
- *  4. Tactics: greedy best (unit, action) loop with captures, focus fire,
- *     move-then-strike, danger-aware movement and role-driven goals
- *  5. Production: fill free city slots, strongest unit per slot once gold is plentiful
+ *  1. Techs (keeping gold for needed army production)
+ *  2. Economy & city growth (paced by difficulty)
+ *  3. Age III Superpower (when impactful)
+ *  4. Tactics: incremental cached greedy best (unit, action) loop with deterministic work budget
+ *  5. Production: active recruitment across all open cities (never stalls!), combined-arms mix
  *  6. Spend leftovers on economy
  */
 export function planAITurn(
@@ -109,7 +123,7 @@ export function planAITurn(
     return [{ type: 'END_TURN' }];
   }
 
-  const profile = FACTION_AI_PROFILES[activePlayer.faction];
+  const profile = resolveFactionProfile(activePlayer.faction, diff);
   let saltCounter = state.turn * 1009 + state.activePlayerIndex * 131;
   const turnSeed = (initialState.rngState ^ hashId(playerId) ^ Math.imul(state.turn, 0x9e3779b1)) >>> 0;
   const roll = (key: string): number => deterministicUnitFloat(turnSeed, hashId(key));
@@ -126,23 +140,33 @@ export function planAITurn(
     }
   };
 
-  const resolvePendingCityRewards = () => {
+  const resolvePendingCityRewards = (): boolean => {
+    let any = false;
     let guard = 0;
     while (guard++ < 16 && state.phase === 'playing') {
+      let pendingCity = null;
+      for (const c of Object.values(state.cities)) {
+        if (c.ownerId === playerId && c.pendingLevelRewards.length > 0) {
+          pendingCity = c;
+          break;
+        }
+      }
+      if (!pendingCity) break;
       const ctx = buildSpatialContext(state, playerId);
-      const city = ctx.ownCities.find((c) => c.pendingLevelRewards.length > 0);
-      if (!city) break;
-      const lvl = city.pendingLevelRewards[0];
-      const reward = chooseCityReward(state, city, lvl, ctx, profile);
-      if (!commit({ type: 'CHOOSE_CITY_REWARD', cityId: city.id, reward })) {
+      const lvl = pendingCity.pendingLevelRewards[0];
+      const reward = chooseCityReward(state, pendingCity, lvl, ctx, profile, diff);
+      if (!commit({ type: 'CHOOSE_CITY_REWARD', cityId: pendingCity.id, reward })) {
         break;
       }
+      any = true;
     }
+    return any;
   };
 
   const promoteEligibleUnits = () => {
     for (const unit of Object.values(state.units)) {
       if (unit.ownerId === playerId && unit.canPromote) {
+        if (diff.difficulty === 'easy' && roll(`promo:${unit.id}`) > 0.4) continue;
         commit({ type: 'PROMOTE_UNIT', unitId: unit.id });
       }
     }
@@ -161,8 +185,11 @@ export function planAITurn(
 
   // Pass 1: Tech Research Pass (keeps gold for the army we still need)
   let techsBought = 0;
-  while (techsBought < diff.maxTechsPerTurn && state.phase === 'playing') {
-    const { ctx, sctx } = strategy();
+  const tryTechThisTurn =
+    diff.techResearchChance >= 1 || roll(`techTurn:${state.turn}`) < diff.techResearchChance;
+  while (tryTechThisTurn && techsBought < diff.maxTechsPerTurn && state.phase === 'playing') {
+    const ctx = buildSpatialContext(state, playerId);
+    const reserveGold = computeReserveGold(state, ctx, profile, diff);
     const factionTechs = getFactionTechs(ctx.player.faction);
     let bestTech: ScoredAction | null = null;
     let bestCost = 0;
@@ -178,36 +205,43 @@ export function planAITurn(
       }
     }
 
-    // Higher threshold when under immediate military threat so AI keeps gold for defenders,
-    // but once the treasury is overflowing every remaining tech is worth buying.
-    const rich = ctx.player.gold - bestCost >= sctx.reserveGold + 15;
+    const rich = ctx.player.gold - bestCost >= reserveGold + 15;
     const techThreshold = rich ? -Infinity : ctx.totalThreat >= 2 ? 26 : 12;
     if (!bestTech || bestTech.score < techThreshold) break;
-    const affordable = ctx.player.gold - bestCost >= sctx.reserveGold || bestTech.score >= 70;
+    const affordable = ctx.player.gold - bestCost >= reserveGold || bestTech.score >= 70;
     if (!affordable) break;
     if (!commit(bestTech.action)) break;
     techsBought++;
   }
 
-  // Pass 2: Economy & City Upgrade Pass
+  // Pass 2: Economy & City Upgrade Pass (fast owned-tile list + lightweight reserve check)
+  let econActionsUsed = 0;
   const runEconomyPass = (respectReserve: boolean) => {
-    let econSteps = 0;
-    while (econSteps++ < MAX_ECONOMY_STEPS && state.phase === 'playing') {
+    let ownedTileIndices: number[] = [];
+    const rebuildOwnedTiles = () => {
+      ownedTileIndices = [];
+      for (let i = 0; i < state.tiles.length; i++) {
+        const t = state.tiles[i];
+        if (t.cityId && state.cities[t.cityId]?.ownerId === playerId) {
+          ownedTileIndices.push(i);
+        }
+      }
+    };
+    rebuildOwnedTiles();
+
+    while (econActionsUsed < diff.maxEconActionsPerTurn && state.phase === 'playing') {
       const ctx = buildSpatialContext(state, playerId);
-      const reserve = respectReserve ? buildStrategicContext(state, ctx, profile, diff).reserveGold : 0;
+      const reserve = respectReserve ? computeReserveGold(state, ctx, profile, diff) : 0;
       let bestEcon: ScoredAction | null = null;
 
-      for (const tile of state.tiles) {
-        if (!tile.cityId) continue;
-        const city = state.cities[tile.cityId];
-        if (!city || city.ownerId !== playerId) continue;
+      for (let k = 0; k < ownedTileIndices.length; k++) {
+        const tile = state.tiles[ownedTileIndices[k]];
         const tileActions = getAvailableTileActions(state, playerId, tile.x, tile.y);
-        for (const action of tileActions) {
+        for (let j = 0; j < tileActions.length; j++) {
+          const action = tileActions[j];
           const rawScore = scoreTileAction(state, action, ctx, profile);
           if (rawScore <= 0) continue;
-          // Level-up harvests (score >= 55) are worth dipping into the army reserve for.
           if (rawScore < 55 && ctx.player.gold - tileActionCost(action) < reserve) continue;
-          // Easy difficulty economy throttle on non-level-up harvests
           if (
             diff.economySkipChance > 0 &&
             rawScore < 55 &&
@@ -224,137 +258,281 @@ export function planAITurn(
 
       if (!bestEcon || bestEcon.score < 10) break;
       if (!commit(bestEcon.action)) break;
-      resolvePendingCityRewards();
+      if (bestEcon.action.type !== 'CHOP_FOREST') econActionsUsed++;
+      if (resolvePendingCityRewards()) rebuildOwnedTiles();
     }
   };
 
   runEconomyPass(true);
 
+  // Build strategy ONCE for Superpower + Tactical Pass
+  let { ctx, sctx } = strategy();
+
   // Pass 3: Age III Superpower Activation
-  if (state.phase === 'playing' && canUseSuperpower(state, playerId)) {
-    const { ctx, sctx } = strategy();
+  if (
+    state.phase === 'playing' &&
+    state.turn >= diff.superpowerMinTurn &&
+    canUseSuperpower(state, playerId)
+  ) {
     const sp = chooseSuperpower(state, ctx, sctx);
-    if (sp) commit(sp);
+    if (sp && commit(sp)) {
+      ({ ctx, sctx } = strategy());
+    }
   }
 
-  // Pass 4: Tactical Unit Global Best-Pair Loop
-  const initialUnits = Object.values(state.units).filter((u) => u.ownerId === playerId).length;
-  const maxTacticalSteps = 40 + initialUnits * 3;
+  // Pass 4: Tactical Unit Global Best-Pair Loop.
+  // Reuses BFS fields across moves AND non-city-changing combats, and bounds total move/attack
+  // scoring with a deterministic work budget so even huge 18x18 late-game turns stay phone-safe.
+  const initialUnits = ctx.ownUnits.length;
+  const maxTacticalSteps = Math.min(110, 24 + initialUnits * 2);
+  const WORK_BUDGET = 3200;
+  let work = 0;
   let tacticalSteps = 0;
-  while (tacticalSteps++ < maxTacticalSteps && state.phase === 'playing') {
-    promoteEligibleUnits();
-    const { ctx, sctx } = strategy();
+  rememberWarTarget(state, playerId, sctx.warTargetId, sctx.targetCity?.id ?? null);
+  options?.onStrategy?.({
+    warTargetId: sctx.warTargetId,
+    attacking: sctx.attacking,
+    turn: state.turn,
+  });
+  const cached = new Map<string, ScoredAction | null>();
+  let dirty: Set<string> | null = null;
+  let failures = 0;
+  let lastActorId: string | null = null;
+
+  const evaluateUnit = (unit: Unit, cityInDanger: boolean): ScoredAction | null => {
     let best: ScoredAction | null = null;
+    if (unit.actedThisTurn && !unit.canEscapeMove && !unit.canPersistAttack) return null;
 
-    const cityInDanger = Object.values(sctx.threats).some((t) => t.enemyAdjacent || t.enemyOnCenter);
+    if (canUnitCapture(state, unit.id)) {
+      const rawScore = scoreCapture(state, unit, profile);
+      const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.25);
+      return { action: { type: 'CAPTURE_CITY', unitId: unit.id }, score };
+    }
 
-    for (const unit of ctx.ownUnits) {
-      if (unit.actedThisTurn && !unit.canEscapeMove && !unit.canPersistAttack) continue;
+    if (canUnitExploreRuins(state, unit.id)) {
+      const rawScore = scoreExploreRuins(state, unit, ctx);
+      const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.25);
+      return { action: { type: 'EXPLORE_RUINS', unitId: unit.id }, score };
+    }
 
-      // 4.0 Explicit City/Village Capture (highest tactical priority!)
-      if (canUnitCapture(state, unit.id)) {
-        const rawScore = scoreCapture(state, unit, profile, diff);
-        const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.25);
-        if (!best || score > best.score) {
-          best = { action: { type: 'CAPTURE_CITY', unitId: unit.id }, score };
+    // Easy: a casual commander sometimes simply overlooks a non-critical unit (never one sitting
+    // on an unthreatened under-cap city center, so cities keep producing!).
+    if (diff.unitNeglectChance > 0 && !cityInDanger) {
+      const curTile = getTile(state, unit.x, unit.y);
+      const blockingCenter =
+        curTile?.isCityCenter &&
+        curTile.cityId !== null &&
+        sctx.cityHasRoom[curTile.cityId] === true;
+      if (!blockingCenter && roll(`neglect:${unit.id}`) < diff.unitNeglectChance) {
+        return null;
+      }
+    }
+
+    // 4a. Candidate Attacks
+    const atkTargets = getValidAttackTargets(state, unit.id);
+    for (let i = 0; i < atkTargets.length; i++) {
+      const targetCoord = atkTargets[i];
+      const targetTile = getTile(state, targetCoord.x, targetCoord.y);
+      if (!targetTile?.unitId) continue;
+      const defender = state.units[targetTile.unitId];
+      if (!defender || defender.ownerId === playerId) continue;
+      work++;
+      const rawScore = scoreAttack(state, unit, defender, ctx, profile, diff, sctx);
+      const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange);
+      if (!best || score > best.score) {
+        best = {
+          action: { type: 'ATTACK_UNIT', attackerId: unit.id, defenderId: defender.id },
+          score,
+        };
+      }
+    }
+
+    // 4b. Candidate Moves (incl. move-then-strike for Dash units)
+    const moves = getValidMoves(state, unit.id);
+    if (moves.length > 0) {
+      const role = sctx.roles.get(unit.id) ?? 'hold';
+      const hereDanger = dangerPenalty(
+        state,
+        unit,
+        tileIndex(unit.x, unit.y, state.mapSize),
+        ctx,
+        profile,
+        diff,
+        sctx,
+        role,
+      );
+      const canStrikeAfter =
+        diff.dashLookaheadWeight > 0 &&
+        !unit.hasMoved &&
+        !unit.hasAttacked &&
+        !unit.canEscapeMove &&
+        unitHasTrait(state, unit, 'dash');
+      const range = getUnitRange(state, unit);
+      let nearbyEnemies: Unit[] = [];
+      if (canStrikeAfter && ctx.enemyUnits.length > 0) {
+        const reachR = UNIT_DEFINITIONS[unit.type].movement + range + 1;
+        nearbyEnemies = ctx.enemyUnits.filter((e) => chebyshev(unit, e) <= reachR);
+      }
+      for (let i = 0; i < moves.length; i++) {
+        const to = moves[i];
+        work++;
+        let rawScore = scoreMove(state, unit, to, ctx, profile, diff, sctx, hereDanger);
+        if (nearbyEnemies.length > 0) {
+          const strike = bestStrikeFrom(state, unit, to, nearbyEnemies, range, ctx, profile, diff, sctx);
+          if (strike > 10) rawScore += strike * 0.85 * diff.dashLookaheadWeight;
         }
-        continue;
-      }
-
-      // 4.0b Explicit Ancient Ruins Exploration (high tactical priority!)
-      if (canUnitExploreRuins(state, unit.id)) {
-        const rawScore = scoreExploreRuins(state, unit, ctx);
-        const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.25);
-        if (!best || score > best.score) {
-          best = { action: { type: 'EXPLORE_RUINS', unitId: unit.id }, score };
-        }
-        continue;
-      }
-
-      // Easy: a casual commander sometimes simply forgets a unit for the turn.
-      if (
-        diff.unitNeglectChance > 0 &&
-        !cityInDanger &&
-        roll(`neglect:${unit.id}`) < diff.unitNeglectChance
-      ) {
-        continue;
-      }
-
-      // 4a. Candidate Attacks
-      const targets = getValidAttackTargets(state, unit.id);
-      for (const targetCoord of targets) {
-        const targetTile = getTile(state, targetCoord.x, targetCoord.y);
-        if (!targetTile?.unitId) continue;
-        const defender = state.units[targetTile.unitId];
-        if (!defender || defender.ownerId === playerId) continue;
-        const rawScore = scoreAttack(state, unit, defender, ctx, profile, diff, sctx);
         const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange);
         if (!best || score > best.score) {
-          best = {
-            action: { type: 'ATTACK_UNIT', attackerId: unit.id, defenderId: defender.id },
-            score,
-          };
-        }
-      }
-
-      // 4b. Candidate Moves (incl. move-then-strike for Dash units)
-      const moves = getValidMoves(state, unit.id);
-      if (moves.length > 0) {
-        const role = sctx.roles.get(unit.id) ?? 'hold';
-        const hereDanger = dangerPenalty(
-          state,
-          unit,
-          tileIndex(unit.x, unit.y, state.mapSize),
-          ctx,
-          profile,
-          diff,
-          sctx,
-          role,
-        );
-        const canStrikeAfter =
-          !unit.hasMoved &&
-          !unit.hasAttacked &&
-          !unit.canEscapeMove &&
-          unitHasTrait(state, unit, 'dash');
-        const range = getUnitRange(state, unit);
-        const nearbyEnemies = canStrikeAfter
-          ? ctx.enemyUnits.filter(
-              (e) => chebyshev(unit, e) <= UNIT_DEFINITIONS[unit.type].movement + range + 1,
-            )
-          : [];
-        for (const to of moves) {
-          let rawScore = scoreMove(state, unit, to, ctx, profile, diff, sctx, hereDanger);
-          if (nearbyEnemies.length > 0) {
-            const strike = bestStrikeFrom(state, unit, to, nearbyEnemies, range, ctx, profile, diff, sctx);
-            if (strike > 10) rawScore += strike * 0.85;
-          }
-          const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange);
-          if (!best || score > best.score) {
-            best = { action: { type: 'MOVE_UNIT', unitId: unit.id, to }, score };
-          }
-        }
-      }
-
-      // 4c. Candidate Recover (Heal)
-      if (!unit.hasMoved && !unit.hasAttacked && unit.hp < unit.maxHp) {
-        const rawScore = scoreRecover(state, unit, profile);
-        if (rawScore > 0) {
-          const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.5);
-          if (!best || score > best.score) {
-            best = { action: { type: 'RECOVER_UNIT', unitId: unit.id }, score };
-          }
+          best = { action: { type: 'MOVE_UNIT', unitId: unit.id, to }, score };
         }
       }
     }
 
-    if (!best || best.score <= 2) break;
-    if (!commit(best.action)) break;
+    // 4c. Candidate Recover (Heal)
+    if (!unit.hasMoved && !unit.hasAttacked && unit.hp < unit.maxHp) {
+      const rawScore = scoreRecover(state, unit, profile, sctx);
+      if (rawScore > 0) {
+        const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.5);
+        if (!best || score > best.score) {
+          best = { action: { type: 'RECOVER_UNIT', unitId: unit.id }, score };
+        }
+      }
+    }
+    return best;
+  };
+
+  while (tacticalSteps++ < maxTacticalSteps && state.phase === 'playing') {
+    const cityInDanger = Object.values(sctx.threats).some((t) => t.enemyAdjacent || t.enemyOnCenter);
+    const overBudget = work > WORK_BUDGET;
+    for (let i = 0; i < ctx.ownUnits.length; i++) {
+      const unit = ctx.ownUnits[i];
+      if (dirty !== null && !dirty.has(unit.id) && cached.has(unit.id)) continue;
+      // Over budget: NEVER freeze units that haven't been evaluated yet, and keep existing
+      // cached candidates for bystander units instead of wiping them to null!
+      if (
+        overBudget &&
+        cached.has(unit.id) &&
+        unit.id !== lastActorId &&
+        !canUnitCapture(state, unit.id) &&
+        !canUnitExploreRuins(state, unit.id)
+      ) {
+        continue;
+      }
+      cached.set(unit.id, evaluateUnit(unit, cityInDanger));
+    }
+
+    let best: ScoredAction | null = null;
+    let bestUnit: string | null = null;
+    for (const [id, cand] of cached) {
+      if (!cand || !state.units[id]) continue;
+      if (!best || cand.score > best.score) {
+        best = cand;
+        bestUnit = id;
+      }
+    }
+    if (!best || !bestUnit || best.score <= 2) break;
+
+    const action = best.action;
+    const before = state;
+    lastActorId = bestUnit;
+    if (!commit(action)) {
+      dirty = new Set([bestUnit]);
+      cached.delete(bestUnit);
+      if (++failures > 12) break;
+      continue;
+    }
     resolvePendingCityRewards();
+    promoteEligibleUnits();
+
+    const newCtx = buildSpatialContext(state, playerId);
+    const mapChanged =
+      action.type === 'CAPTURE_CITY' ||
+      action.type === 'EXPLORE_RUINS' ||
+      newCtx.ownCities.length !== ctx.ownCities.length ||
+      newCtx.neutralVillages.length !== ctx.neutralVillages.length ||
+      newCtx.enemyCities.length !== ctx.enemyCities.length;
+
+    if (mapChanged) {
+      ctx = newCtx;
+      sctx = buildStrategicContext(state, ctx, profile, diff);
+      assignRoles(state, ctx, sctx);
+      cached.clear();
+      dirty = null;
+      continue;
+    }
+
+    const combatChanged =
+      action.type === 'ATTACK_UNIT' || newCtx.enemyUnits.length !== ctx.enemyUnits.length;
+    ctx = newCtx;
+
+    if (combatChanged) {
+      // Reuse the 4 BFS fields while refreshing enemy reach, threats, friendPower, and roles!
+      refreshCombatContext(state, ctx, sctx);
+      const changed: Coord[] = [];
+      const actor = state.units[bestUnit] ?? before.units[bestUnit];
+      if (actor) changed.push({ x: actor.x, y: actor.y });
+      if (action.type === 'ATTACK_UNIT') {
+        const def = before.units[action.defenderId];
+        if (def) changed.push({ x: def.x, y: def.y });
+      }
+      dirty = new Set([bestUnit]);
+      for (let i = 0; i < ctx.ownUnits.length; i++) {
+        const u = ctx.ownUnits[i];
+        for (let j = 0; j < changed.length; j++) {
+          if (chebyshev(changed[j], u) <= 3) {
+            dirty.add(u.id);
+            break;
+          }
+        }
+      }
+      continue;
+    }
+
+    refreshDynamicContext(state, ctx, sctx);
+    const actor = state.units[bestUnit] ?? before.units[bestUnit];
+    const changed: Coord[] = [];
+    if (actor) changed.push({ x: actor.x, y: actor.y });
+    const prevActor = before.units[bestUnit];
+    if (prevActor && (!actor || prevActor.x !== actor.x || prevActor.y !== actor.y)) {
+      changed.push({ x: prevActor.x, y: prevActor.y });
+    }
+    dirty = new Set([bestUnit]);
+    for (let i = 0; i < ctx.ownUnits.length; i++) {
+      const u = ctx.ownUnits[i];
+      for (let j = 0; j < changed.length; j++) {
+        if (chebyshev(changed[j], u) <= 2) {
+          dirty.add(u.id);
+          break;
+        }
+      }
+    }
   }
 
-  // Pass 5: Production Pass (Train units in unoccupied cities)
+  // Pass 5: Production Pass (Train units in unoccupied cities — NEVER stalls on Squire or Captain!)
   if (state.phase === 'playing') {
-    const { ctx, sctx } = strategy();
+    ({ ctx, sctx } = strategy());
+
+    const stepOffCenter = (unit: Unit): boolean => {
+      const moves = getValidMoves(state, unit.id);
+      if (moves.length === 0) return false;
+      let bestTo: Coord | null = null;
+      let bestScore = -Infinity;
+      for (let i = 0; i < moves.length; i++) {
+        const to = moves[i];
+        const t = getTile(state, to.x, to.y);
+        if (!t || (t.isCityCenter && t.cityId)) continue;
+        let sc = -dangerPenalty(state, unit, tileIndex(to.x, to.y, state.mapSize), ctx, profile, diff, sctx, 'hold');
+        sc -= chebyshev(unit, to) * 0.5;
+        if (sctx.targetCity) sc -= chebyshev(to, sctx.targetCity) * 0.25;
+        if (t.hasVillage || t.resource === 'ruins') sc += 8;
+        if (sc > bestScore) {
+          bestScore = sc;
+          bestTo = to;
+        }
+      }
+      return bestTo ? commit({ type: 'MOVE_UNIT', unitId: unit.id, to: bestTo }) : false;
+    };
+
     const frontierId = sctx.frontierCity?.id;
     const sortedCities = [...ctx.ownCities].sort(
       (a, b) =>
@@ -363,22 +541,42 @@ export function planAITurn(
         b.level - a.level,
     );
 
-    for (const city of sortedCities) {
+    let prodCtx = ctx;
+    let trainedThisTurn = 0;
+    const effectiveMaxTrains =
+      Number.isFinite(diff.maxTrainsPerTurn) && ctx.ownCities.length >= 10
+        ? diff.maxTrainsPerTurn + 1
+        : diff.maxTrainsPerTurn;
+    for (let ci = 0; ci < sortedCities.length; ci++) {
       if (state.phase !== 'playing') break;
-      const centerTile = getTile(state, city.x, city.y);
-      if (!centerTile || centerTile.unitId !== null) continue;
+      const city = sortedCities[ci];
+      const threatened = (sctx.threats[city.id]?.enemyPower ?? 0) > 0;
+      if (trainedThisTurn >= effectiveMaxTrains) break;
+      let centerTile = getTile(state, city.x, city.y);
+      if (!centerTile) continue;
+
+      if (
+        centerTile.unitId !== null &&
+        !threatened &&
+        getCityUnitCount(state, city.id) < getCityUnitCap(state, city)
+      ) {
+        const sitter = state.units[centerTile.unitId];
+        if (sitter && sitter.ownerId === playerId && stepOffCenter(sitter)) {
+          centerTile = getTile(state, city.x, city.y);
+          prodCtx = buildSpatialContext(state, playerId);
+          if (!centerTile) continue;
+        }
+      }
+      if (centerTile.unitId !== null) continue;
       if (getCityUnitCount(state, city.id) >= getCityUnitCap(state, city)) continue;
 
       const trainable = getTrainableUnits(state, city.id);
       if (trainable.length === 0) continue;
 
-      const freshCtx = buildSpatialContext(state, playerId);
-      const army = freshCtx.ownUnits.filter((u) => UNIT_DEFINITIONS[u.type].movement > 0).length;
-      const threatened = (sctx.threats[city.id]?.enemyPower ?? 0) > 0;
-      const gold = freshCtx.player.gold;
+      const gold = prodCtx.player.gold;
+      const army = prodCtx.ownUnits.filter((u) => UNIT_DEFINITIONS[u.type].movement > 0).length;
 
       if (!threatened) {
-        // Easy: leave some slots idle (but never let the army collapse).
         if (
           diff.trainSkipChance > 0 &&
           army >= sctx.desiredArmy * 0.5 &&
@@ -386,29 +584,31 @@ export function planAITurn(
         ) {
           continue;
         }
-        // Army is where we want it and gold is tight: keep the gold for techs / growth.
-        if (army >= sctx.desiredArmy && gold < 10 && state.turn > 3) continue;
-        // Easy: a casual commander stops recruiting once the army "looks big enough".
         if (army >= sctx.desiredArmy * diff.armyCapMult) continue;
+        // Only save small amounts of gold (< 8★) during the very early opening if army is already solid.
+        if (army >= sctx.desiredArmy && gold < 8 && state.turn <= 6) continue;
       }
 
       let bestTrain: ScoredAction | null = null;
-      for (const unitType of trainable) {
+      for (let ti = 0; ti < trainable.length; ti++) {
+        const unitType = trainable[ti];
         if (gold < getUnitCost(state, playerId, unitType)) continue;
-        const rawScore = scoreTrainUnit(state, city, unitType, freshCtx, profile, sctx);
+        const rawScore = scoreTrainUnit(state, city, unitType, prodCtx, profile, sctx, diff);
         const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.5);
         if (!bestTrain || score > bestTrain.score) {
           bestTrain = { action: { type: 'TRAIN_UNIT', cityId: city.id, unitType }, score };
         }
       }
 
-      const threshold = threatened || army < sctx.desiredArmy ? -Infinity : diff.productionThreshold;
-      if (bestTrain && bestTrain.score >= threshold) {
-        commit(bestTrain.action);
+      if (bestTrain) {
+        if (commit(bestTrain.action)) {
+          trainedThisTurn++;
+          prodCtx = buildSpatialContext(state, playerId);
+        }
       }
     }
 
-    // Spend any leftover gold (e.g. from Orc Spoils of War or ruins) on remaining economy actions
+    // Spend any leftover gold on remaining economy actions (within difficulty cap)
     runEconomyPass(false);
   }
 
@@ -434,16 +634,18 @@ function bestStrikeFrom(
   const ox = unit.x;
   const oy = unit.y;
   let best = 0;
-  // Temporarily place the unit (private clone) so combat prediction uses the new tile.
   unit.x = to.x;
   unit.y = to.y;
   const wasMoved = unit.hasMoved;
   unit.hasMoved = true;
   try {
-    for (const e of enemies) {
-      if (chebyshev(to, e) > range) continue;
-      if (!ctx.player.revealedTiles[tileIndex(e.x, e.y, state.mapSize)]) continue;
-      const s = scoreAttack(state, unit, e, ctx, profile, diff, sctx);
+    const rev = ctx.player.revealedTiles;
+    const size = state.mapSize;
+    for (let i = 0; i < enemies.length; i++) {
+      const e = enemies[i];
+      if (Math.max(Math.abs(to.x - e.x), Math.abs(to.y - e.y)) > range) continue;
+      if (!rev[tileIndex(e.x, e.y, size)]) continue;
+      const s = scoreAttack(state, unit, e, ctx, profile, diff, sctx, true);
       if (s > best) best = s;
     }
   } finally {
@@ -464,12 +666,10 @@ function chooseSuperpower(
   const playerId = ctx.player.id;
 
   if (faction === 'dwarves') {
-    // A free 20 HP flying Fire Drake is always worth having right away.
     return { type: 'USE_SUPERPOWER' };
   }
 
   if (faction === 'elves') {
-    // Eclipse (+1 MOV / +1 ATK for 3 turns): trigger when the army is in contact.
     let engaged = 0;
     for (const u of ctx.ownUnits) {
       if (ctx.enemyUnits.some((e) => chebyshev(u, e) <= 3)) engaged++;
@@ -482,8 +682,6 @@ function chooseSuperpower(
   }
 
   if (faction === 'orcs') {
-    // Volcano: 3x3 that destroys every enemy unit inside. Best on stacked enemies or a
-    // city garrison we can walk into next.
     let bestTarget: Coord | null = null;
     let bestScore = 0;
     for (const coord of getSuperpowerTargetCoords(state, playerId)) {
@@ -492,15 +690,16 @@ function chooseSuperpower(
       for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
           const t = getTile(state, coord.x + dx, coord.y + dy);
-          if (!t) continue;
+          if (!t || !ctx.player.revealedTiles[tileIndex(t.x, t.y, state.mapSize)]) continue;
           if (t.unitId) {
             const u = state.units[t.unitId];
             if (u && u.ownerId !== playerId) {
               hits++;
               score += 10 + unitPower(u) * 3;
               if (t.isCityCenter && t.cityId && state.cities[t.cityId]?.ownerId === u.ownerId) {
-                // Garrison wiped: can one of ours step in?
-                if (ctx.ownUnits.some((o) => chebyshev(o, t) <= UNIT_DEFINITIONS[o.type].movement)) score += 30;
+                if (ctx.ownUnits.some((o) => chebyshev(o, t) <= UNIT_DEFINITIONS[o.type].movement)) {
+                  score += 30;
+                }
               }
               if (t.isCityCenter && t.cityId && state.cities[t.cityId]?.ownerId === playerId) score += 60;
             }
@@ -519,7 +718,6 @@ function chooseSuperpower(
   }
 
   if (faction === 'humans') {
-    // Watchtower: a 25 HP range-2 fortification. Put it where enemies are, or on the frontier.
     const coords = getSuperpowerTargetCoords(state, playerId);
     if (coords.length === 0) return null;
     let bestTarget: Coord | null = null;

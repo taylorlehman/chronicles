@@ -23,8 +23,9 @@
  *   --ctrl-<faction> C pin one faction to a controller (e.g. --ctrl-elves novice)
  *   --by faction       print the time series per faction instead of per seat controller
  *
- * Controllers: novice | casual | ai:easy | ai:normal | legacy:easy | legacy:normal
+ * Controllers: novice | weak | casual | ai:easy | ai:normal | legacy:easy | legacy:normal
  *   novice = scripted weak human (src/sim/noviceBot.ts, independent of the AI code)
+ *   weak   = the AI played very sloppily (active but clumsy)
  *   casual = the AI played sloppily (a reasonable player still learning)
  *   (legacy:* is the pre-overhaul AI snapshot kept in scripts/legacy-ai for before/after comparisons)
  */
@@ -69,12 +70,28 @@ const CASUAL_CONFIG: DifficultyConfig = {
   economySkipChance: 0.1,
 };
 
+/** "Weak" human stand-in (from the QA evaluation): sloppier-but-active, between novice and casual. */
+const WEAK_CONFIG: DifficultyConfig = {
+  ...DIFFICULTY_CONFIGS.normal,
+  noiseRange: 14,
+  dangerAwareness: 0.35,
+  focusFire: 0.25,
+  armyTargetMult: 0.7,
+  trainSkipChance: 0.3,
+  unitNeglectChance: 0.25,
+  economySkipChance: 0.25,
+  maxTechsPerTurn: 1,
+};
+
 function controllerFor(spec: string): SeatController {
   if (spec === 'novice') return planNoviceTurn;
-  if (spec === 'casual') return (s, id) => planAITurn(s, id, 'normal', { config: CASUAL_CONFIG });
+  if (spec === 'casual')
+    return (s, id, report) => planAITurn(s, id, 'normal', { config: CASUAL_CONFIG, onStrategy: report });
+  if (spec === 'weak')
+    return (s, id, report) => planAITurn(s, id, 'normal', { config: WEAK_CONFIG, onStrategy: report });
   const [kind, diff] = spec.split(':') as [string, Difficulty];
   if (diff !== 'easy' && diff !== 'normal') throw new Error(`Bad controller ${spec}`);
-  if (kind === 'ai') return (s, id) => planAITurn(s, id, diff);
+  if (kind === 'ai') return (s, id, report) => planAITurn(s, id, diff, { onStrategy: report });
   if (kind === 'legacy') return (s, id) => planLegacyTurn(s, id, diff);
   throw new Error(`Unknown controller ${spec}`);
 }

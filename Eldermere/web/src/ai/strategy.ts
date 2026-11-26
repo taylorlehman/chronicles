@@ -1,8 +1,8 @@
 /**
  * Strategic layer for the rules-based AI: goal distance fields, an enemy-reach
- * danger map, per-city threat assessment, war-target selection, posture and the
- * army budget. Everything is recomputed from the GameState (the planner is
- * stateless between turns), so "stickiness" is derived from where our army is.
+ * danger map, per-city threat assessment, organic war-target selection with
+ * campaign commitment, posture, and army budget. Strictly fog-of-war clean:
+ * only reads entities already filtered through `player.revealedTiles` in `ctx`.
  */
 import {
   UNIT_DEFINITIONS,
@@ -90,9 +90,18 @@ export function unitPower(unit: Unit): number {
   return (spec.attack + spec.defense * 0.8) * rangeMult * (unit.hp / 10);
 }
 
-function passableMask(state: GameState, canMountains: boolean): Uint8Array {
+function passableMask(
+  state: GameState,
+  canMountains: boolean,
+  revealed: boolean[],
+): Uint8Array {
   const mask = new Uint8Array(state.tiles.length);
   for (let i = 0; i < state.tiles.length; i++) {
+    // Strictly fog-of-war clean: never read terrain of unrevealed tiles.
+    if (!revealed[i]) {
+      mask[i] = 1;
+      continue;
+    }
     const t = state.tiles[i];
     mask[i] = t.terrain === 'water' || (t.terrain === 'mountain' && !canMountains) ? 0 : 1;
   }
@@ -102,6 +111,7 @@ function passableMask(state: GameState, canMountains: boolean): Uint8Array {
 export function bfsField(state: GameState, mask: Uint8Array, sources: number[]): Int16Array {
   const size = state.mapSize;
   const dist = new Int16Array(size * size).fill(FAR);
+  if (sources.length === 0) return dist;
   const queue = new Int32Array(size * size);
   let head = 0;
   let tail = 0;
@@ -146,19 +156,22 @@ function enemyStrikeRadius(state: GameState, enemy: Unit): number {
 export function buildEnemyReach(state: GameState, ctx: SpatialContext): number[][] {
   const size = state.mapSize;
   const reach: number[][] = Array.from({ length: size * size }, () => []);
-  ctx.enemyUnits.forEach((e, idx) => {
+  const enemies = ctx.enemyUnits;
+  for (let idx = 0; idx < enemies.length; idx++) {
+    const e = enemies[idx];
     const r = enemyStrikeRadius(state, e);
-    for (let dy = -r; dy <= r; dy++) {
-      const y = e.y + dy;
-      if (y < 0 || y >= size) continue;
-      for (let dx = -r; dx <= r; dx++) {
-        const x = e.x + dx;
-        if (x < 0 || x >= size) continue;
-        if (dx === 0 && dy === 0) continue;
-        reach[y * size + x].push(idx);
+    const y0 = Math.max(0, e.y - r);
+    const y1 = Math.min(size - 1, e.y + r);
+    const x0 = Math.max(0, e.x - r);
+    const x1 = Math.min(size - 1, e.x + r);
+    for (let y = y0; y <= y1; y++) {
+      const row = y * size;
+      for (let x = x0; x <= x1; x++) {
+        if (x === e.x && y === e.y) continue;
+        reach[row + x].push(idx);
       }
     }
-  });
+  }
   return reach;
 }
 
@@ -177,7 +190,10 @@ export function terrainDefenseAt(state: GameState, unit: Unit, tile: Tile, owner
   return bonus;
 }
 
-/** Estimated total damage `unit` would take next enemy turn if it ends on `tile`. */
+/**
+ * Estimated total damage `unit` would take next enemy turn if it ends on `tile`.
+ * Allocation-free single pass keeping full weight for the two strongest blows + 0.5x for the rest.
+ */
 export function expectedIncomingDamage(
   state: GameState,
   ctx: SpatialContext,
@@ -192,89 +208,201 @@ export function expectedIncomingDamage(
   const terr = terrainDefenseAt(state, unit, tile, ctx.player.faction);
   const effDef = getEffectiveDefense(state, unit) * (unit.hp / unit.maxHp) * terr;
   const stalwart = unitHasTrait(state, unit, 'stalwart');
-  const dmgs: number[] = [];
-  for (const idx of attackers) {
+
+  let m1 = 0;
+  let m2 = 0;
+  let restSum = 0;
+  for (let i = 0; i < attackers.length; i++) {
+    const idx = attackers[i];
     if (excludeEnemyIdx === idx) continue;
     const atk = sctx.enemyAtk[idx];
     const aF = sctx.enemyForce[idx];
     if (aF + effDef <= 0) continue;
     let dmg = Math.round((aF / (aF + effDef)) * atk * 4.5);
     if (stalwart && sctx.enemyRanged[idx]) dmg = Math.max(0, dmg - 1);
-    dmgs.push(dmg);
+    if (dmg >= m1) {
+      restSum += m2;
+      m2 = m1;
+      m1 = dmg;
+    } else if (dmg >= m2) {
+      restSum += m2;
+      m2 = dmg;
+    } else {
+      restSum += dmg;
+    }
   }
-  dmgs.sort((a, b) => b - a);
-  // Not every enemy will commit to this one unit: full weight for the two strongest blows.
-  let total = 0;
-  for (let i = 0; i < dmgs.length; i++) total += i < 2 ? dmgs[i] : dmgs[i] * 0.5;
-  return total;
+  return m1 + m2 + restSum * 0.5;
 }
 
-export function buildStrategicContext(
+/** Smooth C1 smoothstep in [0, 1]. */
+function smoothstep(x: number): number {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Smooth, continuous human-pressure curve in (0, 1] with NO abrupt grace-period cliff.
+ * Starts gentle in the early expansion turns and eases smoothly up over `humanPressureRampTurns`.
+ */
+export function humanPressure(turn: number, diff: DifficultyConfig): number {
+  const s = smoothstep((turn - 1) / Math.max(1, diff.humanPressureRampTurns));
+  const floor = diff.difficulty === 'easy' ? 0.12 : 0.3;
+  const ceil = diff.difficulty === 'easy' ? 0.85 : 1.0;
+  return floor + (ceil - floor) * s;
+}
+
+/** Smooth target-selection multiplier for a human opponent (no step-function cliff). */
+export function humanTargetWeight(turn: number, diff: DifficultyConfig): number {
+  const s = smoothstep((turn - 1) / Math.max(1, diff.humanPressureRampTurns));
+  return diff.humanTargetBias + (diff.humanTargetBiasMax - diff.humanTargetBias) * s;
+}
+
+/**
+ * Small per-player memory of the active war campaign (target player + target city),
+ * used for hysteresis so the AI commits coherently to sieging/capturing a target city
+ * instead of oscillating every few turns. Reads only see entries from earlier turns, so
+ * re-planning the same state is 100% deterministic.
+ */
+interface CampaignEntry {
+  turn: number;
+  target: string | null;
+  cityId: string | null;
+}
+interface TargetMemo {
+  history: CampaignEntry[];
+}
+const targetMemory = new Map<string, TargetMemo>();
+
+function memoKey(state: GameState, playerId: string): string {
+  return `${state.config.seed}|${state.mapSize}|${playerId}`;
+}
+
+export function clearTargetMemory(): void {
+  targetMemory.clear();
+}
+
+/** The most recent campaign we were fighting over the last few turns. */
+export function previousCampaign(
+  state: GameState,
+  playerId: string,
+): { target: string | null; cityId: string | null } {
+  const m = targetMemory.get(memoKey(state, playerId));
+  if (!m) return { target: null, cityId: null };
+  for (let i = m.history.length - 1; i >= 0; i--) {
+    const h = m.history[i];
+    if (h.turn < state.turn && h.turn >= state.turn - 6 && h.target) {
+      return { target: h.target, cityId: h.cityId };
+    }
+  }
+  return { target: null, cityId: null };
+}
+
+export function previousWarTarget(state: GameState, playerId: string): string | null {
+  return previousCampaign(state, playerId).target;
+}
+
+export function rememberWarTarget(
+  state: GameState,
+  playerId: string,
+  target: string | null,
+  cityId: string | null = null,
+): void {
+  const key = memoKey(state, playerId);
+  let m = targetMemory.get(key);
+  // A later turn already recorded means this is a new game / reloaded save: start over.
+  if (m && m.history.some((h) => h.turn > state.turn)) m = undefined;
+  if (!m) {
+    if (targetMemory.size > 4000) targetMemory.clear();
+    m = { history: [] };
+    targetMemory.set(key, m);
+  }
+  if (m.history.some((h) => h.turn === state.turn)) return; // first plan of the turn wins
+  m.history.push({ turn: state.turn, target, cityId });
+  if (m.history.length > 8) m.history.shift();
+}
+
+/**
+ * Lightweight reserve-gold estimate used inside the economy pass so we don't rebuild
+ * 4 full-map BFS fields on every harvest/improvement step.
+ */
+export function computeReserveGold(
   state: GameState,
   ctx: SpatialContext,
   profile: FactionAIProfile,
   diff: DifficultyConfig,
-): StrategicContext {
+  attacking = false,
+): number {
+  let totalCap = 0;
+  let freeSlots = 0;
+  const homeCounts: Record<string, number> = {};
+  let armySize = 0;
+  for (const u of ctx.ownUnits) {
+    if (u.homeCityId) homeCounts[u.homeCityId] = (homeCounts[u.homeCityId] ?? 0) + 1;
+    if (UNIT_DEFINITIONS[u.type].movement > 0) armySize++;
+  }
+  for (const city of ctx.ownCities) {
+    const cap = getCityUnitCap(state, city);
+    const used = homeCounts[city.id] ?? 0;
+    totalCap += cap;
+    if (used < cap) freeSlots++;
+  }
+  let threatUnits = 0;
+  for (const c of ctx.ownCities) threatUnits += ctx.cityThreats[c.id] ?? 0;
+  const ageBoost = getPlayerAge(ctx.player) >= 2 ? 1 : 0.75;
+  let desiredArmy = Math.round(
+    (1 + ctx.ownCities.length * profile.armyPerCity * ageBoost) * diff.armyTargetMult + threatUnits * 0.8,
+  );
+  if (attacking) desiredArmy += 2;
+  desiredArmy = Math.min(Math.max(1, desiredArmy), Math.max(1, totalCap));
+  const deficit = Math.max(0, desiredArmy - armySize);
+  return Math.min(deficit, Math.max(1, freeSlots)) * 3;
+}
+
+function populateEnemyCombatArrays(
+  state: GameState,
+  ctx: SpatialContext,
+): {
+  enemyReach: number[][];
+  enemyAtk: Float64Array;
+  enemyForce: Float64Array;
+  enemyRanged: Uint8Array;
+  enemyReachPower: Float64Array;
+  threats: Record<string, CityThreat>;
+} {
   const size = state.mapSize;
-  const me = ctx.player;
-  const mask = passableMask(state, canPassMountains(me));
-
-  // --- Goal fields ---------------------------------------------------------
-  const villageSources: number[] = [];
-  for (const v of ctx.neutralVillages) villageSources.push(tileIndex(v.x, v.y, size));
-  for (const r of ctx.ruins) villageSources.push(tileIndex(r.x, r.y, size));
-  const distVillage = bfsField(state, mask, villageSources);
-
-  const fogSources: number[] = [];
-  for (let i = 0; i < state.tiles.length; i++) if (!me.revealedTiles[i]) fogSources.push(i);
-  const distFog = bfsField(state, mask, fogSources);
-
-  const homeSources = ctx.ownCities.map((c) => tileIndex(c.x, c.y, size));
-  const distHome = bfsField(state, mask, homeSources);
-
   const enemyReach = buildEnemyReach(state, ctx);
   const nE = ctx.enemyUnits.length;
   const enemyAtk = new Float64Array(nE);
   const enemyForce = new Float64Array(nE);
   const enemyRanged = new Uint8Array(nE);
-  const enemyPowers = ctx.enemyUnits.map((e) => unitPower(e));
-  const enemyReachPower = new Float64Array(size * size);
-  for (let t = 0; t < enemyReach.length; t++) {
-    let sum = 0;
-    for (const idx of enemyReach[t]) sum += enemyPowers[idx];
-    enemyReachPower[t] = sum;
-  }
-  const friendPower = new Float64Array(size * size);
-  for (const u of ctx.ownUnits) {
-    const pw = unitPower(u);
-    for (let dy = -2; dy <= 2; dy++) {
-      const y = u.y + dy;
-      if (y < 0 || y >= size) continue;
-      for (let dx = -2; dx <= 2; dx++) {
-        const x = u.x + dx;
-        if (x < 0 || x >= size) continue;
-        friendPower[y * size + x] += pw;
-      }
-    }
-  }
-  ctx.enemyUnits.forEach((e, i) => {
+  const enemyPowers = new Float64Array(nE);
+  for (let i = 0; i < nE; i++) {
+    const e = ctx.enemyUnits[i];
+    enemyPowers[i] = unitPower(e);
     const atk = getEffectiveAttack(state, e);
     enemyAtk[i] = atk;
     enemyForce[i] = atk * (unitHasTrait(state, e, 'bloodlust') ? 1 : e.hp / e.maxHp);
     enemyRanged[i] = UNIT_DEFINITIONS[e.type].range > 1 ? 1 : 0;
-  });
+  }
+  const enemyReachPower = new Float64Array(size * size);
+  for (let t = 0; t < enemyReach.length; t++) {
+    const arr = enemyReach[t];
+    let sum = 0;
+    for (let j = 0; j < arr.length; j++) sum += enemyPowers[arr[j]];
+    enemyReachPower[t] = sum;
+  }
 
-  // --- Threats -------------------------------------------------------------
   const threats: Record<string, CityThreat> = {};
   for (const city of ctx.ownCities) {
     let enemyPower = 0;
     let enemyCount = 0;
     let enemyAdjacent = false;
     let enemyOnCenter = false;
-    for (const e of ctx.enemyUnits) {
+    for (let i = 0; i < nE; i++) {
+      const e = ctx.enemyUnits[i];
       const d = Math.max(Math.abs(e.x - city.x), Math.abs(e.y - city.y));
       if (d <= 3) {
-        enemyPower += unitPower(e);
+        enemyPower += enemyPowers[i];
         enemyCount++;
       }
       if (d === 1) enemyAdjacent = true;
@@ -288,6 +416,50 @@ export function buildStrategicContext(
     threats[city.id] = { cityId: city.id, enemyPower, enemyCount, ownPower, enemyAdjacent, enemyOnCenter };
   }
 
+  return { enemyReach, enemyAtk, enemyForce, enemyRanged, enemyReachPower, threats };
+}
+
+export function buildStrategicContext(
+  state: GameState,
+  ctx: SpatialContext,
+  profile: FactionAIProfile,
+  diff: DifficultyConfig,
+): StrategicContext {
+  const size = state.mapSize;
+  const me = ctx.player;
+  const mask = passableMask(state, canPassMountains(me), me.revealedTiles);
+
+  // --- Goal fields ---------------------------------------------------------
+  const villageSources: number[] = [];
+  for (const v of ctx.neutralVillages) villageSources.push(tileIndex(v.x, v.y, size));
+  for (const r of ctx.ruins) villageSources.push(tileIndex(r.x, r.y, size));
+  const distVillage = bfsField(state, mask, villageSources);
+
+  const fogSources: number[] = [];
+  if (ctx.revealedRatio < 0.999) {
+    for (let i = 0; i < state.tiles.length; i++) if (!me.revealedTiles[i]) fogSources.push(i);
+  }
+  const distFog = bfsField(state, mask, fogSources);
+
+  const homeSources = ctx.ownCities.map((c) => tileIndex(c.x, c.y, size));
+  const distHome = bfsField(state, mask, homeSources);
+
+  const { enemyReach, enemyAtk, enemyForce, enemyRanged, enemyReachPower, threats } =
+    populateEnemyCombatArrays(state, ctx);
+
+  const friendPower = new Float64Array(size * size);
+  for (const u of ctx.ownUnits) {
+    const pw = unitPower(u);
+    const y0 = Math.max(0, u.y - 2);
+    const y1 = Math.min(size - 1, u.y + 2);
+    const x0 = Math.max(0, u.x - 2);
+    const x1 = Math.min(size - 1, u.x + 2);
+    for (let y = y0; y <= y1; y++) {
+      const row = y * size;
+      for (let x = x0; x <= x1; x++) friendPower[row + x] += pw;
+    }
+  }
+
   // --- Army & capacity -----------------------------------------------------
   let ownPower = 0;
   for (const u of ctx.ownUnits) ownPower += unitPower(u);
@@ -296,8 +468,10 @@ export function buildStrategicContext(
   let freeSlots = 0;
   const cityHasRoom: Record<string, boolean> = {};
   const homeCounts: Record<string, number> = {};
+  let armySize = 0;
   for (const u of ctx.ownUnits) {
     if (u.homeCityId) homeCounts[u.homeCityId] = (homeCounts[u.homeCityId] ?? 0) + 1;
+    if (UNIT_DEFINITIONS[u.type].movement > 0) armySize++;
   }
   for (const city of ctx.ownCities) {
     const cap = getCityUnitCap(state, city);
@@ -307,10 +481,8 @@ export function buildStrategicContext(
     usedCap += Math.min(cap, used);
     if (used < cap) freeSlots++;
   }
-  // Unit-cap-free units (champions, drakes, towers) still count toward the army.
-  const armySize = ctx.ownUnits.filter((u) => UNIT_DEFINITIONS[u.type].movement > 0).length;
 
-  // --- War target ----------------------------------------------------------
+  // --- War target (organic proximity + border friction + strong campaign commitment) ---
   const enemyPowerByPlayer: Record<string, number> = {};
   for (const e of ctx.enemyUnits) {
     enemyPowerByPlayer[e.ownerId] = (enemyPowerByPlayer[e.ownerId] ?? 0) + unitPower(e);
@@ -318,11 +490,15 @@ export function buildStrategicContext(
   let warTargetId: string | null = null;
   let targetCity: City | null = null;
   let bestAttr = -Infinity;
+  const prev = previousCampaign(state, me.id);
+  const hTargetW = humanTargetWeight(state.turn, diff);
+
   for (const p of state.players) {
     if (p.id === me.id || !p.alive) continue;
     const cities = ctx.enemyCities.filter((c) => c.ownerId === p.id);
     if (cities.length === 0) continue;
-    // Pick that player's most attractive city for us.
+
+    // Pick that player's most attractive reachable city for us (sticky to our active siege).
     let bestCity: City | null = null;
     let bestCost = Infinity;
     for (const c of cities) {
@@ -336,18 +512,24 @@ export function buildStrategicContext(
       }
       let engaged = 0;
       for (const u of ctx.ownUnits) {
-        if (Math.max(Math.abs(u.x - c.x), Math.abs(u.y - c.y)) <= 3) engaged++;
+        if (Math.max(Math.abs(u.x - c.x), Math.abs(u.y - c.y)) <= 4) engaged++;
       }
-      const cost = d + garrison * 0.45 + (c.hasWalls ? 2 : 0) - (c.isCapital ? 1 : 0) - engaged * 0.8;
+      const stickyCityBonus = c.id === prev.cityId ? 5.5 : 0;
+      const cost =
+        d +
+        garrison * 0.4 +
+        (c.hasWalls ? 2 : 0) -
+        (c.isCapital ? 1 : 0) -
+        engaged * 1.1 -
+        stickyCityBonus;
       if (cost < bestCost) {
         bestCost = cost;
         bestCity = c;
       }
     }
     if (!bestCity) continue;
+
     const theirPower = enemyPowerByPlayer[p.id] ?? 0;
-    // Prefer reachable, weaker neighbours, but (like people) mostly fight whoever is on our
-    // doorstep rather than everyone piling onto the single weakest player.
     let aggressors = 0;
     for (const e of ctx.enemyUnits) {
       if (e.ownerId !== p.id) continue;
@@ -358,20 +540,32 @@ export function buildStrategicContext(
         }
       }
     }
-    let attr =
-      Math.sqrt((ownPower + 2) / (theirPower + 4)) *
-      (10 / (6 + Math.max(0, bestCost))) *
-      (1 + Math.min(0.5, aggressors * 0.15));
-    // Like human FFA players, gang up on a runaway Glory leader (scores are public).
+
+    // Steep distance weighting keeps AIs fighting their natural border neighbors rather than
+    // marching across the map to dogpile one player. Bounded weakness ratio prevents 3v1 vulturing.
+    const distScore = 14 / (4 + Math.max(0, bestCost) * 1.5);
+    const powerRatio = Math.min(1.35, Math.max(0.55, Math.sqrt((ownPower + 3) / (theirPower + 4))));
+    const frictionBoost = 1 + Math.min(0.45, aggressors * 0.14);
+    let attr = distScore * distScore * powerRatio * frictionBoost;
+
+    // Gentle leader-balancing on public Glory scores (capped so it never causes 3v1 dogpiles).
     const others = state.players.filter((o) => o.alive && o.id !== p.id);
     const avgOther = others.reduce((a, o) => a + o.score, 0) / Math.max(1, others.length);
-    if (p.score > avgOther * 1.25 && state.turn >= 10) {
-      attr *= 1 + Math.min(1, (p.score / Math.max(1, avgOther) - 1.25) * 1.5);
+    if (p.score > avgOther * 1.35 && state.turn >= 14 && (!p.isHuman || diff.gangUpOnHuman)) {
+      attr *= 1 + Math.min(0.35, (p.score / Math.max(1, avgOther) - 1.35) * 0.7);
     }
+
     if (p.isHuman) {
-      attr *= diff.humanTargetBias;
-      if (state.turn < diff.humanGraceTurns) attr *= 0.3;
+      // Smooth, continuous human targeting weight (zero grace-period cliff).
+      attr *= hTargetW;
     }
+
+    // Strong campaign commitment: keep finishing the war we started unless a major invasion
+    // forces a pivot or our target is eliminated.
+    if (p.id === prev.target) {
+      attr *= 3.4;
+    }
+
     if (attr > bestAttr) {
       bestAttr = attr;
       warTargetId = p.id;
@@ -410,17 +604,22 @@ export function buildStrategicContext(
   let homeThreat = 0;
   for (const t of Object.values(threats)) homeThreat += Math.max(0, t.enemyPower - t.ownPower * 0.5);
   const fieldPower = Math.max(0, ownPower - homeThreat * 0.8);
-  const targetIsHuman = !!targetCity && state.players.find((p) => p.id === targetCity!.ownerId)?.isHuman;
+  const targetOwner = targetCity ? ctx.playerById.get(targetCity.ownerId) : undefined;
+  const targetIsHuman = !!targetOwner?.isHuman;
+  const pressure = humanPressure(state.turn, diff);
+
   let attacking = false;
   if (targetCity) {
-    const capFull = totalCap > 0 && usedCap >= totalCap * 0.85;
-    // Easy AIs need a much bigger edge before marching on the human player.
-    const r = targetIsHuman ? ratio / Math.max(0.2, diff.humanTargetBias) : ratio;
+    const capFull = totalCap > 0 && usedCap >= totalCap * 0.82;
+    // Smoothly require slightly more force early against a human player (no binary freeze).
+    const r = targetIsHuman ? ratio / Math.max(0.38, hTargetW * (0.65 + 0.35 * pressure)) : ratio;
+    const effectiveAggTurn = targetIsHuman
+      ? aggTurn + (1 - pressure) * (diff.difficulty === 'easy' ? 7 : 3)
+      : aggTurn;
     attacking =
-      (state.turn >= aggTurn && fieldPower >= r * targetPower + 3) ||
-      (capFull && state.turn >= aggTurn * 0.6 && fieldPower >= targetPower * 0.8) ||
-      (targetPower === 0 && state.turn >= aggTurn * 0.5 && fieldPower >= 3);
-    if (targetIsHuman && state.turn < diff.humanGraceTurns) attacking = false;
+      (state.turn >= effectiveAggTurn && fieldPower >= r * targetPower + 3) ||
+      (capFull && state.turn >= effectiveAggTurn * 0.7 && fieldPower >= targetPower * 0.85) ||
+      (targetPower === 0 && state.turn >= effectiveAggTurn * 0.65 && fieldPower >= 3);
   }
 
   let strikeForce = 0;
@@ -429,7 +628,7 @@ export function buildStrategicContext(
       if (distTarget[tileIndex(u.x, u.y, size)] <= 5) strikeForce += unitPower(u);
     }
   }
-  const overwhelming = attacking && strikeForce >= Math.max(6, targetPower * 1.4);
+  const overwhelming = attacking && strikeForce >= Math.max(6, targetPower * 1.35);
 
   // --- Army budget -----------------------------------------------------------
   let threatUnits = 0;
@@ -554,6 +753,67 @@ export function assignRoles(
   // 4. Everyone else: campaign or frontier guard.
   for (const u of pool) {
     if (roles.has(u.id)) continue;
-    roles.set(u.id, sctx.attacking && sctx.targetCity ? 'attack' : sctx.targetCity || ctx.enemyUnits.length > 0 ? 'hold' : 'explore');
+    roles.set(
+      u.id,
+      sctx.attacking && sctx.targetCity
+        ? 'attack'
+        : sctx.targetCity || ctx.enemyUnits.length > 0
+          ? 'hold'
+          : 'explore',
+    );
   }
+}
+
+/**
+ * Cheap in-turn refresh after one of our own units moved: recompute only what depends on
+ * own unit positions (city threats' own power, friendly power grid).
+ */
+export function refreshDynamicContext(
+  state: GameState,
+  ctx: SpatialContext,
+  sctx: StrategicContext,
+): void {
+  const size = state.mapSize;
+  for (const city of ctx.ownCities) {
+    const t = sctx.threats[city.id];
+    if (!t) continue;
+    let ownPower = 0;
+    for (const u of ctx.ownUnits) {
+      if (Math.max(Math.abs(u.x - city.x), Math.abs(u.y - city.y)) <= 2) ownPower += unitPower(u);
+    }
+    t.ownPower = ownPower;
+  }
+  sctx.friendPower.fill(0);
+  for (const u of ctx.ownUnits) {
+    const pw = unitPower(u);
+    const y0 = Math.max(0, u.y - 2);
+    const y1 = Math.min(size - 1, u.y + 2);
+    const x0 = Math.max(0, u.x - 2);
+    const x1 = Math.min(size - 1, u.x + 2);
+    for (let y = y0; y <= y1; y++) {
+      const row = y * size;
+      for (let x = x0; x <= x1; x++) sctx.friendPower[row + x] += pw;
+    }
+  }
+}
+
+/**
+ * Medium in-turn refresh after combat (unit damaged or killed, without city/village/fog changes):
+ * refreshes enemy reach, threats, and friend power while reusing the 4 BFS goal fields!
+ */
+export function refreshCombatContext(
+  state: GameState,
+  ctx: SpatialContext,
+  sctx: StrategicContext,
+): void {
+  const { enemyReach, enemyAtk, enemyForce, enemyRanged, enemyReachPower, threats } =
+    populateEnemyCombatArrays(state, ctx);
+  sctx.enemyReach = enemyReach;
+  sctx.enemyAtk = enemyAtk;
+  sctx.enemyForce = enemyForce;
+  sctx.enemyRanged = enemyRanged;
+  sctx.enemyReachPower = enemyReachPower;
+  sctx.threats = threats;
+  refreshDynamicContext(state, ctx, sctx);
+  assignRoles(state, ctx, sctx);
 }
