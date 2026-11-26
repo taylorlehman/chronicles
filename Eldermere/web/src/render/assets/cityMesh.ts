@@ -885,7 +885,7 @@ function addCityWalls(
 const CITY_ART_BASE_URL = (import.meta.env?.BASE_URL ?? '/').replace(/\/?$/, '/');
 
 const CITY_ART_W = 512;
-const CITY_ART_H = 704;
+const CITY_ART_H = 768;
 const CITY_ART_HALF_W = 236;
 const CITY_ART_RATIO = 0.6157;
 const CITY_ART_CX = CITY_ART_W / 2;
@@ -906,10 +906,10 @@ const CITY_TIER_SCALE: Record<CityArtTier, number> = { 1: 0.86, 2: 0.93, 3: 1.0,
 
 /** Top of the painted silhouette in canvas px (measured by process.py) for badge placement. */
 const CITY_ART_TOP_PX: Record<FactionId, Record<CityArtTier, number>> = {
-  humans: { 1: 109, 2: 121, 3: 126, 4: 111 },
-  orcs: { 1: 181, 2: 152, 3: 115, 4: 115 },
-  elves: { 1: 194, 2: 151, 3: 114, 4: 3 },
-  dwarves: { 1: 239, 2: 141, 3: 134, 4: 117 },
+  humans: { 1: 173, 2: 185, 3: 190, 4: 175 },
+  orcs: { 1: 248, 2: 206, 3: 189, 4: 187 },
+  elves: { 1: 258, 2: 215, 3: 178, 4: 67 },
+  dwarves: { 1: 273, 2: 188, 3: 206, 4: 209 },
 };
 
 /**
