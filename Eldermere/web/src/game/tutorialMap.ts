@@ -524,7 +524,11 @@ export function createTutorialGame(options: TutorialGameOptions): TutorialGameRe
 
     revealRadius(state, player, cap.x, cap.y, 2);
 
-    const starter = createUnitEntity(state, player.id, def.startingUnit, cap.x, cap.y, cityId, {
+    // The scripted tutorial is "move, then strike" on Turn 1. Defenders can't attack after
+    // moving, so the human Dwarves player gets a Warrior for the tutorial only (real matches
+    // still start Dwarves with their Defender).
+    const starterType = player.isHuman && def.startingUnit === 'defender' ? 'warrior' : def.startingUnit;
+    const starter = createUnitEntity(state, player.id, starterType, cap.x, cap.y, cityId, {
       ready: true,
     });
     if (player.isHuman) {
