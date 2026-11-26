@@ -288,8 +288,19 @@ function ensureWorldBadgeStyles(): void {
       0%, 100% { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35), 0 0 14px rgba(253, 224, 71, 0.6); filter: brightness(1); }
       50% { box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.18), 0 0 26px rgba(253, 224, 71, 0.95); filter: brightness(1.12); }
     }
-    html.android-webview .capture-affordance-btn.promote-affordance-btn {
-      animation: none;
+    .city-pip-crown {
+      display: inline-grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      margin-right: 2px;
+      border-radius: 50%;
+      background: linear-gradient(180deg, #fde68a 0%, #f59e0b 100%);
+      border: 1.5px solid #fffbeb;
+      color: #422006;
+      font-size: 11px;
+      line-height: 1;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
     }
     .capture-affordance-icon {
       width: 15px;
@@ -714,7 +725,7 @@ export class WorldBadges {
         </div>
         <div class="city-pips">${pipsHtml}</div>
       `;
-      const pipHtml = `<span class="city-pip-lvl" style="background:${color}">${city.level}</span><div class="city-pip-progress city-pip-bar" aria-label="Level ${city.level}: ${filled} of ${popToNextLevel} population">${compactPipsHtml}</div>`;
+      const pipHtml = `${city.isCapital ? '<span class="city-pip-crown" aria-label="Capital">♛</span>' : ''}<span class="city-pip-lvl" style="background:${color}">${city.level}</span><div class="city-pip-progress city-pip-bar" aria-label="Level ${city.level}: ${filled} of ${popToNextLevel} population">${compactPipsHtml}</div>`;
 
       const cKey = coordKey(city.x, city.y);
       // Anchor badges just above the illustrated city's silhouette (taller for grander tiers).

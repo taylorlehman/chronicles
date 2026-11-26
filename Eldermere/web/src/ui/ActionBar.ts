@@ -399,7 +399,11 @@ export class ActionBar {
           id === 'capture-city' ||
           id === 'explore-ruins' ||
           (id === 'promote' && vm.selectedUnit!.actions.some((o) => o.id === 'promote' && o.enabled));
-        const sorted = [...vm.selectedUnit.actions].sort((a, b) => {
+        // Veterans can't promote again — drop the dead "Promote" tile (the ★ Veteran chip says it).
+        const visibleActions = vm.selectedUnit.actions.filter(
+          (o) => !(o.id === 'promote' && unit.isVeteran),
+        );
+        const sorted = visibleActions.sort((a, b) => {
           if (isHeroAction(a.id) && !isHeroAction(b.id)) return -1;
           if (!isHeroAction(a.id) && isHeroAction(b.id)) return 1;
           return 0;

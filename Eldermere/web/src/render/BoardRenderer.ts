@@ -90,6 +90,13 @@ function getDisplayFactionPrimary(faction: FactionId): string {
 }
 
 export class BoardRenderer {
+  private static readonly CITY_UNIT_SHADOW_MAT = new THREE.MeshBasicMaterial({
+    color: '#05080f',
+    transparent: true,
+    opacity: 0.62,
+    depthWrite: false,
+  });
+  private static DEFAULT_UNIT_SHADOW_MAT: THREE.Material | undefined;
   public readonly boardRoot = new THREE.Group();
   public readonly fxGroup = new THREE.Group();
 
@@ -901,6 +908,7 @@ export class BoardRenderer {
           canExploreRuins,
           isHumanOwner,
         });
+        BoardRenderer.DEFAULT_UNIT_SHADOW_MAT ??= built.shadowDisc.material as THREE.Material;
         built.group.position.copy(pos);
 
         setUnitVisualState(built, {
@@ -936,6 +944,18 @@ export class BoardRenderer {
       }
 
       this.unitHitMeshes.push(entry.hitMesh);
+
+      // Units standing on a city sit over busy, same-palette city art: give them a darker,
+      // larger contact shadow drawn above the city's ground card so the sprite pops.
+      const onCity = Boolean(state.tiles[unit.y * state.mapSize + unit.x]?.isCityCenter);
+      const disc = entry.built.shadowDisc;
+      if (onCity) {
+        disc.material = BoardRenderer.CITY_UNIT_SHADOW_MAT;
+        disc.renderOrder = 37;
+      } else if (disc.material === BoardRenderer.CITY_UNIT_SHADOW_MAT) {
+        disc.material = BoardRenderer.DEFAULT_UNIT_SHADOW_MAT ?? disc.material;
+        disc.renderOrder = 2;
+      }
       const prevMeta = this.unitBaseMeta.get(unit.id);
       this.unitBaseMeta.set(unit.id, {
         isHumanOwner,

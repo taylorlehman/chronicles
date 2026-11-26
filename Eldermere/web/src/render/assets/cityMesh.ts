@@ -1089,9 +1089,11 @@ function addBoardWalls(parent: THREE.Group, faction: FactionId, primary: string)
     ? getFlatMaterial(st.glow, { emissive: st.glow, emissiveIntensity: 1.1, roughness: 0.4 })
     : null;
 
-  const r = 0.83;
-  const h = 0.2;
-  const t = 0.1;
+  // Built walls sit just outside the painted footprint and stand taller than the
+  // walls painted into tier 3–4 art, with a faction-coloured band, so "has walls" reads.
+  const r = 0.93;
+  const h = 0.27;
+  const t = 0.11;
   const y0 = CITY_PLAZA_Y;
   const gate = 0.3; // gap half-width measured from the front corner along each edge
 
@@ -1104,8 +1106,8 @@ function addBoardWalls(parent: THREE.Group, faction: FactionId, primary: string)
     body.position.y = h / 2;
     body.castShadow = true;
     seg.add(body);
-    const band = new THREE.Mesh(new THREE.BoxGeometry(len, 0.03, t + 0.012), trimMat);
-    band.position.y = h * 0.55;
+    const band = new THREE.Mesh(new THREE.BoxGeometry(len, 0.05, t + 0.014), bannerMat);
+    band.position.y = h * 0.62;
     seg.add(band);
     const n = Math.max(2, Math.round(len / 0.16));
     for (let i = 0; i < n; i++) {
@@ -1269,11 +1271,24 @@ export function createCityBoardObject(city: City): THREE.Group {
   // Camera-facing illustrated city on a bent card
   const pivot = new THREE.Group();
   pivot.position.y = CITY_PLAZA_Y;
-  const card = new THREE.Mesh(getCityCardGeometry(tier), getCityArtMaterial(faction, tier));
-  card.castShadow = false;
-  card.receiveShadow = false;
-  card.frustumCulled = false;
-  card.onBeforeRender = (_renderer, _scene, camera) => {
+  // Two draws of the same bent-card geometry:
+  // - the upright card (indices 0..5) draws AFTER the board's always-on-top overlays
+  //   (move/attack rings use depthTest:false, renderOrder 31–35) so rings on the tile
+  //   behind a city no longer paint over its towers, but still BEFORE units (40);
+  // - the ground quad (indices 6..11) draws normally so rings on the city tile stay visible.
+  const cardGeo = getCityCardGeometry(tier);
+  const cardMat = getCityArtMaterial(faction, tier);
+  const upright = new THREE.Mesh(cardGeo.clone(), cardMat);
+  upright.geometry.setDrawRange(0, 6);
+  upright.renderOrder = 36;
+  const groundQuad = new THREE.Mesh(cardGeo.clone(), cardMat);
+  groundQuad.geometry.setDrawRange(6, 6);
+  for (const m of [upright, groundQuad]) {
+    m.castShadow = false;
+    m.receiveShadow = false;
+    m.frustumCulled = false;
+  }
+  const faceCamera = (_r: THREE.WebGLRenderer, _s: THREE.Scene, camera: THREE.Camera): void => {
     const e = camera.matrixWorld.elements;
     const yaw = Math.atan2(e[8], e[10]);
     if (pivot.rotation.y !== yaw) {
@@ -1281,7 +1296,9 @@ export function createCityBoardObject(city: City): THREE.Group {
       pivot.updateMatrixWorld(true);
     }
   };
-  pivot.add(card);
+  upright.onBeforeRender = faceCamera;
+  groundQuad.onBeforeRender = faceCamera;
+  pivot.add(groundQuad, upright);
   root.add(pivot);
 
   if (city.hasWalls) {
