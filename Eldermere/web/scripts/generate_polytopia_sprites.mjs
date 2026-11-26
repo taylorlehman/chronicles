@@ -313,6 +313,7 @@ class PolyScene {
       avgZ: avgZ + (opts.zBias ?? 0.02),
       groundContact: false,
       isDecal: true,
+      opacity: opts.opacity,
     });
   }
 
@@ -518,7 +519,8 @@ class PolyScene {
     this.addMesh(verts, faces, opts);
   }
 
-  toSVG(idLabel = '') {
+  /** Screen placement (center/ground/scale) for this scene's polygons — auto-fit into the canvas. */
+  computeLayout() {
     let minX = Infinity;
     let maxX = -Infinity;
     let minY = Infinity;
@@ -545,6 +547,36 @@ class PolyScene {
 
     const centerX = CANVAS_SIZE / 2 - ((minX + maxX) / 2) * effScale;
     const groundY = GROUND_ANCHOR_Y + anchorMinY * effScale;
+    return { centerX, groundY, effScale };
+  }
+
+  /** Screen-space bounds of all polygons under a given layout. */
+  screenBounds(layout) {
+    const { centerX, groundY, effScale } = layout;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const poly of this.polys) {
+      for (const [px, py] of poly.pts2d) {
+        const sx = centerX + px * effScale;
+        const sy = groundY - py * effScale;
+        if (sx < x0) x0 = sx;
+        if (sx > x1) x1 = sx;
+        if (sy < y0) y0 = sy;
+        if (sy > y1) y1 = sy;
+      }
+    }
+    return { x0, x1, y0, y1 };
+  }
+
+  /**
+   * @param {string} idLabel
+   * @param {{centerX:number, groundY:number, effScale:number}} [layout] lock placement (e.g. veteran
+   *   variants reuse their base sprite's layout so the character keeps the exact same size & footing).
+   */
+  toSVG(idLabel = '', layout = null) {
+    const { centerX, groundY, effScale } = layout ?? this.computeLayout();
 
     const sorted = [...this.polys].sort((a, b) => {
       if (a.layer !== b.layer) return a.layer - b.layer;
@@ -564,7 +596,8 @@ class PolyScene {
         })
         .join(' ');
       if (poly.isDecal) {
-        lines.push(`  <polygon points="${pts}" fill="${poly.fill}"/>`);
+        const op = poly.opacity != null ? ` fill-opacity="${poly.opacity}"` : '';
+        lines.push(`  <polygon points="${pts}" fill="${poly.fill}"${op}/>`);
       } else {
         lines.push(
           `  <polygon points="${pts}" fill="${poly.fill}" stroke="${poly.fill}" stroke-width="0.65" stroke-linejoin="round"/>`
@@ -657,6 +690,420 @@ const PAL = {
     ramHorn: '#e5a832',
   },
 };
+
+// ============================================================================
+// VETERAN VARIANTS — gilded, caped, crested forms of every unit
+// ----------------------------------------------------------------------------
+// Each SPRITE_BUILDER runs twice: once normally (base sprite, untouched) and once with
+// `VET` set, which makes the shared body / helmet / mount / catapult helpers add the
+// veteran dressing. Every veteran-only branch is gated on `VET`, so base output is
+// byte-identical to the pre-veteran generator.
+// ============================================================================
+
+/** Active veteran context while building a `<key>_veteran` sprite (null for base sprites). */
+let VET = null;
+
+const VET_PAL = {
+  humans: {
+    gold: '#f7bd2a',
+    goldBright: '#ffd75e',
+    cape: '#1e40af',
+    banner: '#1d4ed8',
+    plume: '#f8fbff',
+    plumeAccent: '#3b82f6',
+    gem: '#60a5fa',
+    emblem: '#f7bd2a',
+  },
+  orcs: {
+    gold: '#c58f2c', // tarnished war-brass
+    goldBright: '#e0ac45',
+    cape: '#8f1414',
+    banner: '#b91c1c',
+    bone: '#efe4c4',
+    boneShade: '#cdbb8e',
+    socket: '#2a1410',
+    paint: '#ef2b2b',
+    emblem: '#efe4c4',
+  },
+  elves: {
+    gold: '#fcd34d',
+    goldBright: '#fde68a',
+    cape: '#047857',
+    banner: '#059669',
+    glow: '#7dd3fc',
+    glowCore: '#e0f2fe',
+    halo: '#bae6fd',
+    emblem: '#fcd34d',
+  },
+  dwarves: {
+    gold: '#f4b92e',
+    goldBright: '#ffd65a',
+    cape: '#b4470b',
+    banner: '#c2410c',
+    rim: '#8a3a12',
+    rune: '#5eead4',
+    ring: '#ffd65a',
+    emblem: '#f4b92e',
+  },
+};
+
+function hexToHsl(hex) {
+  const [r, g, b] = hexToRgb(hex).map((v) => v / 255);
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return [h / 6, s, l];
+}
+function hslToHex(h, s, l) {
+  const hue = (p, q, t) => {
+    if (t < 0) t += 1;
+    if (t > 1) t -= 1;
+    if (t < 1 / 6) return p + (q - p) * 6 * t;
+    if (t < 1 / 2) return q;
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+    return p;
+  };
+  if (s === 0) return rgbToHex(l * 255, l * 255, l * 255);
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  return rgbToHex(hue(p, q, h + 1 / 3) * 255, hue(p, q, h) * 255, hue(p, q, h - 1 / 3) * 255);
+}
+/** Richer / deeper version of a faction colour (leaves near-white ivory & near-black cloth alone). */
+function vetDeepen(hex, amt = 0.16) {
+  if (!hex) return hex;
+  const [h, s, l] = hexToHsl(hex);
+  if (l > 0.82 || l < 0.2 || s < 0.15) return hex;
+  return hslToHex(h, Math.min(1, s * 1.12 + 0.04), l * (1 - amt));
+}
+
+const ORC_SKIN_TONES = new Set([PAL.orcs.skin, PAL.orcs.skinDark, PAL.orcs.urukSkin, PAL.orcs.urukDark]);
+
+/** Rewrites a body config into its veteran form (gold trim/pauldrons, deeper cloth, cape, emblem). */
+function veteranizeConfig(faction, cfg) {
+  const vp = VET_PAL[faction];
+  const out = { ...cfg };
+  out.tunicColor = vetDeepen(cfg.tunicColor);
+  if (cfg.sleeveColor && !ORC_SKIN_TONES.has(cfg.sleeveColor)) out.sleeveColor = vetDeepen(cfg.sleeveColor);
+  out.trimColor = vp.gold;
+  out.pauldronColor = vp.gold;
+  out.pauldronMat = 'gold';
+  out.cloakColor = cfg.cloakColor ? vetDeepen(cfg.cloakColor) : vp.cape;
+  if (!cfg.chestEmblem) out.chestEmblem = 'vet_star';
+  return out;
+}
+
+/**
+ * Builds a closed 2D ribbon polygon around a polyline: side offsets `a`..`b` (in units of the
+ * per-point half-width) along the curve normal. Starts at the base cap so the first corner is convex.
+ */
+function ribbon2D(curve, widths, a = -1, b = 1) {
+  const left = [];
+  const right = [];
+  for (let i = 0; i < curve.length; i++) {
+    const p0 = curve[Math.max(0, i - 1)];
+    const p1 = curve[Math.min(curve.length - 1, i + 1)];
+    const tx = p1[0] - p0[0];
+    const ty = p1[1] - p0[1];
+    const l = Math.hypot(tx, ty) || 1;
+    const nx = -ty / l;
+    const ny = tx / l;
+    const hw = widths[i] / 2;
+    left.push([curve[i][0] + nx * hw * b, curve[i][1] + ny * hw * b]);
+    right.push([curve[i][0] + nx * hw * a, curve[i][1] + ny * hw * a]);
+  }
+  return [right[0], ...left, ...right.slice(1).reverse()];
+}
+
+/** Long flowing veteran cape with a gold border peeking out around its silhouette. */
+function drawVeteranCape(scene, faction, spec, { isMounted, torsoY0, torsoY1, color }) {
+  const vp = VET_PAL[faction];
+  const z = -spec.torsoD * 0.54;
+  const yTop = torsoY1 - 0.04;
+  const yBot = isMounted ? torsoY0 - 0.42 : 0.04;
+  const wt = (spec.torsoWTop * 0.98) / 2;
+  const wb = (spec.torsoWBot * 1.5) / 2;
+  const layer = isMounted ? 3.2 : 1.5;
+  const capePts = (e) => [
+    [-wt - e * 0.4, yTop],
+    [wt + e * 0.4, yTop],
+    [wb + e, yBot + 0.08 - e * 0.4],
+    [wb * 0.45, yBot - e],
+    [0, yBot + 0.1 - e],
+    [-wb * 0.45, yBot - e],
+    [-wb - e, yBot + 0.08 - e * 0.4],
+  ];
+  scene.withTransform({ pivot: [0, yTop, z], rotX: 9 }, () => {
+    scene.extrudeZ(capePts(0.065), z - 0.1, z + 0.02, {
+      color: vp.gold,
+      material: 'gold',
+      layer: layer - 0.05,
+    });
+    scene.extrudeZ(capePts(0), z - 0.06, z + 0.06, { color, material: 'matte', layer });
+  });
+}
+
+/** Five-point star / emblem decal on the chest (faction-tinted). */
+function drawVeteranChestStar(scene, faction, cx, cy, cz, r, color, layer = 5.55) {
+  const pts = [];
+  for (let i = 0; i < 10; i++) {
+    const a = Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 === 0 ? r : r * 0.44;
+    pts.push([cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, cz]);
+  }
+  scene.addPoly3D(pts, { color, unlit: true, layer });
+}
+
+/** Small bone skull trophy (cube skull + jaw + dark sockets) centred at (x,y,z). */
+function drawSkullTrophy(scene, x, y, z, size, layer) {
+  const vp = VET_PAL.orcs;
+  const s = size;
+  scene.box(x, y, z, s, s * 0.84, s * 0.9, { color: vp.bone, material: 'matte', layer });
+  scene.box(x, y - s * 0.52, z + s * 0.06, s * 0.74, s * 0.26, s * 0.72, {
+    color: vp.boneShade,
+    material: 'matte',
+    layer: layer + 0.02,
+  });
+  const fz = z + s * 0.45 + 0.004;
+  const sq = (cx, cy, hw, hh) =>
+    scene.addPoly3D(
+      [
+        [cx - hw, cy - hh, fz],
+        [cx + hw, cy - hh, fz],
+        [cx + hw, cy + hh, fz],
+        [cx - hw, cy + hh, fz],
+      ],
+      { color: vp.socket, unlit: true, layer: layer + 0.05 }
+    );
+  sq(x - s * 0.22, y + s * 0.04, s * 0.13, s * 0.14);
+  sq(x + s * 0.22, y + s * 0.04, s * 0.13, s * 0.14);
+  scene.addPoly3D(
+    [
+      [x, y - s * 0.12, fz],
+      [x + s * 0.07, y - s * 0.26, fz],
+      [x - s * 0.07, y - s * 0.26, fz],
+    ],
+    { color: vp.socket, unlit: true, layer: layer + 0.05 }
+  );
+}
+
+// Helmet top heights (in head-height units above the head's top face) per headgear style.
+const VET_HELM_TOP = {
+  humans: { winged: 0.58, defender_crest: 0.84, rohirrim_plume: 0.58, cap: 0.58, ranger_hood: 0.4 },
+  orcs: { horned: 0.48, spiked_bucket: 0.48, skullcap: 0.48, uruk: 0.54 },
+  elves: { winged_helm: 0.6, defender_helm: 0.6, circlet: 0.14, sentinel: 0.46 },
+  dwarves: { runic: 0.56, horned: 0.56, defender: 0.8, ironbreaker: 0.56 },
+};
+
+/**
+ * Faction veteran head ornament, drawn in head-local space after the regular headgear.
+ *  - Humans: tall white-and-blue horsehair plume + gold crown-circlet with sapphire.
+ *  - Orcs: bone skull trophy spiked on the helm + red war-paint stripes.
+ *  - Elves: tall gold mallorn-leaf crown + starlight gem + soft starlight halo.
+ *  - Dwarves: (helm itself is gilded & runic in drawDwarfHelmet) + gold crest comb.
+ */
+function drawVeteranHeadOrnament(scene, faction, head, cfg) {
+  const vp = VET_PAL[faction];
+  const { w, h, d } = head;
+  const hw = w / 2;
+  const hh = h / 2;
+  const hd = d / 2;
+  const style = VET.helmStyle;
+  const topY = hh + h * (VET_HELM_TOP[faction]?.[style] ?? 0.5);
+
+  if (faction === 'humans') {
+    // Gold crown-circlet points across the brow + sapphire
+    const fz = d * 0.58;
+    const by = hh + h * 0.06;
+    for (const [bx, ph, pw] of [
+      [-w * 0.34, h * 0.2, w * 0.1],
+      [0, h * 0.3, w * 0.13],
+      [w * 0.34, h * 0.2, w * 0.1],
+    ]) {
+      scene.extrudeZ(
+        [
+          [bx - pw, by],
+          [bx + pw, by],
+          [bx, by + ph],
+        ],
+        fz - 0.03,
+        fz + 0.03,
+        { color: vp.goldBright, material: 'gold', layer: 9.5 }
+      );
+    }
+    scene.box(0, hh + 0.02, 0.02, w * 1.2, h * 0.12, d * 1.18, { color: vp.gold, material: 'gold', layer: 9.02 });
+    scene.octahedron(0, by + h * 0.02, fz + 0.04, 0.07, 0.08, 0.05, { color: vp.gem, material: 'glow', layer: 9.6 });
+
+    // Tall sweeping white horsehair plume with a royal-blue inner streak
+    const H = h * 0.86;
+    const y0 = topY - 0.06;
+    const curve = [
+      [hd * 0.18, y0],
+      [hd * 0.2, y0 + H * 0.5],
+      [-hd * 0.1, y0 + H * 0.9],
+      [-hd * 0.62, y0 + H * 0.86],
+      [-hd * 1.08, y0 + H * 0.5],
+      [-hd * 1.36, y0 + H * 0.06],
+    ];
+    const widths = [0.18, 0.3, 0.32, 0.28, 0.2, 0.05];
+    scene.extrudeX(ribbon2D(curve, widths, -1, 1), -0.12, 0.12, { color: vp.plume, material: 'matte', layer: 9.7 });
+    scene.extrudeX(
+      ribbon2D(curve.slice(2), widths.slice(2), 0.1, 1.0),
+      -0.09,
+      0.09,
+      { color: vp.plumeAccent, material: 'matte', layer: 9.72 }
+    );
+    return;
+  }
+
+  if (faction === 'orcs') {
+    // Bone skull trophy spiked on top of the helm
+    drawSkullTrophy(scene, 0.02, topY + h * 0.2, 0.06, cfg.isUruk ? 0.36 : 0.34, 9.6);
+    // Bloody red war-paint mask band across the eyes (eyes/sockets stay drawn on top) + cheek claws
+    const fz = d / 2 + 0.012;
+    const x0 = cfg.isUruk ? -w * 0.5 : -w * 0.5;
+    const x1 = cfg.isUruk ? -w * 0.02 : w * 0.5;
+    scene.addPoly3D(
+      [
+        [x0, -h * 0.1, fz],
+        [x1, -h * 0.1, fz],
+        [x1, h * 0.2, fz],
+        [x0, h * 0.2, fz],
+      ],
+      { color: vp.paint, unlit: true, layer: 6.95, zBias: 0.0 }
+    );
+    const claw = (xa, xb, t) =>
+      scene.addPoly3D(
+        [
+          [xa - t, -h * 0.1, fz],
+          [xa + t, -h * 0.1, fz],
+          [xb + t * 0.5, -h * 0.4, fz],
+          [xb - t * 0.5, -h * 0.4, fz],
+        ],
+        { color: vp.paint, unlit: true, layer: 6.95, zBias: 0.0 }
+      );
+    claw(-w * 0.44, -w * 0.47, w * 0.045);
+    claw(-w * 0.3, -w * 0.33, w * 0.04);
+    if (!cfg.isUruk) {
+      claw(w * 0.44, w * 0.47, w * 0.045);
+      claw(w * 0.3, w * 0.33, w * 0.04);
+    }
+    return;
+  }
+
+  if (faction === 'elves') {
+    // Soft starlight halo behind the head
+    const halo = (r0, r1, color, opacity, lyr, rot = 0) => {
+      const pts = [];
+      for (let i = 0; i < 16; i++) {
+        const a = rot + (i * Math.PI) / 8;
+        const rr = i % 2 === 0 ? r0 : r1;
+        pts.push([Math.cos(a) * rr, h * 0.14 + Math.sin(a) * rr, 0]);
+      }
+      scene.addPoly3D(pts, { color, unlit: true, layer: lyr, opacity });
+    };
+    halo(w * 1.3, w * 0.8, vp.halo, 0.8, 1.0, Math.PI / 2);
+    halo(w * 1.02, w * 0.7, vp.glowCore, 0.9, 1.02, Math.PI / 2 + Math.PI / 8);
+
+    // Tall golden mallorn-leaf crown fanned across the brow
+    const baseY = style === 'circlet' || style === 'sentinel' ? hh + h * 0.04 : hh + h * 0.08;
+    const fz = d * 0.6;
+    const helmed = !(style === 'circlet' || style === 'sentinel');
+    const leaves = helmed
+      ? [
+          [-w * 0.3, 34, h * 0.3],
+          [0, 0, h * 0.4],
+          [w * 0.3, -34, h * 0.3],
+        ]
+      : [
+          [-w * 0.42, 52, h * 0.3],
+          [-w * 0.22, 24, h * 0.42],
+          [0, 0, h * 0.56],
+          [w * 0.22, -24, h * 0.42],
+          [w * 0.42, -52, h * 0.3],
+        ];
+    scene.box(0, baseY - 0.01, 0.02, w * 1.16, h * 0.1, d * 1.14, { color: vp.gold, material: 'gold', layer: 9.42 });
+    for (const [lx, ang, lh] of leaves) {
+      scene.withTransform({ translate: [lx, baseY, fz], rotZ: ang }, () => {
+        const lw = lh * 0.26;
+        scene.extrudeZ(
+          [
+            [0, -0.02],
+            [lw, lh * 0.42],
+            [0, lh],
+            [-lw, lh * 0.42],
+          ],
+          -0.025,
+          0.025,
+          { color: lx === 0 ? vp.goldBright : vp.gold, material: 'gold', layer: 9.5 + Math.abs(lx) * 0.01 }
+        );
+      });
+    }
+    scene.octahedron(0, baseY + h * 0.08, fz + 0.05, 0.09, 0.12, 0.06, {
+      color: vp.glow,
+      material: 'glow',
+      layer: 9.62,
+    });
+    return;
+  }
+
+  if (faction === 'dwarves') {
+    // Tall faceted gold crest fin (the ironbreaker's own mithril fin is gilded in drawDwarfHelmet)
+    if (style !== 'ironbreaker') {
+      const by = topY - h * 0.12;
+      scene.extrudeX(
+        [
+          [hd * 0.5, by],
+          [hd * 0.16, by + h * 0.5],
+          [-hd * 0.58, by + h * 0.4],
+          [-hd * 0.8, by],
+          [-hd * 0.3, by + h * 0.02],
+        ],
+        -0.1,
+        0.1,
+        { color: vp.goldBright, material: 'gold', layer: 9.62 }
+      );
+    }
+  }
+}
+
+/** Gold-edged faction war-banner on a pole behind a mounted veteran rider / atop a catapult. */
+function drawVeteranBanner(scene, faction, x, y0, z, poleH, opts = {}) {
+  const vp = VET_PAL[faction];
+  const layer = opts.layer ?? 2.0;
+  const flagW = opts.flagW ?? 0.56;
+  const flagH = opts.flagH ?? 0.7;
+  const dir = opts.dir ?? -1; // banner flies toward screen-left (-X) by default
+  const top = y0 + poleH;
+  scene.cylinder(x, y0 + poleH / 2, z, 0.045, 0.04, poleH, 6, 'y', { color: '#5c3822', material: 'matte', layer });
+  scene.octahedron(x, top + 0.1, z, 0.09, 0.14, 0.09, { color: vp.goldBright, material: 'gold', layer: layer + 0.05 });
+  scene.box(x + (dir * flagW) / 2, top - 0.04, z, flagW + 0.12, 0.07, 0.07, {
+    color: vp.gold,
+    material: 'gold',
+    layer: layer + 0.04,
+  });
+  const fx0 = x + dir * 0.04;
+  const fx1 = x + dir * (flagW + 0.02);
+  const fy0 = top - 0.06;
+  const fy1 = fy0 - flagH;
+  const mid = (fx0 + fx1) / 2;
+  const flag = (e) => [
+    [fx0, fy0],
+    [fx1 + dir * e, fy0],
+    [fx1 + dir * e, fy1 - e],
+    [mid, fy1 + flagH * 0.2],
+    [fx0, fy1 - e],
+  ];
+  scene.extrudeZ(flag(0.05), z - 0.05, z + 0.0, { color: vp.gold, material: 'gold', layer: layer + 0.01 });
+  scene.extrudeZ(flag(0), z - 0.035, z + 0.035, { color: vp.banner, material: 'matte', layer: layer + 0.02 });
+  drawVeteranChestStar(scene, faction, mid, fy0 - flagH * 0.36, z + 0.04, flagW * 0.24, vp.emblem, layer + 0.03);
+}
 
 // ============================================================================
 // Shared Expressive Polytopia Face Renderer (Projected onto 3D Head Front Plane)
@@ -1145,6 +1592,18 @@ function drawPolytopiaFace(scene, faction, head, opts = {}) {
 function drawDwarfBeard(scene, head, beardColor, claspColor = PAL.dwarves.primary, layer = 8) {
   const { w, h, d } = head;
   const fz = d / 2 + 0.05;
+  if (VET) {
+    // Veteran: gold-braided beard rings (bright gold clasps + an extra ring on every braid)
+    claspColor = VET_PAL.dwarves.ring;
+    scene.box(0, -h * 0.84, fz + 0.03, w * 0.5, h * 0.1, 0.24, { color: claspColor, material: 'gold', layer: layer + 0.13 });
+    for (const side of [-1, 1]) {
+      scene.box(side * w * 0.38, -h * 0.79, fz, w * 0.27, h * 0.08, 0.19, {
+        color: claspColor,
+        material: 'gold',
+        layer: layer + 0.11,
+      });
+    }
+  }
 
   // Center long braided taper + bronze clasp ring (bottom first -> upper beard -> mustache on top!)
   scene.pyramid(0, -h * 1.18, fz + 0.02, w * 0.14, 0.07, -h * 0.18, {
@@ -1204,6 +1663,7 @@ function drawDwarfBeard(scene, head, beardColor, claspColor = PAL.dwarves.primar
  * Iconic Gondor / Rohan Human Helmets (strictly bottom-to-top stacking — ZERO shelf artifacts!)
  */
 function drawHumanHelmet(scene, head, style = 'winged', layer = 9) {
+  if (VET) VET.helmStyle = style;
   const p = PAL.humans;
   const { w, h, d } = head;
   const hw = w / 2;
@@ -1327,7 +1787,8 @@ function drawHumanHelmet(scene, head, style = 'winged', layer = 9) {
     });
   } else if (style === 'rohirrim_plume') {
     // Sweeping crimson horsehair plume arching proudly over golden Rohan helm!
-    scene.extrudeX(
+    // (veterans swap it for the faction's tall white-and-blue plume)
+    if (!VET) scene.extrudeX(
       [
         [hd * 0.28, hh + h * 0.56],
         [hd * 0.06, hh + h * 1.12],
@@ -1359,6 +1820,7 @@ function drawHumanHelmet(scene, head, style = 'winged', layer = 9) {
  * Brutal Jagged Mordor / Isengard Orc Helmets (strictly bottom-to-top stacking!)
  */
 function drawOrcHelmet(scene, head, style = 'horned', layer = 9) {
+  if (VET) VET.helmStyle = style;
   const p = PAL.orcs;
   const { w, h, d } = head;
   const hw = w / 2;
@@ -1469,6 +1931,7 @@ function drawOrcHelmet(scene, head, style = 'horned', layer = 9) {
  * Graceful Elven Hair, Mallorn-Leaf Circlets & Swept Winged Helms (strictly stacked!)
  */
 function drawElfHeadgear(scene, head, style = 'winged_helm', hairColor = PAL.elves.hairGold, layer = 9) {
+  if (VET) VET.helmStyle = style;
   const p = PAL.elves;
   const { w, h, d } = head;
   const hw = w / 2;
@@ -1566,7 +2029,9 @@ function drawElfHeadgear(scene, head, style = 'winged_helm', hairColor = PAL.elv
       ],
       -0.065,
       0.065,
-      { color: style === 'defender_helm' ? p.ivory : p.primary, material: 'matte', layer: layer + 0.26 }
+      VET
+        ? { color: VET_PAL.elves.glow, material: 'glow', layer: layer + 0.26 }
+        : { color: style === 'defender_helm' ? p.ivory : p.primary, material: 'matte', layer: layer + 0.26 }
     );
     // 4. Elegant golden wing-blades flanking helm!
     for (const side of [-1, 1]) {
@@ -1597,23 +2062,25 @@ function drawElfHeadgear(scene, head, style = 'winged_helm', hairColor = PAL.elv
  * Runic Bronze & Forged Steel / Mithril Dwarf Helmets (strictly bottom-to-top stacking!)
  */
 function drawDwarfHelmet(scene, head, style = 'runic', layer = 9) {
+  if (VET) VET.helmStyle = style;
   const p = PAL.dwarves;
   const { w, h, d } = head;
   const hw = w / 2;
   const hh = h / 2;
   const isMithril = style === 'ironbreaker';
-  const bodyCol = isMithril ? p.mithril : p.steel;
-  const trimCol = p.primary;
+  const bodyCol = VET ? VET_PAL.dwarves.gold : isMithril ? p.mithril : p.steel;
+  const trimCol = VET ? VET_PAL.dwarves.rim : p.primary;
+  const bodyMat = VET ? 'gold' : 'metal';
 
   // Cheek plates tucked cleanly behind face plane — NEVER covering eyes!
   scene.box(-hw - 0.04, -h * 0.04, -0.14, 0.11, h * 0.52, d * 0.56, {
     color: bodyCol,
-    material: 'metal',
+    material: bodyMat,
     layer: 5.9,
   });
   scene.box(hw + 0.04, -h * 0.04, -0.14, 0.11, h * 0.52, d * 0.56, {
     color: bodyCol,
-    material: 'metal',
+    material: bodyMat,
     layer: 6.4,
   });
 
@@ -1627,12 +2094,12 @@ function drawDwarfHelmet(scene, head, style = 'runic', layer = 9) {
   // 2. Steel / Mithril angular dome stacked cleanly ON TOP of brow rim (layer + 0.1 -> + 0.18)
   scene.box(0, hh + h * 0.16, 0, w * 1.12, h * 0.18, d * 1.12, {
     color: bodyCol,
-    material: 'metal',
+    material: bodyMat,
     layer: layer + 0.1,
   });
   scene.taperBox(0, hh + h * 0.25, 0, w * 1.06, d * 1.06, w * 0.62, d * 0.64, h * 0.34, {
     color: bodyCol,
-    material: 'metal',
+    material: bodyMat,
     layer: layer + 0.18,
   });
 
@@ -1643,10 +2110,37 @@ function drawDwarfHelmet(scene, head, style = 'runic', layer = 9) {
     layer: layer + 0.24,
   });
   scene.octahedron(0, hh + 0.02, d * 0.62, 0.11, 0.13, 0.06, {
-    color: isMithril ? '#fbbf24' : trimCol,
-    material: 'gold',
+    color: VET ? VET_PAL.dwarves.rune : isMithril ? '#fbbf24' : trimCol,
+    material: VET ? 'glow' : 'gold',
     layer: layer + 0.3,
   });
+
+  if (VET) {
+    // Glowing runes etched across the gilded dome band
+    const rz = d * 0.56 + 0.006;
+    const ry = hh + h * 0.16;
+    const rh = h * 0.07;
+    for (const rx of [-w * 0.36, -w * 0.2, w * 0.2, w * 0.36]) {
+      scene.addPoly3D(
+        [
+          [rx - 0.018, ry - rh, rz],
+          [rx + 0.018, ry - rh, rz],
+          [rx + 0.018, ry + rh, rz],
+          [rx - 0.018, ry + rh, rz],
+        ],
+        { color: VET_PAL.dwarves.rune, unlit: true, layer: layer + 0.16 }
+      );
+      scene.addPoly3D(
+        [
+          [rx - 0.05, ry + rh * 0.2, rz],
+          [rx + 0.05, ry + rh * 0.9, rz],
+          [rx + 0.05, ry + rh * 0.4, rz],
+          [rx - 0.05, ry - rh * 0.3, rz],
+        ],
+        { color: VET_PAL.dwarves.rune, unlit: true, layer: layer + 0.16 }
+      );
+    }
+  }
 
   if (style === 'ironbreaker') {
     // Gleaming tall mithril war-plume crest stacked cleanly ON TOP!
@@ -1660,7 +2154,7 @@ function drawDwarfHelmet(scene, head, style = 'runic', layer = 9) {
       ],
       -0.11,
       0.11,
-      { color: p.mithril, material: 'metal', layer: layer + 0.34 }
+      { color: VET ? VET_PAL.dwarves.goldBright : p.mithril, material: bodyMat, layer: layer + 0.34 }
     );
   } else if (style === 'horned') {
     for (const side of [-1, 1]) {
@@ -2110,6 +2604,7 @@ function drawShield(scene, x, y, z, style, opts = {}) {
 // ============================================================================
 
 function buildPolytopiaBody(scene, faction, config = {}) {
+  if (VET) config = veteranizeConfig(faction, config);
   const isMounted = !!config.isMounted;
   const isUruk = !!config.isUruk;
   const baseY = config.baseY ?? 0;
@@ -2215,8 +2710,10 @@ function buildPolytopiaBody(scene, faction, config = {}) {
     const headCenterY = torsoY1 + spec.headH * 0.48 - (faction === 'orcs' ? 0.05 : 0.0);
     const headCenterZ = spec.hunchZ;
 
-    // 1. Optional Flowing Back Cloak
-    if (cloakColor) {
+    // 1. Optional Flowing Back Cloak (veterans: long gold-bordered cape)
+    if (cloakColor && VET) {
+      drawVeteranCape(scene, faction, spec, { isMounted, torsoY0, torsoY1, color: cloakColor });
+    } else if (cloakColor) {
       scene.taperBox(
         0,
         isMounted ? torsoY0 - 0.24 : 0.16,
@@ -2303,6 +2800,9 @@ function buildPolytopiaBody(scene, faction, config = {}) {
       material: 'gold',
       layer: 5.35,
     });
+    if (VET && faction === 'orcs') {
+      drawSkullTrophy(scene, 0, beltY0 + beltH * 0.42, spec.torsoD * 0.58 + spec.hunchZ * 0.2, 0.24, 5.4);
+    }
     // 3c. Upper torso / armor chestplate stacked cleanly ON TOP of belt (layer 5.2)!
     const upperCol = armorColor ?? tunicColor;
     const upperMat = armorColor ? (config.armorMat ?? 'metal') : (config.tunicMat ?? 'matte');
@@ -2367,6 +2867,51 @@ function buildPolytopiaBody(scene, faction, config = {}) {
         ],
         { color: PAL.elves.gold, unlit: true, layer: 5.5 }
       );
+      if (VET) {
+        scene.octahedron(0, ey - 0.3, ez + 0.03, 0.08, 0.11, 0.05, {
+          color: VET_PAL.elves.glow,
+          material: 'glow',
+          layer: 5.56,
+        });
+      }
+    } else if (config.chestEmblem === 'vet_star') {
+      const vp = VET_PAL[faction];
+      const ez = spec.torsoD * 0.51 + spec.hunchZ * 0.32 + 0.01;
+      const ey = upperY0 + upperH * 0.48;
+      const onGold = config.armorMat === 'gold';
+      const col = onGold ? (vp.glow ?? vp.rim ?? vp.cape) : vp.emblem;
+      if (faction === 'dwarves') {
+        // Gold rune-diamond with a glowing core
+        scene.addPoly3D(
+          [
+            [0, ey + 0.2, ez],
+            [0.17, ey, ez],
+            [0, ey - 0.2, ez],
+            [-0.17, ey, ez],
+          ],
+          { color: vp.emblem, unlit: true, layer: 5.5 }
+        );
+        scene.addPoly3D(
+          [
+            [0, ey + 0.1, ez + 0.005],
+            [0.08, ey, ez + 0.005],
+            [0, ey - 0.1, ez + 0.005],
+            [-0.08, ey, ez + 0.005],
+          ],
+          { color: vp.rune, unlit: true, layer: 5.52 }
+        );
+      } else if (faction !== 'orcs') {
+        drawVeteranChestStar(scene, faction, 0, ey, ez, 0.2, col);
+      }
+    }
+
+    // 4b. Veteran gold gorget / collar band under the head
+    if (VET) {
+      scene.box(0, torsoY1 - 0.05, spec.hunchZ * 0.45, spec.torsoWTop * 1.1, 0.13, spec.torsoD * 1.0, {
+        color: VET_PAL[faction].gold,
+        material: 'gold',
+        layer: 5.6,
+      });
     }
 
     // 4. Optional Back Quiver (for Archers & Sentinel!)
@@ -2402,10 +2947,13 @@ function buildPolytopiaBody(scene, faction, config = {}) {
       if (faction === 'orcs') {
         scene.pyramid(leftArmX - 0.14, shY + 0.22, shZ, 0.07, 0.07, 0.28, {
           tipOffX: -0.14,
-          color: '#9ca3af',
-          material: 'metal',
+          color: VET ? VET_PAL.orcs.bone : '#9ca3af',
+          material: VET ? 'matte' : 'metal',
           layer: 5.8,
         });
+        if (VET) {
+          drawSkullTrophy(scene, leftArmX + 0.04, shY + 0.36, shZ + 0.06, 0.22, 5.85);
+        }
       }
       if (faction !== 'orcs' || isUruk) {
         scene.box(rightArmX, shY + 0.06, shZ, 0.36, 0.3, 0.4, {
@@ -2488,8 +3036,19 @@ function buildPolytopiaBody(scene, faction, config = {}) {
         if (config.drawHeadgear) {
           config.drawHeadgear(head);
         }
+
+        if (VET) {
+          drawVeteranHeadOrnament(scene, faction, head, { isUruk });
+        }
       }
     );
+
+    // 7. Veteran war-banner on mounted riders
+    if (VET && isMounted) {
+      drawVeteranBanner(scene, faction, -spec.torsoWTop * 0.5, torsoY0, -spec.torsoD * 0.62, spec.torsoH + spec.headH + 0.9, {
+        layer: 3.1,
+      });
+    }
   });
 }
 
@@ -2510,8 +3069,13 @@ function drawPolytopiaMount(scene, kind) {
         : isWhite
           ? '#d6dce6'
           : PAL.humans.horseMane;
-    const saddleCol = isElf ? PAL.elves.primary : PAL.humans.primary;
-    const trimCol = isElf ? PAL.elves.gold : PAL.humans.gold;
+    const vetF = isElf ? 'elves' : 'humans';
+    const saddleCol = VET
+      ? vetDeepen(isElf ? PAL.elves.primary : PAL.humans.primary)
+      : isElf
+        ? PAL.elves.primary
+        : PAL.humans.primary;
+    const trimCol = VET ? VET_PAL[vetF].gold : isElf ? PAL.elves.gold : PAL.humans.gold;
 
     const legH = isElf ? 0.92 : isRohirrim ? 0.9 : 0.82;
     const bodyW = isElf ? 0.72 : isRohirrim ? 0.88 : 0.82;
@@ -2590,6 +3154,19 @@ function drawPolytopiaMount(scene, kind) {
       });
     });
 
+    if (VET) {
+      scene.box(0, bodyY + 0.04, bodyL * 0.5, bodyW * 1.04, bodyH * 0.4, 0.1, {
+        color: trimCol,
+        material: 'gold',
+        layer: 3.02,
+      });
+      scene.box(0, bodyY - 0.06, -bodyL * 0.5, bodyW * 1.04, bodyH * 0.5, 0.1, {
+        color: saddleCol,
+        material: 'matte',
+        layer: 2.84,
+      });
+    }
+
     const headY = neckY + (isElf ? 0.76 : 0.68);
     const headZ = neckZ + 0.48;
     scene.withTransform({ translate: [0, headY, headZ], rotX: 16 }, () => {
@@ -2599,11 +3176,20 @@ function drawPolytopiaMount(scene, kind) {
         material: 'matte',
         layer: 3.45,
       });
-      if (isRohirrim) {
+      if (isRohirrim || VET) {
         scene.box(0, 0.1, 0.18, 0.45, 0.28, 0.42, {
           color: trimCol,
           material: 'gold',
           layer: 3.55,
+        });
+      }
+      if (VET) {
+        // Gilded chamfron spike + faction plume on the horse's brow
+        scene.pyramid(0, 0.24, 0.3, 0.06, 0.06, 0.2, { tipOffZ: 0.08, color: trimCol, material: 'gold', layer: 3.58 });
+        scene.box(0, 0.36, -0.12, 0.1, 0.24, 0.12, {
+          color: isElf ? PAL.elves.ivory : VET_PAL.humans.plume,
+          material: 'matte',
+          layer: 3.57,
         });
       }
       for (const sx of [-0.13, 0.13]) {
@@ -2686,16 +3272,38 @@ function drawPolytopiaMount(scene, kind) {
     for (const sz of [0.5, 0.28, -0.46]) {
       scene.pyramid(0, bodyY + bodyH * 0.44, sz, 0.16, 0.18, 0.34, {
         tipOffZ: -0.14,
-        color: p.wargDark,
+        color: VET ? VET_PAL.orcs.bone : p.wargDark,
         material: 'matte',
         layer: 2.75,
       });
     }
+    if (VET) {
+      scene.box(0, bodyY - 0.22, -0.08, bodyW * 1.12, 0.12, 0.84, {
+        color: VET_PAL.orcs.gold,
+        material: 'gold',
+        layer: 2.78,
+      });
+    }
     scene.box(0, bodyY + 0.08, -0.08, bodyW * 1.08, 0.56, 0.78, {
-      color: p.primary,
+      color: VET ? VET_PAL.orcs.cape : p.primary,
       material: 'matte',
       layer: 2.8,
     });
+    if (VET) {
+      // Spiked war-brass collar
+      scene.box(0, bodyY + 0.3, bodyL * 0.46, bodyW * 0.92, 0.34, 0.2, {
+        color: VET_PAL.orcs.gold,
+        material: 'gold',
+        layer: 3.3,
+      });
+      for (const sx of [-0.26, 0, 0.26]) {
+        scene.pyramid(sx, bodyY + 0.46, bodyL * 0.46, 0.06, 0.06, 0.2, {
+          color: VET_PAL.orcs.bone,
+          material: 'matte',
+          layer: 3.32,
+        });
+      }
+    }
 
     scene.withTransform({ translate: [0, bodyY + 0.36, bodyL * 0.68], rotX: 12 }, () => {
       scene.box(0, 0.04, 0, 0.66, 0.56, 0.62, { color: p.warg, material: 'matte', layer: 3.4 });
@@ -2731,6 +3339,7 @@ function drawPolytopiaMount(scene, kind) {
         material: 'glow',
         layer: 3.6,
       });
+      if (VET) drawSkullTrophy(scene, 0, 0.42, 0.12, 0.24, 3.62);
     });
 
     scene.withTransform({ translate: [0, bodyY + 0.08, -bodyL * 0.54], rotX: -38 }, () => {
@@ -2778,21 +3387,36 @@ function drawPolytopiaMount(scene, kind) {
     material: 'matte',
     layer: 2.6,
   });
-  scene.box(0, bodyY - 0.18, -0.04, bodyW * 1.1, 0.1, bodyL * 0.56, {
-    color: p.primary,
+  scene.box(0, bodyY - 0.18, -0.04, bodyW * 1.1, VET ? 0.16 : 0.1, bodyL * 0.56, {
+    color: VET ? VET_PAL.dwarves.gold : p.primary,
     material: 'gold',
     layer: 2.75,
   });
   scene.box(0, bodyY + 0.08, -0.04, bodyW * 1.08, bodyH * 0.68, bodyL * 0.54, {
-    color: p.tunic,
+    color: VET ? VET_PAL.dwarves.cape : p.tunic,
     material: 'matte',
     layer: 2.82,
   });
+  if (VET) {
+    // Gilded runic breastplate
+    scene.box(0, bodyY - 0.02, bodyL * 0.5, bodyW * 1.04, bodyH * 0.66, 0.14, {
+      color: VET_PAL.dwarves.gold,
+      material: 'gold',
+      layer: 3.02,
+    });
+  }
 
   // Armored Ram Head + BIG CURLED GOLDEN-BRONZE RAM HORNS!
   scene.withTransform({ translate: [0, bodyY + 0.24, bodyL * 0.62], rotX: 14 }, () => {
     scene.box(0, 0, 0, 0.52, 0.48, 0.56, { color: p.ramDark, material: 'matte', layer: 3.4 });
-    scene.box(0, 0.12, 0.14, 0.46, 0.26, 0.42, { color: p.primary, material: 'gold', layer: 3.5 });
+    scene.box(0, 0.12, 0.14, 0.46, 0.26, 0.42, {
+      color: VET ? VET_PAL.dwarves.goldBright : p.primary,
+      material: 'gold',
+      layer: 3.5,
+    });
+    if (VET) {
+      scene.octahedron(0, 0.16, 0.37, 0.07, 0.09, 0.04, { color: VET_PAL.dwarves.rune, material: 'glow', layer: 3.56 });
+    }
     for (const side of [-1, 1]) {
       const hornPts = [
         [0.02, 0.24],
@@ -2900,6 +3524,13 @@ function drawPolytopiaCatapult(scene, faction) {
     },
   }[faction];
 
+  if (VET) {
+    const vp = VET_PAL[faction];
+    cfg.trim = vp.goldBright;
+    cfg.metal = vp.gold;
+    cfg.banner = vp.banner;
+  }
+
   scene.withTransform({ translate: [-0.28, 0, 0.16], scale: cfg.scale }, () => {
     const wheelR = 0.42;
     const frameY = wheelR + 0.08;
@@ -2947,11 +3578,20 @@ function drawPolytopiaCatapult(scene, faction) {
       material: 'gold',
       layer: 3.4,
     });
+    if (VET) {
+      // Gold-bordered front banner with emblem
+      scene.box(0, frameY + 0.7, 0.385, 0.76, 0.8, 0.05, { color: cfg.trim, material: 'gold', layer: 3.48 });
+    }
     scene.box(0, frameY + 0.72, 0.4, 0.64, 0.68, 0.06, {
       color: cfg.banner,
       material: 'matte',
       layer: 3.5,
     });
+    if (VET) {
+      drawVeteranChestStar(scene, faction, 0, frameY + 0.74, 0.44, 0.2, VET_PAL[faction].emblem, 3.52);
+      // Tall war-banner on the near frame post
+      drawVeteranBanner(scene, faction, -frameW * 0.5, frameY + 1.2, 0.24, 1.25, { layer: 3.35, dir: -1, flagW: 0.62, flagH: 0.72 });
+    }
     scene.box(0, frameY, frameL * 0.48, frameW * 1.04, 0.26, 0.12, {
       color: cfg.metal,
       material: 'metal',
@@ -3636,20 +4276,57 @@ const SPRITE_BUILDERS = {
 // Main Execution
 // ============================================================================
 
+/**
+ * Veteran sprites reuse their base sprite's exact layout (same character size & footing on the
+ * board). Only if veteran ornaments would leave the canvas is the layout shrunk about the ground
+ * anchor (canvas centre-bottom) just enough to fit.
+ */
+function fitVeteranLayout(scene, baseLayout, margin = 4) {
+  const b = scene.screenBounds(baseLayout);
+  const cx = CANVAS_SIZE / 2;
+  const gy = GROUND_ANCHOR_Y;
+  let k = 1;
+  if (b.y0 < margin) k = Math.min(k, (gy - margin) / (gy - b.y0));
+  if (b.x0 < margin) k = Math.min(k, (cx - margin) / (cx - b.x0));
+  if (b.x1 > CANVAS_SIZE - margin) k = Math.min(k, (CANVAS_SIZE - margin - cx) / (b.x1 - cx));
+  if (k >= 1) return { layout: baseLayout, k: 1 };
+  return {
+    k,
+    layout: {
+      centerX: cx + (baseLayout.centerX - cx) * k,
+      groundY: gy + (baseLayout.groundY - gy) * k,
+      effScale: baseLayout.effScale * k,
+    },
+  };
+}
+
 function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const keys = Object.keys(SPRITE_BUILDERS);
-  console.log(`Generating ${keys.length} unified Polytopia-style SVG sprites in ${OUT_DIR}...`);
+  console.log(`Generating ${keys.length} unified Polytopia-style SVG sprites (+ veteran variants) in ${OUT_DIR}...`);
 
   for (const key of keys) {
+    VET = null;
     const scene = SPRITE_BUILDERS[key]();
-    const svg = scene.toSVG(key);
+    const layout = scene.computeLayout();
+    const svg = scene.toSVG(key, layout);
     const outPath = path.join(OUT_DIR, `${key}.svg`);
     fs.writeFileSync(outPath, svg, 'utf8');
     console.log(`  ✓ ${key}.svg (${scene.polys.length} flat-shaded facets, ${svg.length} bytes)`);
+
+    // Veteran variant: same builder, veteran dressing switched on, base layout locked.
+    const vetKey = `${key}_veteran`;
+    VET = { key, faction: key.split('_')[0], helmStyle: null };
+    const vScene = SPRITE_BUILDERS[key]();
+    VET = null;
+    const { layout: vLayout, k } = fitVeteranLayout(vScene, layout);
+    const vSvg = vScene.toSVG(vetKey, vLayout);
+    fs.writeFileSync(path.join(OUT_DIR, `${vetKey}.svg`), vSvg, 'utf8');
+    const fitNote = k < 1 ? `, fit-scaled ×${k.toFixed(3)}` : '';
+    console.log(`  ★ ${vetKey}.svg (${vScene.polys.length} facets${fitNote})`);
   }
 
-  console.log('Done! All 24 Polytopia sprites generated.');
+  console.log(`Done! ${keys.length} base + ${keys.length} veteran Polytopia sprites generated.`);
 }
 
 main();

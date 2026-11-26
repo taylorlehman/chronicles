@@ -862,3 +862,456 @@ function addCityWalls(
     root.add(finial);
   }
 }
+
+// ============================================================================
+// Illustrated city billboards (board view)
+// ============================================================================
+//
+// Board cities are pre-rendered low-poly illustrations (public/assets/cities/
+// <faction>_t<tier>.webp, generated from the sizzle-video art direction) drawn on a
+// "bent card": the part of the image below the footprint's centre line lies flat on
+// the plaza (so the footprint occludes / is occluded like real ground) and the part
+// above it sits on a card hinged at the tile centre line, tilted back so it is exactly
+// perpendicular to the view direction (constant depth = the tile centre's depth). The
+// card always follows the camera's azimuth. Under the orthographic camera this renders
+// pixel-identical to a screen-aligned billboard while keeping correct depth against
+// neighbouring tiles (things on tiles behind stay behind, things in front stay in
+// front), and the depth-biased garrison unit always draws in front at every rotation.
+//
+// Every sprite shares the same canvas contract (see city-art/process.py):
+//   CITY_ART_W x CITY_ART_H px, footprint diamond left/right corners at
+//   (CITY_ART_CX -/+ CITY_ART_HALF_W, CITY_ART_CY), front corner directly below.
+
+const CITY_ART_BASE_URL = (import.meta.env?.BASE_URL ?? '/').replace(/\/?$/, '/');
+
+const CITY_ART_W = 512;
+const CITY_ART_H = 704;
+const CITY_ART_HALF_W = 236;
+const CITY_ART_RATIO = 0.6157;
+const CITY_ART_CX = CITY_ART_W / 2;
+const CITY_ART_CY = CITY_ART_H - CITY_ART_HALF_W * CITY_ART_RATIO - 3;
+
+/** Board camera elevation (must match SceneManager ELEVATION_RAD). */
+const CITY_CAMERA_ELEVATION = THREE.MathUtils.degToRad(38);
+const SIN_EL = Math.sin(CITY_CAMERA_ELEVATION);
+const COS_EL = Math.cos(CITY_CAMERA_ELEVATION);
+
+/** Plaza (footprint) half-size in world units at tier scale 1.0 — same as the legacy dais. */
+const CITY_PLAZA_HALF = 0.89;
+
+export type CityArtTier = 1 | 2 | 3 | 4;
+
+/** Footprint scale per art tier: towns sit on a smaller plaza and grow with the city. */
+const CITY_TIER_SCALE: Record<CityArtTier, number> = { 1: 0.86, 2: 0.93, 3: 1.0, 4: 1.06 };
+
+/** Top of the painted silhouette in canvas px (measured by process.py) for badge placement. */
+const CITY_ART_TOP_PX: Record<FactionId, Record<CityArtTier, number>> = {
+  humans: { 1: 109, 2: 121, 3: 126, 4: 111 },
+  orcs: { 1: 181, 2: 152, 3: 115, 4: 115 },
+  elves: { 1: 194, 2: 151, 3: 114, 4: 3 },
+  dwarves: { 1: 239, 2: 141, 3: 134, 4: 117 },
+};
+
+/**
+ * Art tier for a city: Lv1 -> 1, Lv2-3 -> 2, Lv4-5 -> 3, Lv6+ -> 4.
+ * Capitals are shown one tier grander (capped at 4).
+ */
+export function getCityArtTier(city: Pick<City, 'level' | 'isCapital'>): CityArtTier {
+  const base = city.level >= 6 ? 4 : city.level >= 4 ? 3 : city.level >= 2 ? 2 : 1;
+  return Math.min(4, base + (city.isCapital ? 1 : 0)) as CityArtTier;
+}
+
+export function getCityArtUrl(faction: FactionId, tier: CityArtTier): string {
+  return `${CITY_ART_BASE_URL}assets/cities/${faction}_t${tier}.webp`;
+}
+
+/**
+ * World-space height above TILE_TOP_Y at which the city's HTML badge should be anchored
+ * (badge bottom edge) when placed at the badge's back-diagonal offset `backOffset`
+ * (world units along -x/-z, i.e. away from the default camera).
+ */
+export function getCityBadgeAnchorY(
+  city: Pick<City, 'level' | 'isCapital' | 'styleFaction'>,
+  backOffset: number,
+): number {
+  const tier = getCityArtTier(city);
+  const s = CITY_TIER_SCALE[tier];
+  const pxToWorld = ((CITY_PLAZA_HALF * Math.SQRT2) / CITY_ART_HALF_W) * s;
+  const topPx = CITY_ART_TOP_PX[city.styleFaction]?.[tier] ?? 120;
+  // Screen-space height (world units) of the silhouette top above the plaza centre;
+  // tuck the badge slightly into the very tip of the tallest spire.
+  const screenTop = (CITY_ART_CY - topPx) * pxToWorld - 0.12;
+  const backLift = backOffset * Math.SQRT2 * SIN_EL;
+  return CITY_PLAZA_Y + Math.max(0.6, (screenTop - backLift) / COS_EL);
+}
+
+const cityArtLoader = new THREE.TextureLoader();
+const cityArtTextures = new Map<string, THREE.Texture>();
+const cityArtMaterials = new Map<string, THREE.MeshBasicMaterial>();
+const cityCardGeometries = new Map<CityArtTier, THREE.BufferGeometry>();
+
+function getCityArtMaterial(faction: FactionId, tier: CityArtTier): THREE.MeshBasicMaterial {
+  const url = getCityArtUrl(faction, tier);
+  let mat = cityArtMaterials.get(url);
+  if (mat) return mat;
+  let tex = cityArtTextures.get(url);
+  if (!tex) {
+    tex = cityArtLoader.load(url);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.anisotropy = 4;
+    cityArtTextures.set(url, tex);
+  }
+  mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    alphaTest: 0.32,
+    depthWrite: true,
+    side: THREE.DoubleSide,
+  });
+  cityArtMaterials.set(url, mat);
+  return mat;
+}
+
+/**
+ * Bent-card geometry in the card's local frame (+Z toward the camera, +X screen-right,
+ * y = 0 at the plaza top): a ground quad for image rows below the footprint centre and a
+ * view-perpendicular quad (leaning back by the camera elevation) for the rows above it.
+ */
+function getCityCardGeometry(tier: CityArtTier): THREE.BufferGeometry {
+  const cached = cityCardGeometries.get(tier);
+  if (cached) return cached;
+  const s = CITY_TIER_SCALE[tier];
+  const k = ((CITY_PLAZA_HALF * Math.SQRT2) / CITY_ART_HALF_W) * s; // world (screen) units per px
+  const xl = -CITY_ART_CX * k;
+  const xr = (CITY_ART_W - CITY_ART_CX) * k;
+  const groundDepth = ((CITY_ART_H - CITY_ART_CY) * k) / SIN_EL;
+  const screenUp = CITY_ART_CY * k; // screen-space height of the upper card
+  const topY = screenUp * COS_EL;
+  const topZ = -screenUp * SIN_EL;
+  const vMid = 1 - CITY_ART_CY / CITY_ART_H;
+  const lift = 0.004;
+
+  // prettier-ignore
+  const positions = new Float32Array([
+    // upper card (rows 0..CY), perpendicular to the view direction
+    xl, lift, 0,   xr, lift, 0,   xr, lift + topY, topZ,   xl, lift + topY, topZ,
+    // ground quad (rows CY..H)
+    xl, lift, groundDepth,   xr, lift, groundDepth,   xr, lift, 0,   xl, lift, 0,
+  ]);
+  // prettier-ignore
+  const uvs = new Float32Array([
+    0, vMid,   1, vMid,   1, 1,   0, 1,
+    0, 0,      1, 0,      1, vMid, 0, vMid,
+  ]);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
+  geo.computeBoundingSphere();
+  cityCardGeometries.set(tier, geo);
+  return geo;
+}
+
+interface CityPlazaStyle {
+  side: string;
+  band: string;
+  bandEmissive?: string;
+  lip: string;
+}
+
+const CITY_PLAZA_STYLES: Record<FactionId, CityPlazaStyle> = {
+  humans: { side: '#e8e1cf', band: '#e3b23c', lip: '#f4eedf' },
+  orcs: { side: '#3d3741', band: '#f97316', bandEmissive: '#ea580c', lip: '#4a434f' },
+  elves: { side: '#ece5d2', band: '#e9c23a', lip: '#3fa86a' },
+  dwarves: { side: '#76808f', band: '#c27a2c', lip: '#d9dee6' },
+};
+
+function addCityPlaza(root: THREE.Group, faction: FactionId, scale: number): void {
+  const st = CITY_PLAZA_STYLES[faction];
+  const size = CITY_PLAZA_HALF * 2 * scale;
+  const sideMat = getFlatMaterial(st.side, { roughness: 0.86 });
+  const plaza = new THREE.Mesh(new THREE.BoxGeometry(size, CITY_PLAZA_Y, size), sideMat);
+  plaza.position.y = CITY_PLAZA_Y * 0.5;
+  plaza.receiveShadow = true;
+  root.add(plaza);
+
+  // Thin lip just under the painted footprint so the edge reads cleanly at every zoom.
+  const lip = new THREE.Mesh(
+    new THREE.BoxGeometry(size + 0.012, 0.045, size + 0.012),
+    getFlatMaterial(st.lip, { roughness: 0.8 }),
+  );
+  lip.position.y = CITY_PLAZA_Y - 0.0235;
+  root.add(lip);
+
+  const band = new THREE.Mesh(
+    new THREE.BoxGeometry(size + 0.02, 0.035, size + 0.02),
+    getFlatMaterial(st.band, {
+      metalness: st.bandEmissive ? 0 : 0.45,
+      roughness: 0.4,
+      emissive: st.bandEmissive,
+      emissiveIntensity: st.bandEmissive ? 0.9 : 0,
+    }),
+  );
+  band.position.y = CITY_PLAZA_Y * 0.42;
+  root.add(band);
+}
+
+interface BoardWallStyle {
+  wall: string;
+  trim: string;
+  cap: string;
+  capKind: 'cone' | 'spike' | 'flat';
+  glow?: string;
+}
+
+const BOARD_WALL_STYLES: Record<FactionId, BoardWallStyle> = {
+  humans: { wall: '#f1ebdd', trim: '#e3b23c', cap: '#2f5fd8', capKind: 'cone' },
+  orcs: { wall: '#4a4350', trim: '#2b2630', cap: '#b9b2a6', capKind: 'spike', glow: '#f97316' },
+  elves: { wall: '#f3eddc', trim: '#e9c23a', cap: '#e9c23a', capKind: 'cone' },
+  dwarves: { wall: '#8b94a3', trim: '#c27a2c', cap: '#eef2f7', capKind: 'flat' },
+};
+
+/**
+ * Bold low rampart on the plaza rim (in footprint space, pre-scale): runs along the two
+ * camera-facing edges and the back, leaving a gate gap at the front corner where the
+ * garrison stands. Corner towers + gate towers make walls readable at a glance.
+ */
+function addBoardWalls(parent: THREE.Group, faction: FactionId, primary: string): void {
+  const st = BOARD_WALL_STYLES[faction];
+  const wallMat = getFlatMaterial(st.wall, { roughness: 0.82 });
+  const trimMat = getFlatMaterial(st.trim, { roughness: 0.5, metalness: faction === 'orcs' ? 0.3 : 0.4 });
+  const capMat = getFlatMaterial(st.cap, { roughness: 0.6, metalness: st.capKind === 'cone' ? 0.15 : 0.1 });
+  const bannerMat = getFlatMaterial(primary, { emissive: primary, emissiveIntensity: 0.15, roughness: 0.75 });
+  const glowMat = st.glow
+    ? getFlatMaterial(st.glow, { emissive: st.glow, emissiveIntensity: 1.1, roughness: 0.4 })
+    : null;
+
+  const r = 0.83;
+  const h = 0.2;
+  const t = 0.1;
+  const y0 = CITY_PLAZA_Y;
+  const gate = 0.3; // gap half-width measured from the front corner along each edge
+
+  const addWall = (x1: number, z1: number, x2: number, z2: number) => {
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const seg = new THREE.Group();
+    seg.position.set((x1 + x2) / 2, y0, (z1 + z2) / 2);
+    seg.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+    const body = new THREE.Mesh(new THREE.BoxGeometry(len, h, t), wallMat);
+    body.position.y = h / 2;
+    body.castShadow = true;
+    seg.add(body);
+    const band = new THREE.Mesh(new THREE.BoxGeometry(len, 0.03, t + 0.012), trimMat);
+    band.position.y = h * 0.55;
+    seg.add(band);
+    const n = Math.max(2, Math.round(len / 0.16));
+    for (let i = 0; i < n; i++) {
+      const mx = -len / 2 + (len / n) * (i + 0.5);
+      const merlon = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.07, t + 0.01), wallMat);
+      merlon.position.set(mx, h + 0.035, 0);
+      seg.add(merlon);
+    }
+    if (glowMat) {
+      const seam = new THREE.Mesh(new THREE.BoxGeometry(len * 0.8, 0.022, t + 0.016), glowMat);
+      seam.position.y = h * 0.22;
+      seg.add(seam);
+    }
+    parent.add(seg);
+  };
+
+  const addTower = (x: number, z: number, scale = 1, banner = false) => {
+    const th = 0.34 * scale;
+    const tw = 0.19 * scale;
+    const body = new THREE.Mesh(new THREE.BoxGeometry(tw, th, tw), wallMat);
+    body.position.set(x, y0 + th / 2, z);
+    body.castShadow = true;
+    parent.add(body);
+    const ring = new THREE.Mesh(new THREE.BoxGeometry(tw + 0.03, 0.04, tw + 0.03), trimMat);
+    ring.position.set(x, y0 + th, z);
+    parent.add(ring);
+    if (st.capKind === 'cone') {
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(tw * 0.78, 0.2 * scale, 4), capMat);
+      cap.position.set(x, y0 + th + 0.12 * scale, z);
+      cap.rotation.y = Math.PI / 4;
+      parent.add(cap);
+    } else if (st.capKind === 'spike') {
+      for (const [dx, dz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.03 * scale, 0.14 * scale, 4), capMat);
+        spike.position.set(x + dx * tw * 0.36, y0 + th + 0.08 * scale, z + dz * tw * 0.36);
+        parent.add(spike);
+      }
+      if (glowMat) {
+        const ember = new THREE.Mesh(new THREE.OctahedronGeometry(0.045 * scale, 0), glowMat);
+        ember.position.set(x, y0 + th + 0.06, z);
+        parent.add(ember);
+      }
+    } else {
+      // dwarven snow-capped flat top with merlons
+      const top = new THREE.Mesh(new THREE.BoxGeometry(tw + 0.02, 0.05, tw + 0.02), capMat);
+      top.position.set(x, y0 + th + 0.045, z);
+      parent.add(top);
+    }
+    if (banner) {
+      const flag = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.13 * scale, 0.09 * scale), bannerMat);
+      flag.position.set(x + tw / 2 + 0.008, y0 + th * 0.58, z);
+      parent.add(flag);
+      const flag2 = new THREE.Mesh(new THREE.BoxGeometry(0.09 * scale, 0.13 * scale, 0.012), bannerMat);
+      flag2.position.set(x, y0 + th * 0.58, z + tw / 2 + 0.008);
+      parent.add(flag2);
+    }
+  };
+
+  // Back edges (mostly hidden behind the art, but they frame the silhouette)
+  addWall(-r, -r, r, -r);
+  addWall(-r, -r, -r, r);
+  // Camera-facing edges, open at the front (+r, +r) gate
+  addWall(-r, r, r - gate, r);
+  addWall(r, -r, r, r - gate);
+
+  addTower(-r, -r, 0.95);
+  addTower(r, -r, 1, true);
+  addTower(-r, r, 1, true);
+  addTower(r - gate, r, 0.82);
+  addTower(r, r - gate, 0.82);
+}
+
+function addRoyalStandard(
+  root: THREE.Group,
+  banners: THREE.Object3D[],
+  x: number,
+  z: number,
+  primary: string,
+  phase: number,
+): void {
+  const gold = getFlatMaterial('#facc15', {
+    metalness: 0.55,
+    roughness: 0.3,
+    emissive: '#f59e0b',
+    emissiveIntensity: 0.25,
+  });
+  const std = new THREE.Group();
+  std.position.set(x, 0, z);
+  std.scale.setScalar(1.3);
+  root.add(std);
+  const poleH = 0.95;
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.03, poleH, 6), gold);
+  pole.position.set(0, CITY_PLAZA_Y / 1.3 + poleH * 0.5, 0);
+  std.add(pole);
+
+  // Little golden crown topping the pole
+  const crown = new THREE.Group();
+  crown.position.set(0, CITY_PLAZA_Y / 1.3 + poleH + 0.05, 0);
+  const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.07, 0.07, 8), gold);
+  crown.add(ring);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.028, 0.085, 4), gold);
+    spike.position.set(Math.cos(a) * 0.072, 0.075, Math.sin(a) * 0.072);
+    crown.add(spike);
+  }
+  const gem = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.035, 0),
+    getFlatMaterial('#ef4444', { emissive: '#dc2626', emissiveIntensity: 0.6 }),
+  );
+  gem.position.y = 0.02;
+  crown.add(gem);
+  std.add(crown);
+
+  const pivot = new THREE.Group();
+  pivot.position.set(0, CITY_PLAZA_Y / 1.3 + poleH - 0.16, 0);
+  pivot.userData.bannerPhase = phase;
+  pivot.userData.baseRotY = 0.6;
+  pivot.rotation.y = 0.6;
+  const cloth = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.24, 0.02),
+    getFlatMaterial(primary, { emissive: primary, emissiveIntensity: 0.18, roughness: 0.75 }),
+  );
+  cloth.position.set(0.17, -0.02, 0);
+  pivot.add(cloth);
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.035, 0.026), gold);
+  trim.position.set(0.17, -0.125, 0);
+  pivot.add(trim);
+  const emblem = new THREE.Mesh(new THREE.OctahedronGeometry(0.05, 0), gold);
+  emblem.position.set(0.17, -0.02, 0.018);
+  emblem.scale.set(1, 1, 0.4);
+  pivot.add(emblem);
+  std.add(pivot);
+  banners.push(pivot);
+}
+
+/**
+ * Board-view city: themed plaza slab + illustrated camera-facing city art (+ optional
+ * 3D walls, parks and a royal standard for capitals). Captured cities follow
+ * `city.styleFaction`, which the engine switches to the conqueror's faction on capture.
+ */
+export function createCityBoardObject(city: City): THREE.Group {
+  const root = new THREE.Group();
+  root.position.y = TILE_TOP_Y;
+  const banners: THREE.Object3D[] = [];
+  root.userData.banners = banners;
+  root.userData.smokePuffs = [];
+
+  const faction = city.styleFaction;
+  const palette = FACTION_DEFINITIONS[faction].palette;
+  const primaryColor = faction === 'orcs' ? '#ef4444' : palette.primary;
+  const tier = getCityArtTier(city);
+  const s = CITY_TIER_SCALE[tier];
+  root.userData.cityArtTier = tier;
+
+  const footprint = new THREE.Group();
+  footprint.scale.set(s, 1, s);
+  root.add(footprint);
+  addCityPlaza(root, faction, s);
+
+  // Camera-facing illustrated city on a bent card
+  const pivot = new THREE.Group();
+  pivot.position.y = CITY_PLAZA_Y;
+  const card = new THREE.Mesh(getCityCardGeometry(tier), getCityArtMaterial(faction, tier));
+  card.castShadow = false;
+  card.receiveShadow = false;
+  card.frustumCulled = false;
+  card.onBeforeRender = (_renderer, _scene, camera) => {
+    const e = camera.matrixWorld.elements;
+    const yaw = Math.atan2(e[8], e[10]);
+    if (pivot.rotation.y !== yaw) {
+      pivot.rotation.y = yaw;
+      pivot.updateMatrixWorld(true);
+    }
+  };
+  pivot.add(card);
+  root.add(pivot);
+
+  if (city.hasWalls) {
+    addBoardWalls(footprint, faction, primaryColor);
+  }
+
+  if (city.parks > 0) {
+    const treeMat = getFlatMaterial(faction === 'elves' ? '#34c77b' : '#3fae4f', { roughness: 0.82 });
+    const trunkMat = getFlatMaterial('#7a5638', { roughness: 0.9 });
+    const spots: [number, number][] = [
+      [-0.72, 0.34],
+      [0.34, -0.72],
+      [-0.5, 0.62],
+    ];
+    const count = Math.min(city.parks, spots.length);
+    for (let i = 0; i < count; i++) {
+      const [px, pz] = spots[i];
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.036, 0.1, 5), trunkMat);
+      trunk.position.set(px, CITY_PLAZA_Y + 0.05, pz);
+      footprint.add(trunk);
+      const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.12, 0), treeMat);
+      crown.position.set(px, CITY_PLAZA_Y + 0.2, pz);
+      crown.castShadow = true;
+      footprint.add(crown);
+    }
+  }
+
+  if (city.isCapital) {
+    addRoyalStandard(root, banners, -0.5 * s, 0.74 * s, primaryColor, city.x * 0.7 + city.y * 1.1);
+  }
+
+  return root;
+}

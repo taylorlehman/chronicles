@@ -711,6 +711,9 @@ export class AppController {
     badges.setOnExploreRuinsClick((unitId) => {
       void this.executeExploreRuins(unitId);
     });
+    badges.setOnPromoteClick((unitId) => {
+      void this.executePromoteUnit(unitId);
+    });
 
     const animQueue = new AnimationQueue(board, badges, sceneManager);
     const input = new InputController(sceneManager, board, {
@@ -987,6 +990,16 @@ export class AppController {
 
     await this.handleHumanAction({ type: 'EXPLORE_RUINS', unitId });
     this.clearSelection();
+  }
+
+  private async executePromoteUnit(unitId: string): Promise<void> {
+    if (!this.state || this.isBusy || this.isAITurnRunning || !this.isHumanTurn()) return;
+    const unit = this.state.units[unitId];
+    if (!unit || unit.ownerId !== this.humanPlayerId || unit.isVeteran) return;
+    if (!unit.canPromote && unit.kills < 3) return;
+
+    triggerAndroidHaptic('capture');
+    await this.handleHumanAction({ type: 'PROMOTE_UNIT', unitId });
   }
 
   private async handleSuperpowerButtonClick(): Promise<void> {

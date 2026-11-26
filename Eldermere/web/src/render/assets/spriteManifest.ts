@@ -42,20 +42,41 @@ export const UNIT_SPRITE_URLS: Record<string, string> = {
   dwarves_ironbreaker: spriteUrl('dwarves_ironbreaker.svg'),
 };
 
-const UNIQUE_UNIT_FALLBACKS: Partial<Record<UnitType, string>> = {
-  rohirrim_knight: UNIT_SPRITE_URLS.humans_rohirrim_knight,
-  uruk_berserker: UNIT_SPRITE_URLS.orcs_uruk_berserker,
-  elven_sentinel: UNIT_SPRITE_URLS.elves_elven_sentinel,
-  ironbreaker: UNIT_SPRITE_URLS.dwarves_ironbreaker,
+/**
+ * Veteran forms: `${faction}_${unitType}_veteran.svg` for every base sprite above — gilded armour,
+ * gold-edged cape and a faction head ornament, emitted by the same generator script with the base
+ * sprite's exact layout so the character keeps its size & footing.
+ */
+export const VETERAN_UNIT_SPRITE_URLS: Record<string, string> = Object.fromEntries(
+  Object.keys(UNIT_SPRITE_URLS).map((key) => [key, spriteUrl(`${key}_veteran.svg`)]),
+);
+
+const UNIQUE_UNIT_FALLBACK_KEYS: Partial<Record<UnitType, string>> = {
+  rohirrim_knight: 'humans_rohirrim_knight',
+  uruk_berserker: 'orcs_uruk_berserker',
+  elven_sentinel: 'elves_elven_sentinel',
+  ironbreaker: 'dwarves_ironbreaker',
 };
 
-export function getUnitSpriteUrl(unitType: UnitType, faction: FactionId): string {
+function resolveSpriteKey(unitType: UnitType, faction: FactionId): string {
   const key = `${faction}_${unitType}`;
-  const exact = UNIT_SPRITE_URLS[key];
-  if (exact) return exact;
+  if (UNIT_SPRITE_URLS[key]) return key;
 
-  const uniqueFallback = UNIQUE_UNIT_FALLBACKS[unitType];
+  const uniqueFallback = UNIQUE_UNIT_FALLBACK_KEYS[unitType];
   if (uniqueFallback) return uniqueFallback;
 
-  return UNIT_SPRITE_URLS[`${faction}_warrior`] ?? UNIT_SPRITE_URLS.humans_warrior;
+  return UNIT_SPRITE_URLS[`${faction}_warrior`] ? `${faction}_warrior` : 'humans_warrior';
+}
+
+/**
+ * Sprite URL for a unit. With `isVeteran`, returns the veteran variant (falling back to the base
+ * sprite if no veteran art exists for that key).
+ */
+export function getUnitSpriteUrl(unitType: UnitType, faction: FactionId, isVeteran = false): string {
+  const key = resolveSpriteKey(unitType, faction);
+  if (isVeteran) {
+    const vet = VETERAN_UNIT_SPRITE_URLS[key];
+    if (vet) return vet;
+  }
+  return UNIT_SPRITE_URLS[key];
 }

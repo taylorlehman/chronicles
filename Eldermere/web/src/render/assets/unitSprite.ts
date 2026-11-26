@@ -170,6 +170,12 @@ const crownGemGeo = new THREE.OctahedronGeometry(0.11, 0);
 const crownHaloGeo = new THREE.TorusGeometry(0.145, 0.024, 6, 16);
 crownHaloGeo.rotateX(Math.PI / 2);
 
+/** Gilded rim hugging the base disc's top edge on veteran units. */
+const veteranRimGeo = new THREE.TorusGeometry(0.405, 0.03, 4, 28);
+veteranRimGeo.rotateX(Math.PI / 2);
+/** The veteran sprite now carries its own head ornament, so the floating crown is a small accent. */
+const VETERAN_CROWN_SCALE = 0.6;
+
 const sharedShadowMat = new THREE.MeshBasicMaterial({
   color: '#0b1220',
   transparent: true,
@@ -708,7 +714,8 @@ export function createUnitSprite(
       flameMesh = tower.flameMesh;
     }
   } else {
-    const spriteUrl = getUnitSpriteUrl(type, faction);
+    // Veterans swap to their gilded / caped / crested sprite variant (falls back to base art).
+    const spriteUrl = getUnitSpriteUrl(type, faction, Boolean(opts?.isVeteran));
     const texture = getUnitSpriteTexture(spriteUrl);
 
     spriteMat = new THREE.SpriteMaterial({
@@ -748,9 +755,30 @@ export function createUnitSprite(
     bodyGroup.add(flashSprite);
   }
 
-  // 6. Veteran golden crown floating above the character's head
+  // 6. Veteran golden crown floating above the character's head (reduced: the veteran sprite has
+  //    its own plume / skull / leaf-crown / gold helm) + gilded rim on the base disc.
   let veteranCrown: THREE.Object3D | null = null;
   if (opts?.isVeteran) {
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: '#f5c542',
+      flatShading: true,
+      metalness: 0.55,
+      roughness: 0.32,
+      emissive: new THREE.Color('#eab308'),
+      emissiveIntensity: 0.45,
+    });
+    bodyMaterials.push({
+      material: rimMat,
+      originalColor: rimMat.color.clone(),
+      originalEmissive: rimMat.emissive.clone(),
+      originalEmissiveIntensity: rimMat.emissiveIntensity,
+    });
+    const veteranRim = new THREE.Mesh(veteranRimGeo, rimMat);
+    veteranRim.position.y = 0.05;
+    veteranRim.scale.set(dims.shadowScale * 0.94, 1, dims.shadowScale * 0.94);
+    veteranRim.renderOrder = 3;
+    group.add(veteranRim);
+
     const crownGroup = new THREE.Group();
     const crownMat = new THREE.MeshStandardMaterial({
       color: '#facc15',
@@ -778,7 +806,8 @@ export function createUnitSprite(
     attachOrthoDepthBias(halo, 0.9);
     crownGroup.add(halo);
 
-    crownGroup.position.y = dims.height + 0.1;
+    crownGroup.scale.setScalar(VETERAN_CROWN_SCALE);
+    crownGroup.position.y = dims.height + 0.06;
     bodyGroup.add(crownGroup);
     veteranCrown = crownGroup;
   }

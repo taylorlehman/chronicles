@@ -164,6 +164,29 @@ function shortActionLabel(opt: ActionOption): string {
   return opt.label;
 }
 
+/** Veteran progress chip for the unit drawer: pips toward 3 kills, "Promote!" when ready. */
+const VETERAN_KILLS = 3;
+function renderVeteranProgress(
+  unit: { kills: number; isVeteran: boolean; canPromote: boolean },
+  isOwnedByHuman: boolean,
+): string {
+  if (unit.isVeteran) {
+    return `<span class="vet-progress is-veteran" title="Veteran: +5 max HP">★ Veteran</span>`;
+  }
+  if (!isOwnedByHuman) return '';
+  const kills = Math.min(VETERAN_KILLS, unit.kills);
+  const ready = unit.canPromote || unit.kills >= VETERAN_KILLS;
+  const left = Math.max(0, VETERAN_KILLS - kills);
+  const pips = Array.from(
+    { length: VETERAN_KILLS },
+    (_, i) => `<i class="${i < kills ? 'is-filled' : ''}"></i>`,
+  ).join('');
+  const label = ready ? 'Ready to promote!' : `${left} more kill${left === 1 ? '' : 's'} to Veteran`;
+  return `<span class="vet-progress ${ready ? 'is-ready' : ''}" title="Veterans gain +5 max HP and a full heal">
+    <span class="vet-pips" aria-hidden="true">${pips}</span><span>${label}</span>
+  </span>`;
+}
+
 function shortDisabledReason(opt: ActionOption, isHumanTurn: boolean): string | null {
   if (!isHumanTurn) return 'Wait';
   if (opt.enabled) return null;
@@ -173,7 +196,11 @@ function shortDisabledReason(opt: ActionOption, isHumanTurn: boolean): string | 
   if (/full hp/i.test(r)) return 'Full HP';
   if (/already acted/i.test(r)) return 'Acted';
   if (/already veteran/i.test(r)) return 'Veteran';
-  if (/kills:/i.test(r)) return r.replace(/Kills:\s*/i, 'Kills ');
+  const killsMatch = r.match(/Kills:\s*(\d+)\s*\/\s*(\d+)/i);
+  if (killsMatch) {
+    const left = Math.max(0, Number(killsMatch[2]) - Number(killsMatch[1]));
+    return `${left} more kill${left === 1 ? '' : 's'}`;
+  }
   if (/occupied/i.test(r)) return 'Occupied';
   if (/cap reached/i.test(r)) return 'Cap Full';
   if (/outside.*border/i.test(r)) return 'Borders';
@@ -358,6 +385,7 @@ export class ActionBar {
         <span class="faction-dot" style="background: ${heraldry};"></span>
         <span class="drawer-title">${esc(def.name)}${unit.isVeteran ? ` ${renderIcon('crown', 'icon icon-sm icon-star')}` : ''}</span>
         <span class="drawer-stats">${esc(statsParts.join(' · '))}</span>
+        ${renderVeteranProgress(unit, isOwnedByHuman)}
       `;
       progressBarHtml = `
         <div class="drawer-hairline-progress">
@@ -367,7 +395,10 @@ export class ActionBar {
 
       if (isOwnedByHuman && vm.selectedUnit.actions.length > 0) {
         // Ensure hero actions (capture-city, explore-ruins) are always featured first
-        const isHeroAction = (id: string) => id === 'capture-city' || id === 'explore-ruins';
+        const isHeroAction = (id: string) =>
+          id === 'capture-city' ||
+          id === 'explore-ruins' ||
+          (id === 'promote' && vm.selectedUnit!.actions.some((o) => o.id === 'promote' && o.enabled));
         const sorted = [...vm.selectedUnit.actions].sort((a, b) => {
           if (isHeroAction(a.id) && !isHeroAction(b.id)) return -1;
           if (!isHeroAction(a.id) && isHeroAction(b.id)) return 1;

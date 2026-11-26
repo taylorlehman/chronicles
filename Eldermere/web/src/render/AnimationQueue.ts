@@ -493,9 +493,18 @@ export class AnimationQueue {
         const pos = getUnitWorldPosition(stateAfter, ev.coord.x, ev.coord.y).add(
           new THREE.Vector3(0, 0.25, 0),
         );
-        this.spawnBurst(pos, 14, '#fde047', { spark: true, speed: 2.8, life: 0.6 });
-        this.badges.spawnFloatingText(ev.coord, 'VETERAN!', 'level');
+        // Joyful promotion: gold sparks, a confetti arc, a double rising ring and a camera bump.
+        this.spawnBurst(pos, 22, '#fde047', { spark: true, speed: 3.2, life: 0.75 });
+        this.spawnBurst(pos.clone().add(new THREE.Vector3(0, 0.45, 0)), 12, '#ffffff', {
+          spark: true,
+          speed: 2.2,
+          life: 0.55,
+        });
+        this.spawnConfettiArc(pos.clone().add(new THREE.Vector3(0, 0.6, 0)), 5);
+        this.badges.spawnFloatingText(ev.coord, '★ VETERAN! ★', 'level');
+        this.sceneManager?.shakeCamera(0.12, 0.25);
         await this.animateRisingPulseRing(pos, '#fde047', 0.38 * invSpeed);
+        await this.animateRisingPulseRing(pos, '#fff7c2', 0.3 * invSpeed);
         return;
       }
 

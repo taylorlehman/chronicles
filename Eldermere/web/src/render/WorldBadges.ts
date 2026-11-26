@@ -10,6 +10,7 @@ import {
   type PlayerId,
 } from '../game/types';
 import { getUnitWorldPosition, TILE_TOP_Y, tileToWorld } from './assets/terrainMesh';
+import { getCityBadgeAnchorY } from './assets/cityMesh';
 import { getUnitHeight } from './assets/unitSprite';
 
 export type FloatingPopupKind = 'damage' | 'heal' | 'gold' | 'pop' | 'level' | 'info';
@@ -68,6 +69,7 @@ function getDisplayFactionColor(faction: FactionId): string {
 }
 
 const CROWN_SVG = `<svg class="capture-affordance-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 18h18v2H3v-2zm0-2L5 7l4.5 4L12 5l2.5 6L19 7l2 9H3z"/></svg>`;
+const PROMOTE_CHEVRON_SVG = `<svg class="capture-affordance-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 1.8l2 4.1 4.5.6-3.3 3.1.8 4.5L12 12l-4 2.1.8-4.5-3.3-3.1 4.5-.6L12 1.8z"/><path d="M4 15.2l8 4.3 8-4.3v3l-8 4.3-8-4.3v-3z"/></svg>`;
 const RUINS_STAR_SVG = `<svg class="capture-affordance-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l2.6 6.4L21 11l-6.4 2.6L12 20l-2.6-6.4L3 11l6.4-2.6L12 2z"/></svg>`;
 
 let stylesInjected = false;
@@ -268,6 +270,27 @@ function ensureWorldBadgeStyles(): void {
       border-color: #fffbeb;
       color: #1c1203;
     }
+    .capture-affordance-btn.promote-affordance-btn {
+      background: linear-gradient(180deg, #fff7c2 0%, #fbbf24 45%, #d97706 100%);
+      border-color: #fffbeb;
+      color: #3b1d02;
+      min-height: 38px;
+      padding: 6px 14px 6px 10px;
+      box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35), 0 0 18px rgba(253, 224, 71, 0.75);
+      animation: wb-promote-pulse 1.1s ease-in-out infinite;
+    }
+    .promote-affordance-btn .capture-affordance-icon {
+      width: 17px;
+      height: 17px;
+      filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.9));
+    }
+    @keyframes wb-promote-pulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35), 0 0 14px rgba(253, 224, 71, 0.6); filter: brightness(1); }
+      50% { box-shadow: 0 0 0 6px rgba(251, 191, 36, 0.18), 0 0 26px rgba(253, 224, 71, 0.95); filter: brightness(1.12); }
+    }
+    html.android-webview .capture-affordance-btn.promote-affordance-btn {
+      animation: none;
+    }
     .capture-affordance-icon {
       width: 15px;
       height: 15px;
@@ -297,6 +320,7 @@ export class WorldBadges {
   private lethalCoords = new Set<string>();
   private onCaptureClick: ((unitId: string) => void) | null = null;
   private onExploreRuinsClick: ((unitId: string) => void) | null = null;
+  private onPromoteClick: ((unitId: string) => void) | null = null;
 
   constructor(container: HTMLElement) {
     ensureWorldBadgeStyles();
@@ -322,6 +346,10 @@ export class WorldBadges {
 
   public setOnExploreRuinsClick(cb: ((unitId: string) => void) | null): void {
     this.onExploreRuinsClick = cb;
+  }
+
+  public setOnPromoteClick(cb: ((unitId: string) => void) | null): void {
+    this.onPromoteClick = cb;
   }
 
   public setUnitOverrideWorldPos(unitId: string, worldPos: THREE.Vector3): void {
@@ -555,7 +583,7 @@ export class WorldBadges {
         const fp = 'ruins|Explore';
 
         const ruinsWorldPos = unitWorldPos.clone();
-        ruinsWorldPos.y += getUnitHeight(unit.type, faction) + 0.28;
+        ruinsWorldPos.y += getUnitHeight(unit.type, faction) + 0.28 + (unit.canCapture ? 0.62 : 0);
 
         const existingRuins = this.captureAffordances.get(ruinsKey);
         if (existingRuins) {
@@ -584,6 +612,50 @@ export class WorldBadges {
             unitId: unit.id,
             worldPos: ruinsWorldPos,
             renderFingerprint: fp,
+            lastDisplay: '',
+            lastTransform: '',
+          });
+        }
+      }
+
+      // Tappable glowing "Promote" pill when a human unit has earned Veteran status (3 kills).
+      // Promotion doesn't use up the unit's turn, so it shows even after the unit has acted.
+      if (isViewerTurn && isHumanOwner && !unit.isVeteran && (unit.canPromote || unit.kills >= 3)) {
+        const promoteKey = `${unit.id}:promote`;
+        activeAffordanceKeys.add(promoteKey);
+        const stackedPills =
+          (isReadyHuman && unit.canCapture ? 1 : 0) + (isReadyHuman && unit.canExploreRuins ? 1 : 0);
+        const promoteWorldPos = unitWorldPos.clone();
+        promoteWorldPos.y += getUnitHeight(unit.type, faction) + 0.28 + stackedPills * 0.62;
+
+        const existingPromote = this.captureAffordances.get(promoteKey);
+        if (existingPromote) {
+          existingPromote.worldPos.copy(promoteWorldPos);
+        } else {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'capture-affordance-btn promote-affordance-btn';
+          btn.dataset.unitId = unit.id;
+          btn.setAttribute('aria-label', 'Promote to Veteran');
+          btn.innerHTML = `${PROMOTE_CHEVRON_SVG}<span>Promote!</span>`;
+
+          const stopOnly = (ev: Event) => {
+            ev.stopPropagation();
+          };
+          btn.addEventListener('pointerdown', stopOnly);
+          btn.addEventListener('pointerup', stopOnly);
+          btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            this.onPromoteClick?.(unit.id);
+          });
+
+          this.captureLayer.appendChild(btn);
+          this.captureAffordances.set(promoteKey, {
+            el: btn,
+            unitId: unit.id,
+            worldPos: promoteWorldPos,
+            renderFingerprint: 'promote',
             lastDisplay: '',
             lastTransform: '',
           });
@@ -645,12 +717,19 @@ export class WorldBadges {
       const pipHtml = `<span class="city-pip-lvl" style="background:${color}">${city.level}</span><div class="city-pip-progress city-pip-bar" aria-label="Level ${city.level}: ${filled} of ${popToNextLevel} population">${compactPipsHtml}</div>`;
 
       const cKey = coordKey(city.x, city.y);
-      const selectedWorldPos = tileToWorld(city.x, city.y, state.mapSize, TILE_TOP_Y + 1.25).add(
-        new THREE.Vector3(-0.28, 0, -0.28),
-      );
-      const unselectedWorldPos = tileToWorld(city.x, city.y, state.mapSize, TILE_TOP_Y + 1.22).add(
-        new THREE.Vector3(-0.38, 0, -0.38),
-      );
+      // Anchor badges just above the illustrated city's silhouette (taller for grander tiers).
+      const selectedWorldPos = tileToWorld(
+        city.x,
+        city.y,
+        state.mapSize,
+        TILE_TOP_Y + getCityBadgeAnchorY(city, 0.28) + 0.03,
+      ).add(new THREE.Vector3(-0.28, 0, -0.28));
+      const unselectedWorldPos = tileToWorld(
+        city.x,
+        city.y,
+        state.mapSize,
+        TILE_TOP_Y + getCityBadgeAnchorY(city, 0.38),
+      ).add(new THREE.Vector3(-0.38, 0, -0.38));
 
       let entry = this.cityBadges.get(city.id);
       if (entry) {

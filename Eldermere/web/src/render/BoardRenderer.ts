@@ -11,7 +11,7 @@ import {
   type Tile,
   type UnitType,
 } from '../game/types';
-import { createCityMesh } from './assets/cityMesh';
+import { createCityBoardObject } from './assets/cityMesh';
 import { createCloudCluster, type CloudCluster } from './assets/cloudMesh';
 import {
   CITY_PLAZA_Y,
@@ -793,7 +793,7 @@ export class BoardRenderer {
         this.citiesGroup.remove(existing.mesh);
       }
 
-      const mesh = createCityMesh(city);
+      const mesh = createCityBoardObject(city);
       const pos = tileToWorld(city.x, city.y, state.mapSize, TILE_TOP_Y);
       mesh.position.set(pos.x, TILE_TOP_Y, pos.z);
       this.citiesGroup.add(mesh);
