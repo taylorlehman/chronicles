@@ -290,48 +290,79 @@
 }
 
 /* --------------------------------------------------------------------------
-   Compact variant — live tutorial steps (pinned under the top bar)
+   Compact variant — live tutorial steps. Alderwick stands at the bottom-left,
+   riding just above the bottom HUD (dock or selection drawer) so the bubble gets
+   the full width for big, readable text. The camera shifts the board up to match
+   (see TutorialController.reportOcclusion → SceneManager.setScreenOcclusion).
    -------------------------------------------------------------------------- */
 .tutorial-banner.tutorial-alderwick-host {
+  top: auto !important;
+  bottom: calc(var(--bottom-hud-height, 96px) + 4px);
   justify-content: flex-start;
+  align-items: flex-end;
+  transition: bottom 220ms ease;
 }
 
 .alderwick-scene.is-compact {
-  column-gap: 14px;
-  align-items: start;
-  width: min(560px, 100%);
+  column-gap: 12px;
+  align-items: end;
+  width: min(620px, 100%);
   pointer-events: none;
 }
 
 .is-compact .alderwick-figure {
-  height: 184px;
+  height: 176px;
 }
 
 .is-compact .alderwick-figure-wrap {
-  align-self: start;
+  align-self: end;
+}
+
+.is-compact .alderwick-figure-shadow {
+  display: none;
 }
 
 .is-compact .alderwick-bubble {
-  --tail-y: 26px;
+  --tail-y: auto;
   pointer-events: auto;
-  padding: 15px 13px 10px;
+  padding: 17px 16px 12px;
   border-radius: 18px;
-  margin-top: 8px;
+  margin-bottom: 26px;
   max-height: none;
 }
 
+/* Tail points down-left toward Alderwick's face */
+.is-compact .alderwick-bubble::before {
+  top: auto;
+  bottom: 34px;
+}
+
+.is-compact .alderwick-bubble::after {
+  top: auto;
+  bottom: 38px;
+}
+
 .is-compact .alderwick-bubble-body p {
-  font-size: 14px;
-  line-height: 1.35;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.4;
   margin-bottom: 6px;
 }
 
+.is-compact .tutorial-title {
+  font-size: 17px !important;
+}
+
 .is-compact .alderwick-bubble-header {
-  margin: 0 0 5px;
+  margin: 0 0 6px;
 }
 
 .is-compact .alderwick-bubble-actions {
-  margin-top: 6px;
+  margin-top: 8px;
+}
+
+.is-compact .tutorial-nudge {
+  font-size: 15px;
 }
 
 .is-compact .tutorial-next-btn,
@@ -535,15 +566,33 @@
 
   /* Compact tutorial host on phones */
   .is-compact .alderwick-figure {
-    height: 132px;
+    height: 128px;
   }
 
   .alderwick-scene.is-compact {
-    column-gap: 10px;
+    column-gap: 6px;
+  }
+
+  .is-compact .alderwick-bubble {
+    padding: 15px 12px 10px;
+    margin-bottom: 18px;
+  }
+
+  .is-compact .alderwick-bubble::before {
+    bottom: 22px;
+  }
+
+  .is-compact .alderwick-bubble::after {
+    bottom: 26px;
   }
 
   .is-compact .alderwick-bubble-body p {
-    font-size: 13px;
+    font-size: 16px;
+    line-height: 1.36;
+  }
+
+  .is-compact .tutorial-title {
+    font-size: 15.5px !important;
   }
 
   .is-compact .tutorial-hint-note {

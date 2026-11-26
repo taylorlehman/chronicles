@@ -122,6 +122,8 @@ export interface TutorialCallbacks {
   onEndTutorial?: () => void;
   onModalOpen?: () => void;
   onModalClose?: () => void;
+  /** Screen pixels covered by the top bar / Alderwick's bottom bubble during live steps (0, 0 when clear). */
+  onOcclusionChange?: (topPx: number, bottomPx: number) => void;
 }
 
 function esc(value: string): string {
@@ -157,6 +159,43 @@ export class TutorialController {
     this.modalEl.setAttribute('aria-modal', 'true');
     this.modalEl.setAttribute('aria-label', 'Alderwick Tutorial');
     container.appendChild(this.modalEl);
+
+    if (typeof ResizeObserver !== 'undefined') {
+      this.occlusionObserver = new ResizeObserver(() => this.scheduleOcclusionReport());
+      this.occlusionObserver.observe(this.bannerEl);
+    }
+    window.addEventListener('eldermere:bottom-hud-resize', this.handleLayoutChange);
+    window.addEventListener('resize', this.handleLayoutChange);
+  }
+
+  private occlusionObserver: ResizeObserver | null = null;
+  private occlusionRaf: number | null = null;
+  private lastOcclusion = '';
+  private readonly handleLayoutChange = (): void => this.scheduleOcclusionReport();
+
+  private scheduleOcclusionReport(): void {
+    if (this.occlusionRaf !== null) return;
+    this.occlusionRaf = window.requestAnimationFrame(() => {
+      this.occlusionRaf = null;
+      this.reportOcclusion();
+    });
+  }
+
+  /** Lets the camera slide the board up so the focus point stays visible above Alderwick. */
+  private reportOcclusion(): void {
+    const cb = this.callbacks.onOcclusionChange;
+    if (!cb) return;
+    let top = 0;
+    let bottom = 0;
+    if (isTutorialStepStage(this.stage) && !this.bannerEl.classList.contains('hidden')) {
+      const scene = this.bannerEl.querySelector<HTMLElement>('.alderwick-scene') ?? this.bannerEl;
+      bottom = Math.max(0, window.innerHeight - scene.getBoundingClientRect().top);
+      top = document.querySelector('.top-bar')?.getBoundingClientRect().bottom ?? 0;
+    }
+    const key = `${Math.round(top)}:${Math.round(bottom)}`;
+    if (key === this.lastOcclusion) return;
+    this.lastOcclusion = key;
+    cb(top, bottom);
   }
 
   /** True while the tutorial is in progress (intro or any of the 7 scripted steps). */
@@ -193,6 +232,7 @@ export class TutorialController {
     this.nudgeMessage = null;
     this.stage = nextStage;
     setStarShardSpotlight(nextStage === 'complete');
+    this.scheduleOcclusionReport();
     this.subProgress = subProgress;
 
     if (nextStage === null) {
@@ -325,12 +365,17 @@ export class TutorialController {
 
   public destroy(): void {
     this.clearNudgeTimer();
+    this.occlusionObserver?.disconnect();
+    window.removeEventListener('eldermere:bottom-hud-resize', this.handleLayoutChange);
+    window.removeEventListener('resize', this.handleLayoutChange);
+    if (this.occlusionRaf !== null) window.cancelAnimationFrame(this.occlusionRaf);
     this.bannerEl.remove();
     this.modalEl.remove();
   }
 
   private hideElements(): void {
     setStarShardSpotlight(false);
+    this.scheduleOcclusionReport();
     delete this.bannerEl.dataset.renderedStep;
     this.bannerEl.classList.add('hidden');
     this.bannerEl.innerHTML = '';

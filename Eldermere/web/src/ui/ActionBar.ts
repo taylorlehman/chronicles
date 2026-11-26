@@ -194,6 +194,20 @@ export class ActionBar {
     this.root.className = 'bottom-hud-wrapper hidden';
     this.root.setAttribute('aria-label', 'Game actions');
     container.appendChild(this.root);
+
+    // Publish the bottom HUD height so overlays (Alderwick's tutorial bubble) can sit above it.
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.publishHeight());
+      this.resizeObserver.observe(this.root);
+    }
+  }
+
+  private resizeObserver: ResizeObserver | null = null;
+
+  private publishHeight(): void {
+    const height = this.root.classList.contains('hidden') ? 0 : this.root.getBoundingClientRect().height;
+    document.documentElement.style.setProperty('--bottom-hud-height', `${Math.round(height)}px`);
+    window.dispatchEvent(new CustomEvent('eldermere:bottom-hud-resize'));
   }
 
   public show(): void {
@@ -210,6 +224,7 @@ export class ActionBar {
   }
 
   public destroy(): void {
+    this.resizeObserver?.disconnect();
     this.root.remove();
   }
 

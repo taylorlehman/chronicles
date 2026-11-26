@@ -114,6 +114,9 @@ export class SceneManager {
   private currentAzimuth = INITIAL_AZIMUTH_RAD;
   private desiredAzimuth = INITIAL_AZIMUTH_RAD;
   private currentZoom = 1.05;
+  // Vertical render offset (CSS px) that keeps the focus point clear of bottom/top UI.
+  private desiredViewShiftPx = 0;
+  private currentViewShiftPx = 0;
   private desiredZoom = 1.05;
   private boardHalfExtent = 12;
   private lastBoardMapSize: number | null = null;
@@ -344,10 +347,32 @@ export class SceneManager {
     this.camera.right = BASE_FRUSTUM_HALF_HEIGHT * aspect;
     this.camera.top = BASE_FRUSTUM_HALF_HEIGHT;
     this.camera.bottom = -BASE_FRUSTUM_HALF_HEIGHT;
+    this.applyViewShift();
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height);
     if (this.rafId === null) {
       this.renderer.render(this.scene, this.camera);
+    }
+  }
+
+  /**
+   * Tells the camera how many CSS pixels of the screen are covered by UI at the top and bottom
+   * (e.g. the top bar and Alderwick's tutorial bubble). The rendered view slides up/down so the
+   * camera's focus point sits in the middle of the unobstructed band instead of under the UI.
+   */
+  public setScreenOcclusion(topPx: number, bottomPx: number): void {
+    const height = Math.max(this.container.clientHeight, 1);
+    const shift = (Math.max(0, bottomPx) - Math.max(0, topPx)) / 2;
+    this.desiredViewShiftPx = THREE.MathUtils.clamp(shift, -height * 0.3, height * 0.3);
+  }
+
+  private applyViewShift(): void {
+    const width = Math.max(this.container.clientWidth, 1);
+    const height = Math.max(this.container.clientHeight, 1);
+    if (Math.abs(this.currentViewShiftPx) < 0.5) {
+      this.camera.clearViewOffset();
+    } else {
+      this.camera.setViewOffset(width, height, 0, this.currentViewShiftPx, width, height);
     }
   }
 
@@ -487,6 +512,15 @@ export class SceneManager {
       this.currentZoom = THREE.MathUtils.lerp(this.currentZoom, this.desiredZoom, tZoom);
     } else {
       this.currentZoom = this.desiredZoom;
+    }
+
+    if (Math.abs(this.desiredViewShiftPx - this.currentViewShiftPx) > 0.25) {
+      this.currentViewShiftPx = THREE.MathUtils.lerp(this.currentViewShiftPx, this.desiredViewShiftPx, tPan);
+      if (Math.abs(this.desiredViewShiftPx - this.currentViewShiftPx) <= 0.25) {
+        this.currentViewShiftPx = this.desiredViewShiftPx;
+      }
+      this.applyViewShift();
+      this.camera.updateProjectionMatrix();
     }
 
     // Smoothly transition Starlit Eclipse atmosphere

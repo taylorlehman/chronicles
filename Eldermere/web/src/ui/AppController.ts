@@ -293,6 +293,9 @@ export class AppController {
       onStageChange: () => {
         this.persistActiveCampaign();
       },
+      onOcclusionChange: (topPx, bottomPx) => {
+        this.sceneManager?.setScreenOcclusion(topPx, bottomPx);
+      },
       onStartTutorial: () => {
         triggerAndroidHaptic('tap');
         this.syncTutorialContext();
