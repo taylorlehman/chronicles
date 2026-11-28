@@ -1,7 +1,13 @@
 import { FACTION_DEFINITIONS } from '../game/data';
 import type { FactionId } from '../game/types';
+import { renderAlderwickScene } from './AlderwickSpeech';
 import { FACTION_HERALDRY } from './Screens';
-import { ALDERWICK_ASSETS, ALDERWICK_FULL_TITLE, getEliminationWhisper } from './alderwick';
+import {
+  ALDERWICK_ASSETS,
+  ALDERWICK_FULL_TITLE,
+  getEliminationWhisper,
+  getRivalDefeatCongrats,
+} from './alderwick';
 import { renderFactionCrest, renderIcon } from './icons';
 
 function esc(value: string): string {
@@ -21,6 +27,7 @@ export class DefeatNoticeModal {
   private readonly callbacks: DefeatNoticeCallbacks;
   private openState = false;
   private humanDefeatedMode = false;
+  private humanVictorMode = false;
   private pendingResolve: (() => void) | null = null;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
 
@@ -57,19 +64,27 @@ export class DefeatNoticeModal {
     return this.openState && this.humanDefeatedMode;
   }
 
+  public isHumanVictor(): boolean {
+    return this.openState && this.humanVictorMode;
+  }
+
   public show(
     defeatedFaction: FactionId,
     victorFaction: FactionId,
     isHumanDefeated = false,
+    isHumanVictor = false,
   ): Promise<void> {
     if (this.pendingResolve || this.openState) {
       this.close(true);
     }
 
+    const humanCongrats = isHumanVictor && !isHumanDefeated;
     this.openState = true;
     this.humanDefeatedMode = isHumanDefeated;
+    this.humanVictorMode = humanCongrats;
     this.root.setAttribute('data-human-defeated', String(isHumanDefeated));
-    this.render(defeatedFaction, victorFaction, isHumanDefeated);
+    this.root.setAttribute('data-human-victor', String(humanCongrats));
+    this.render(defeatedFaction, victorFaction, isHumanDefeated, humanCongrats);
     this.root.classList.remove('hidden');
 
     const continueBtn = this.root.querySelector<HTMLButtonElement>('[data-action="continue"]');
@@ -88,8 +103,10 @@ export class DefeatNoticeModal {
     const wasHumanDefeated = this.humanDefeatedMode;
     this.openState = false;
     this.humanDefeatedMode = false;
+    this.humanVictorMode = false;
     this.root.classList.add('hidden');
     this.root.removeAttribute('data-human-defeated');
+    this.root.removeAttribute('data-human-victor');
     const resolve = this.pendingResolve;
     this.pendingResolve = null;
     resolve?.();
@@ -108,12 +125,55 @@ export class DefeatNoticeModal {
     defeatedFaction: FactionId,
     victorFaction: FactionId,
     isHumanDefeated: boolean,
+    isHumanVictor: boolean,
   ): void {
     const defeatedDef = FACTION_DEFINITIONS[defeatedFaction];
     const victorDef = FACTION_DEFINITIONS[victorFaction];
     const defeatedColor = FACTION_HERALDRY[defeatedFaction];
     const victorColor = FACTION_HERALDRY[victorFaction];
+
+    if (isHumanVictor && !isHumanDefeated) {
+      const congrats = getRivalDefeatCongrats(defeatedFaction, victorFaction);
+      this.root.className = 'alderwick-stage-backdrop defeat-notice-modal is-human-victory';
+      this.root.setAttribute('aria-label', `${defeatedDef.name} Defeated — ${ALDERWICK_FULL_TITLE} congratulates you`);
+      this.root.innerHTML = renderAlderwickScene({
+        pose: 'cheer',
+        variant: 'stage',
+        extraClass: 'is-rival-congrats',
+        headerHtml: `
+          <span class="rival-congrats-crest" style="background: ${defeatedColor};" aria-hidden="true">
+            ${renderFactionCrest(defeatedFaction, 'icon')}
+          </span>
+          <strong class="rival-congrats-title">${esc(congrats.kicker)}</strong>
+          <span class="rival-congrats-badge">
+            ${renderIcon('crown', 'icon icon-xs')}
+            <span>Rival Fallen</span>
+          </span>
+        `,
+        bodyHtml: `
+          <p class="alderwick-bubble-lead">${esc(congrats.lead)}</p>
+          <p>${esc(congrats.body)}</p>
+          <p class="alderwick-bubble-signoff">${esc(congrats.signoff)}</p>
+        `,
+        actionsHtml: `
+          <button type="button" class="btn btn-cta alderwick-bubble-cta" data-action="continue">
+            <span>Onward!</span>
+            ${renderIcon('chevronRight', 'icon icon-sm')}
+          </button>
+        `,
+      });
+
+      this.root
+        .querySelector<HTMLButtonElement>('[data-action="continue"]')
+        ?.addEventListener('click', () => {
+          this.close();
+        });
+      return;
+    }
+
     const alderwickWhisper = getEliminationWhisper(defeatedFaction, victorFaction, isHumanDefeated);
+    this.root.className = 'modal-backdrop defeat-notice-modal';
+    this.root.setAttribute('aria-label', 'Faction Defeated');
 
     this.root.innerHTML = `
       <div

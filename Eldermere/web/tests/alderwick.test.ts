@@ -5,11 +5,13 @@ import {
   ALDERWICK_ASSETS,
   ALDERWICK_FULL_TITLE,
   ALDERWICK_POSES,
+  HUMAN_RIVAL_DEFEAT_CONGRATS,
   RESIGN_CHRONICLE,
   SUPERPOWER_SHOWCASE,
   VICTORY_CHRONICLE,
   getDefeatChronicle,
   getEliminationWhisper,
+  getRivalDefeatCongrats,
 } from '../src/ui/alderwick';
 
 describe('Alderwick the Star-Keeper — Assets, Tutorial & Endgame Chronicles', () => {
@@ -86,5 +88,26 @@ describe('Alderwick the Star-Keeper — Assets, Tutorial & Endgame Chronicles', 
       expect(humanWhisper).toMatch(/Chronicle/);
       expect(humanWhisper).toMatch(/final stronghold/i);
     }
+  });
+
+  it('provides lore-grounded Alderwick rival-defeat congrats for all 4 realms', () => {
+    const expectedRealms: Record<string, RegExp> = {
+      humans: /Valoria & Sunmark/,
+      orcs: /Ashfell & Ironspire/,
+      elves: /Sylvanvale & Starhaven/,
+      dwarves: /Deepforge & Stonehelm/,
+    };
+    for (const defeated of ALL_FACTIONS) {
+      const victor = ALL_FACTIONS.find((f) => f !== defeated)!;
+      const copy = getRivalDefeatCongrats(defeated, victor);
+      expect(copy).toEqual(HUMAN_RIVAL_DEFEAT_CONGRATS[defeated]);
+      expect(copy.kicker).toMatch(expectedRealms[defeated]);
+      expect(copy.body).toMatch(expectedRealms[defeated]);
+      expect(copy.body).toMatch(/Star-Crown/);
+      expect(`${copy.body} ${copy.signoff}`).toMatch(/Chronicle/);
+      expect(copy.lead.length).toBeGreaterThan(10);
+      expect(copy.signoff.length).toBeGreaterThan(10);
+    }
+    expect(HUMAN_RIVAL_DEFEAT_CONGRATS.elves.body).toMatch(/Keepers of the Starlight/);
   });
 });

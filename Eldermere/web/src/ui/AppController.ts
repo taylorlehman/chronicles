@@ -1315,6 +1315,9 @@ export class AppController {
     }
 
     const clickedUnit = this.getUnitAtCoord(coord);
+    const owningCity = tile.cityId ? this.state.cities[tile.cityId] : undefined;
+    const ownedByHumanCityId =
+      owningCity && owningCity.ownerId === this.humanPlayerId ? owningCity.id : null;
 
     // Two-tap toggle on the SAME tile: Unit <-> City/Tile underneath
     if (
@@ -1325,6 +1328,9 @@ export class AppController {
       if (clickedUnit && this.hasTileUnderlay(tile, human)) {
         const nextLayer: SelectionLayer = this.selectionLayer === 'unit' ? 'tile' : 'unit';
         this.selectCoord(coord, nextLayer);
+      }
+      if (ownedByHumanCityId) {
+        this.board?.pulseCity(ownedByHumanCityId);
       }
       return;
     }
@@ -1359,6 +1365,9 @@ export class AppController {
 
     // 1st tap on a new tile: focus unit if present, otherwise tile/city
     this.selectCoord(coord, clickedUnit ? 'unit' : 'tile');
+    if (ownedByHumanCityId) {
+      this.board?.pulseCity(ownedByHumanCityId);
+    }
   }
 
   private switchSelectionLayer(layer: SelectionLayer): void {
@@ -2262,12 +2271,26 @@ export class AppController {
         this.handleHumanDefeated(ev.eliminatedByPlayerId);
         return;
       }
+      // If this elimination ended the match (e.g. final rival defeated -> Domination Victory),
+      // go straight to GameOverOverlay without a redundant mid-game modal beforehand.
+      if (state.phase !== 'playing') {
+        continue;
+      }
       const defeated = getPlayer(state, ev.playerId);
       const victor = getPlayer(state, ev.eliminatedByPlayerId);
       if (defeated && victor) {
+        const isHumanVictor = ev.eliminatedByPlayerId === this.humanPlayerId;
+        if (isHumanVictor) {
+          triggerAndroidHaptic('victory');
+        }
         this.pauseSceneBehindOpaqueSheet();
         try {
-          await this.defeatNoticeModal.show(defeated.faction, victor.faction, false);
+          await this.defeatNoticeModal.show(
+            defeated.faction,
+            victor.faction,
+            false,
+            isHumanVictor,
+          );
         } finally {
           this.resumeSceneAfterOpaqueSheet();
         }

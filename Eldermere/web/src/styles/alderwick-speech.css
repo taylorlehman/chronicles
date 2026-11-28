@@ -43,8 +43,25 @@
   display: none !important;
 }
 
-.alderwick-stage-backdrop.resignation-screen {
+.alderwick-stage-backdrop.resignation-screen,
+.alderwick-stage-backdrop.defeat-notice-modal.is-human-victory {
   z-index: 85;
+  background: linear-gradient(
+    180deg,
+    rgba(8, 14, 28, 0.2) 0%,
+    rgba(8, 14, 28, 0.5) 40%,
+    rgba(8, 14, 28, 0.84) 100%
+  );
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.alderwick-stage-backdrop.is-human-victory .alderwick-scene {
+  pointer-events: none;
+}
+
+.alderwick-stage-backdrop.is-human-victory .alderwick-bubble {
+  pointer-events: auto;
 }
 
 /* --------------------------------------------------------------------------
@@ -501,6 +518,57 @@
   text-transform: uppercase;
   color: var(--ui-ink-muted);
   white-space: nowrap;
+}
+
+/* Mid-game rival defeated congrats header inside Alderwick speech bubble */
+.is-rival-congrats .alderwick-bubble-header {
+  flex-wrap: wrap;
+  gap: 6px 9px;
+}
+
+.rival-congrats-crest {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  border: 2px solid var(--bubble-line);
+  color: #ffffff;
+}
+
+.rival-congrats-crest .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.rival-congrats-title {
+  font-size: var(--alderwick-title-size);
+  font-weight: 900;
+  color: #1d2b4a;
+  line-height: 1.15;
+}
+
+.rival-congrats-badge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #fef08a 0%, #eab308 100%);
+  border: 1.5px solid var(--bubble-line);
+  color: #1d2b4a;
+  font-size: var(--alderwick-pill-size);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.rival-congrats-badge .icon {
+  color: #1d2b4a;
 }
 
 /* --------------------------------------------------------------------------

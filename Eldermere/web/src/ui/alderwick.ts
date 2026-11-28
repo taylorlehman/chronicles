@@ -149,6 +149,47 @@ export const RESIGN_CHRONICLE: Record<FactionId, ChronicleOutcomeCopy> = {
   },
 };
 
+export interface RivalDefeatCongratsCopy {
+  kicker: string;
+  lead: string;
+  body: string;
+  signoff: string;
+}
+
+export const HUMAN_RIVAL_DEFEAT_CONGRATS: Record<FactionId, RivalDefeatCongratsCopy> = {
+  humans: {
+    kicker: 'Valoria & Sunmark Fall',
+    lead: 'Splendid triumph, Commander!',
+    body: 'The sunlit highways and beacons of Valoria & Sunmark now bow to your banner—the Humans’ shard of the Star-Crown shines proudly in your Chronicle!',
+    signoff: 'One fewer rival stands between you and the reforged Star-Crown!',
+  },
+  orcs: {
+    kicker: 'Ashfell & Ironspire Fall',
+    lead: 'Huzzah, Commander!',
+    body: 'You’ve quieted the roaring war-forges of Ashfell & Ironspire—the Orcs’ shard of the Star-Crown is yours, and my beard wasn’t even singed!',
+    signoff: 'A roaring new chapter is sealed in your Chronicle!',
+  },
+  elves: {
+    kicker: 'Sylvanvale & Starhaven Fall',
+    lead: 'Marvelous command, Commander!',
+    body: 'Even the Keepers of the Starlight in Sylvanvale & Starhaven could not hold back your march—the Elves’ shard of the Star-Crown now illuminates your Chronicle!',
+    signoff: 'Celestial Starlight yields to your rising realm!',
+  },
+  dwarves: {
+    kicker: 'Deepforge & Stonehelm Fall',
+    lead: 'By my star-hat, what a feat!',
+    body: 'You’ve claimed the mighty mountain halls of Deepforge & Stonehelm—not even Starsteel walls could halt you, and the Dwarves’ shard of the Star-Crown joins your Chronicle!',
+    signoff: 'Onward to claim Eldermere’s throne, Commander!',
+  },
+};
+
+export function getRivalDefeatCongrats(
+  defeatedFaction: FactionId,
+  _victorFaction?: FactionId,
+): RivalDefeatCongratsCopy {
+  return HUMAN_RIVAL_DEFEAT_CONGRATS[defeatedFaction];
+}
+
 export function getEliminationWhisper(
   defeatedFaction: FactionId,
   victorFaction: FactionId,

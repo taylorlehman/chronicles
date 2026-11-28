@@ -365,9 +365,12 @@ export class BoardRenderer {
   private cityObjects = new Map<string, THREE.Group>();
   private cloudObjects = new Map<string, CloudCluster>();
 
+  private static readonly CITY_PULSE_DURATION = 0.34;
+
   // Animation guards: prevent syncState & idle update loops from fighting active tweens
   private animatingUnitIds = new Set<string>();
   private animatingCloudKeys = new Set<string>();
+  private cityPulses = new Map<string, { elapsed: number; duration: number }>();
 
   // Overlays
   private hoverBracket: THREE.Group;
@@ -377,7 +380,6 @@ export class BoardRenderer {
   private superpowerOverlayGroup = new THREE.Group();
   private tutorialOverlayGroup = new THREE.Group();
   private tutorialResourceKeys = new Set<string>();
-  private tutorialResourceCoords: Coord[] = [];
   private tutorialTileCoords: Coord[] = [];
 
   constructor(scene: THREE.Scene) {
@@ -477,6 +479,26 @@ export class BoardRenderer {
 
   public getCityObject(cityId: string): THREE.Group | undefined {
     return this.cityObjects.get(cityId);
+  }
+
+  public pulseCity(cityId: string): void {
+    if (!this.cityObjects.has(cityId)) return;
+    this.cityPulses.set(cityId, {
+      elapsed: 0,
+      duration: BoardRenderer.CITY_PULSE_DURATION,
+    });
+  }
+
+  public isCityPulsing(cityId: string): boolean {
+    return this.cityPulses.has(cityId);
+  }
+
+  public getTutorialOverlayCount(): number {
+    return this.tutorialOverlayGroup.children.length;
+  }
+
+  public getTutorialResourceTargetKeys(): ReadonlySet<string> {
+    return this.tutorialResourceKeys;
   }
 
   public getCloudObject(x: number, y: number): CloudCluster | undefined {
@@ -646,7 +668,6 @@ export class BoardRenderer {
     this.tileResourceGroups.clear();
     clearGroup(this.tutorialOverlayGroup);
     this.tutorialResourceKeys.clear();
-    this.tutorialResourceCoords = [];
     this.tutorialTileCoords = [];
 
     for (const cloud of this.cloudObjects.values()) {
@@ -662,6 +683,7 @@ export class BoardRenderer {
     clearGroup(this.citiesGroup);
     this.cityEntries.clear();
     this.cityObjects.clear();
+    this.cityPulses.clear();
     this.cityBanners = [];
     this.citySmokePuffs = [];
     this.cityCrystals = [];
@@ -803,7 +825,7 @@ export class BoardRenderer {
           });
         }
       }
-      if (this.tutorialResourceCoords.length > 0 || this.tutorialTileCoords.length > 0) {
+      if (this.tutorialTileCoords.length > 0) {
         this.rebuildTutorialOverlays();
       }
     }
@@ -867,6 +889,7 @@ export class BoardRenderer {
       const mesh = createCityBoardObject(city);
       const pos = tileToWorld(city.x, city.y, state.mapSize, TILE_TOP_Y);
       mesh.position.set(pos.x, TILE_TOP_Y, pos.z);
+      mesh.userData.baseY = TILE_TOP_Y;
       this.citiesGroup.add(mesh);
       this.cityEntries.set(city.id, { fingerprint: fp, mesh });
       this.cityObjects.set(city.id, mesh);
@@ -878,6 +901,7 @@ export class BoardRenderer {
         this.citiesGroup.remove(entry.mesh);
         this.cityEntries.delete(cityId);
         this.cityObjects.delete(cityId);
+        this.cityPulses.delete(cityId);
         citiesChanged = true;
       }
     }
@@ -1433,8 +1457,6 @@ export class BoardRenderer {
       }
     }
     this.tutorialResourceKeys = nextKeys;
-    this.tutorialResourceCoords = coords.map((c) => ({ x: c.x, y: c.y }));
-    this.rebuildTutorialOverlays();
   }
 
   public setTutorialTileTargets(coords: Coord[]): void {
@@ -1448,7 +1470,7 @@ export class BoardRenderer {
 
     const seen = new Set<string>();
     const combined: Coord[] = [];
-    for (const c of [...this.tutorialResourceCoords, ...this.tutorialTileCoords]) {
+    for (const c of this.tutorialTileCoords) {
       const k = coordKey(c.x, c.y);
       if (seen.has(k)) continue;
       seen.add(k);
@@ -1710,6 +1732,34 @@ export class BoardRenderer {
       const pulse = Math.sin(elapsed * 7.2 + phase) * 0.5 + Math.sin(elapsed * 11.4 + phase * 1.7) * 0.5;
       flame.scale.set(1 + pulse * 0.06, 1 + pulse * 0.14, 1 + pulse * 0.06);
       flame.rotation.y += dt * spin;
+    }
+
+    // 8c. Subtle damped micro-hop & tilt wiggle on owning city when player taps its territory tile
+    for (const [cityId, pulse] of this.cityPulses) {
+      const mesh = this.cityObjects.get(cityId);
+      if (!mesh) {
+        this.cityPulses.delete(cityId);
+        continue;
+      }
+      const baseY = (mesh.userData.baseY as number | undefined) ?? TILE_TOP_Y;
+      pulse.elapsed += dt;
+      if (pulse.elapsed >= pulse.duration) {
+        mesh.position.y = baseY;
+        mesh.scale.set(1, 1, 1);
+        mesh.rotation.set(0, 0, 0);
+        this.cityPulses.delete(cityId);
+        continue;
+      }
+      const u = pulse.elapsed / pulse.duration;
+      const lift = Math.sin(u * Math.PI) * (1 - u * 0.45) * 0.05;
+      const stretch = Math.sin(u * Math.PI * 2) * Math.pow(1 - u, 1.35) * 0.048;
+      const scaleY = 1 + stretch;
+      const scaleXZ = 1 - stretch * 0.45;
+      const tilt = Math.sin(u * Math.PI * 2.5) * Math.pow(1 - u, 1.5) * 0.054;
+
+      mesh.position.y = baseY + lift;
+      mesh.scale.set(scaleXZ, scaleY, scaleXZ);
+      mesh.rotation.set(-tilt * Math.SQRT1_2, 0, tilt * Math.SQRT1_2);
     }
 
     // 9. Ambient floating motes
