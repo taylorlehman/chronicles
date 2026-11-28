@@ -1040,6 +1040,9 @@ describe('Captures, Elimination & Win Conditions', () => {
       type: 'PLAYER_ELIMINATED',
       playerId: 'player_dwarves',
       eliminatedByPlayerId: 'player_orcs',
+      shardsAwarded: ['dwarves'],
+      killerShardsBefore: ['orcs'],
+      killerShardsAfter: ['orcs', 'dwarves'],
     });
   });
 

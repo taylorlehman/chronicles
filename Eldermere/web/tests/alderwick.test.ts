@@ -31,8 +31,9 @@ describe('Alderwick the Star-Keeper — Assets, Tutorial & Endgame Chronicles', 
     }
   });
 
-  it('covers all 8 scripted tutorial steps and all 4 faction superpowers', () => {
+  it('covers all 9 scripted tutorial steps and all 4 faction superpowers', () => {
     expect(TUTORIAL_STEPS.map((s) => s.id)).toEqual([
+      'crown',
       'stars',
       'upgrade',
       'move',
@@ -42,6 +43,10 @@ describe('Alderwick the Star-Keeper — Assets, Tutorial & Endgame Chronicles', 
       'train',
       'end_turn',
     ]);
+    // Verify Step 1 explicitly explains the Star-Crown & 1 of 4 pieces
+    const crownStep = TUTORIAL_STEPS.find((s) => s.id === 'crown');
+    expect(crownStep?.body).toMatch(/Star-Crown/);
+    expect(crownStep?.body).toMatch(/1 of 4/);
     // Verify capture step copy matches ActionBar's actual "Claim" button label
     const captureStep = TUTORIAL_STEPS.find((s) => s.id === 'capture');
     expect(captureStep?.body).toMatch(/\bClaim\b/);

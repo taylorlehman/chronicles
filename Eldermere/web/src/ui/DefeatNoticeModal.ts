@@ -2,6 +2,7 @@ import { FACTION_DEFINITIONS } from '../game/data';
 import type { FactionId } from '../game/types';
 import { renderAlderwickScene } from './AlderwickSpeech';
 import { FACTION_HERALDRY } from './Screens';
+import { STAR_CROWN_TOTAL_SHARDS, renderStarCrownForge } from './StarCrown';
 import {
   ALDERWICK_ASSETS,
   ALDERWICK_FULL_TITLE,
@@ -16,6 +17,13 @@ function esc(value: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+export interface RivalDefeatCrownForge {
+  beforeShards: readonly FactionId[];
+  addedShards: readonly FactionId[];
+  afterShards: readonly FactionId[];
+  total?: number;
 }
 
 export interface DefeatNoticeCallbacks {
@@ -73,6 +81,7 @@ export class DefeatNoticeModal {
     victorFaction: FactionId,
     isHumanDefeated = false,
     isHumanVictor = false,
+    crownForge?: RivalDefeatCrownForge,
   ): Promise<void> {
     if (this.pendingResolve || this.openState) {
       this.close(true);
@@ -84,7 +93,7 @@ export class DefeatNoticeModal {
     this.humanVictorMode = humanCongrats;
     this.root.setAttribute('data-human-defeated', String(isHumanDefeated));
     this.root.setAttribute('data-human-victor', String(humanCongrats));
-    this.render(defeatedFaction, victorFaction, isHumanDefeated, humanCongrats);
+    this.render(defeatedFaction, victorFaction, isHumanDefeated, humanCongrats, crownForge);
     this.root.classList.remove('hidden');
 
     const continueBtn = this.root.querySelector<HTMLButtonElement>('[data-action="continue"]');
@@ -126,6 +135,7 @@ export class DefeatNoticeModal {
     victorFaction: FactionId,
     isHumanDefeated: boolean,
     isHumanVictor: boolean,
+    crownForge?: RivalDefeatCrownForge,
   ): void {
     const defeatedDef = FACTION_DEFINITIONS[defeatedFaction];
     const victorDef = FACTION_DEFINITIONS[victorFaction];
@@ -133,7 +143,29 @@ export class DefeatNoticeModal {
     const victorColor = FACTION_HERALDRY[victorFaction];
 
     if (isHumanVictor && !isHumanDefeated) {
-      const congrats = getRivalDefeatCongrats(defeatedFaction, victorFaction);
+      const total = crownForge?.total ?? STAR_CROWN_TOTAL_SHARDS;
+      const beforeShards = crownForge?.beforeShards ?? [victorFaction];
+      const addedShards =
+        crownForge && crownForge.addedShards.length > 0 ? crownForge.addedShards : [defeatedFaction];
+      const afterShards =
+        crownForge && crownForge.afterShards.length > 0
+          ? crownForge.afterShards
+          : Array.from(new Set([...beforeShards, ...addedShards]));
+      const afterCount = Math.min(total, new Set(afterShards).size);
+      const addedCount = new Set(addedShards).size;
+
+      const congrats = getRivalDefeatCongrats(defeatedFaction, victorFaction, {
+        afterCount,
+        addedCount,
+        total,
+      });
+      const forgeHtml = renderStarCrownForge({
+        beforeShards,
+        addedShards,
+        afterShards,
+        total,
+      });
+
       this.root.className = 'alderwick-stage-backdrop defeat-notice-modal is-human-victory';
       this.root.setAttribute('aria-label', `${defeatedDef.name} Defeated — ${ALDERWICK_FULL_TITLE} congratulates you`);
       this.root.innerHTML = renderAlderwickScene({
@@ -147,10 +179,11 @@ export class DefeatNoticeModal {
           <strong class="rival-congrats-title">${esc(congrats.kicker)}</strong>
           <span class="rival-congrats-badge">
             ${renderIcon('crown', 'icon icon-xs')}
-            <span>Rival Fallen</span>
+            <span>${afterCount} / ${total} Forged</span>
           </span>
         `,
         bodyHtml: `
+          ${forgeHtml}
           <p class="alderwick-bubble-lead">${esc(congrats.lead)}</p>
           <p>${esc(congrats.body)}</p>
           <p class="alderwick-bubble-signoff">${esc(congrats.signoff)}</p>

@@ -236,6 +236,8 @@ export interface PlayerState {
   alive: boolean;
   eliminatedOnTurn: number | null;
   superpowerUsed: boolean;
+  /** Collected Star-Crown pieces (each player starts with their own faction's shard). */
+  crownShards: FactionId[];
 }
 
 export interface GameConfig {
@@ -439,7 +441,14 @@ export type GameEvent =
       destroyedUnitIds?: string[];
     }
   | { type: 'SPOILS_GAINED'; playerId: PlayerId; coord: Coord; amount: number }
-  | { type: 'PLAYER_ELIMINATED'; playerId: PlayerId; eliminatedByPlayerId: PlayerId }
+  | {
+      type: 'PLAYER_ELIMINATED';
+      playerId: PlayerId;
+      eliminatedByPlayerId: PlayerId;
+      shardsAwarded?: FactionId[];
+      killerShardsBefore?: FactionId[];
+      killerShardsAfter?: FactionId[];
+    }
   | {
       type: 'GAME_OVER';
       winnerId: PlayerId;

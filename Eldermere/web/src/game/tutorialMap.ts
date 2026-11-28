@@ -468,6 +468,7 @@ export function createTutorialGame(options: TutorialGameOptions): TutorialGameRe
       alive: true,
       eliminatedOnTurn: null,
       superpowerUsed: false,
+      crownShards: [faction],
     };
   });
 

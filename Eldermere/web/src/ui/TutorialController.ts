@@ -7,6 +7,7 @@ import { markTutorialCompleted } from './persistence';
 import { getTechIconKey, render3DThumbImg } from './thumbs';
 
 export type TutorialStepId =
+  | 'crown'
   | 'stars'
   | 'upgrade'
   | 'move'
@@ -33,6 +34,12 @@ export interface TutorialStep {
 }
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
+  {
+    id: 'crown',
+    icon: 'crown',
+    title: 'The Star-Crown: Path to Victory',
+    body: 'See the Star-Crown at the top? It tracks your path to victory! You already hold 1 of 4 pieces—defeat each rival realm to claim theirs, reforge the Crown, and win!',
+  },
   {
     id: 'stars',
     icon: 'star',
@@ -84,19 +91,21 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
 ];
 
 const STEP_INDEX_BY_ID: Record<TutorialStepId, number> = {
-  stars: 0,
-  upgrade: 1,
-  move: 2,
-  combat: 3,
-  capture: 4,
-  codex: 5,
-  train: 6,
-  end_turn: 7,
+  crown: 0,
+  stars: 1,
+  upgrade: 2,
+  move: 3,
+  combat: 4,
+  capture: 5,
+  codex: 6,
+  train: 7,
+  end_turn: 8,
 };
 
 /** Which full-body Alderwick pose accompanies each scripted step. */
 const STEP_POSE: Record<TutorialStepId, AlderwickPose> = {
-  stars: 'greet',
+  crown: 'greet',
+  stars: 'point',
   upgrade: 'point',
   move: 'point',
   combat: 'point',
@@ -106,10 +115,16 @@ const STEP_POSE: Record<TutorialStepId, AlderwickPose> = {
   end_turn: 'point',
 };
 
-/** Lifts & pulses the top-bar Age/Superpower circle while Alderwick points it out. */
+/** Lifts & pulses the bottom-center Age/Superpower medallion while Alderwick points it out. */
 function setStarShardSpotlight(on: boolean): void {
   if (typeof document === 'undefined') return;
   document.documentElement.classList.toggle('alderwick-spotlight-shard', on);
+}
+
+/** Dims the board & left/right TopBar clusters while spotlighting the top-center Star-Crown indicator. */
+function setCrownSpotlight(on: boolean): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.classList.toggle('alderwick-spotlight-crown', on);
 }
 
 /** Dims the board & left/center TopBar clusters while spotlighting the top-right Stars pill. */
@@ -125,6 +140,7 @@ export function isTutorialStepStage(stage: TutorialStage | null): stage is Tutor
 export interface TutorialCallbacks {
   onStageChange?: (stage: TutorialStage | null) => void;
   onStartTutorial?: () => void;
+  onAdvanceFromCrown?: () => void;
   onAdvanceFromStars?: () => void;
   onCompleteDismiss?: () => void;
   onEndTutorial?: () => void;
@@ -161,7 +177,9 @@ export class TutorialController {
     this.starsScrimEl.className = 'tutorial-stars-scrim hidden';
     this.starsScrimEl.setAttribute('aria-hidden', 'true');
     this.starsScrimEl.addEventListener('click', () => {
-      if (this.stage === 'stars') {
+      if (this.stage === 'crown') {
+        this.nudge('Tap “Got It!” above so we can inspect your Stars next.');
+      } else if (this.stage === 'stars') {
         this.nudge('Tap “Got It!” above so we can grow your capital first.');
       }
     });
@@ -213,7 +231,7 @@ export class TutorialController {
       !this.bannerEl.classList.contains('hidden')
     ) {
       const scene = this.bannerEl.querySelector<HTMLElement>('.alderwick-scene') ?? this.bannerEl;
-      if (this.stage === 'stars') {
+      if (this.stage === 'crown' || this.stage === 'stars') {
         top = Math.max(0, scene.getBoundingClientRect().bottom);
         bottom = 0;
       } else {
@@ -234,7 +252,11 @@ export class TutorialController {
     this.bannerEl.classList.toggle('is-suppressed', suppressed);
     if (suppressed) {
       this.starsScrimEl.classList.add('hidden');
+      setCrownSpotlight(false);
       setStarsSpotlight(false);
+    } else if (this.stage === 'crown') {
+      this.starsScrimEl.classList.remove('hidden');
+      setCrownSpotlight(true);
     } else if (this.stage === 'stars') {
       this.starsScrimEl.classList.remove('hidden');
       setStarsSpotlight(true);
@@ -242,7 +264,7 @@ export class TutorialController {
     this.scheduleOcclusionReport();
   }
 
-  /** True while the tutorial is in progress (intro or any of the 8 scripted steps). */
+  /** True while the tutorial is in progress (intro or any of the 9 scripted steps). */
   public isActive(): boolean {
     return this.stage !== null && this.stage !== 'complete';
   }
@@ -252,7 +274,7 @@ export class TutorialController {
     return this.stage === 'intro' || this.stage === 'complete';
   }
 
-  /** True when End Turn should be blocked so the player completes steps 1-7 before ending the turn. */
+  /** True when End Turn should be blocked so the player completes steps 1-8 before ending the turn. */
   public isBlockingEndTurn(): boolean {
     return isTutorialStepStage(this.stage) && this.stage !== 'end_turn';
   }
@@ -277,10 +299,14 @@ export class TutorialController {
     this.suppressed = false;
     this.bannerEl.classList.remove('is-suppressed');
     this.stage = nextStage;
+    const isTopSpotlightStep = nextStage === 'crown' || nextStage === 'stars';
     setStarShardSpotlight(nextStage === 'complete');
+    setCrownSpotlight(nextStage === 'crown');
     setStarsSpotlight(nextStage === 'stars');
-    this.starsScrimEl.classList.toggle('hidden', nextStage !== 'stars');
-    this.bannerEl.classList.toggle('is-top-aligned', nextStage === 'stars');
+    this.starsScrimEl.classList.toggle('hidden', !isTopSpotlightStep);
+    this.bannerEl.classList.toggle('is-top-aligned', isTopSpotlightStep);
+    this.bannerEl.classList.toggle('is-crown-aligned', nextStage === 'crown');
+    this.bannerEl.classList.toggle('is-stars-aligned', nextStage === 'stars');
     this.scheduleOcclusionReport();
     this.subProgress = subProgress;
 
@@ -391,7 +417,7 @@ export class TutorialController {
 
   public dismissModal(): void {
     if (this.stage === 'intro') {
-      this.setStage('stars');
+      this.setStage('crown');
       this.callbacks.onStartTutorial?.();
     } else if (this.stage === 'complete') {
       this.setStage(null);
@@ -415,6 +441,7 @@ export class TutorialController {
   public destroy(): void {
     this.clearNudgeTimer();
     setStarShardSpotlight(false);
+    setCrownSpotlight(false);
     setStarsSpotlight(false);
     this.occlusionObserver?.disconnect();
     window.removeEventListener('eldermere:bottom-hud-resize', this.handleLayoutChange);
@@ -427,10 +454,16 @@ export class TutorialController {
 
   private hideElements(): void {
     setStarShardSpotlight(false);
+    setCrownSpotlight(false);
     setStarsSpotlight(false);
     this.suppressed = false;
     this.starsScrimEl.classList.add('hidden');
-    this.bannerEl.classList.remove('is-top-aligned', 'is-suppressed');
+    this.bannerEl.classList.remove(
+      'is-top-aligned',
+      'is-crown-aligned',
+      'is-stars-aligned',
+      'is-suppressed',
+    );
     this.scheduleOcclusionReport();
     delete this.bannerEl.dataset.renderedStep;
     this.bannerEl.classList.add('hidden');
@@ -448,6 +481,8 @@ export class TutorialController {
 
   private formatStepBodyHtml(stepId: TutorialStepId, step: TutorialStep): string {
     switch (stepId) {
+      case 'crown':
+        return 'See the <strong>Star-Crown</strong> at the top? It tracks your path to victory! You already hold <strong>1 of 4 pieces</strong>—defeat each rival realm to claim theirs, reforge the Crown, and win!';
       case 'stars':
         return 'See those glowing <strong>Stars (★)</strong> up top? Spend them to harvest, train troops, and study lore—growing cities earns more each turn!';
       case 'upgrade': {
@@ -507,10 +542,10 @@ export class TutorialController {
         `
         : `<p class="tutorial-body">${bodyCopyHtml}</p>`;
 
-    const nextBtnHtml =
-      stepId === 'stars'
-        ? `<button type="button" class="btn btn-cta tutorial-next-btn" data-tutorial-next><span>Got It!</span>${renderIcon('chevronRight', 'icon icon-xs')}</button>`
-        : '';
+    const hasGotItButton = stepId === 'crown' || stepId === 'stars';
+    const nextBtnHtml = hasGotItButton
+      ? `<button type="button" class="btn btn-cta tutorial-next-btn" data-tutorial-next><span>Got It!</span>${renderIcon('chevronRight', 'icon icon-xs')}</button>`
+      : '';
     const progressHtml =
       stepId !== 'upgrade' && this.subProgress
         ? `<span class="tutorial-progress-pill">${esc(this.subProgress)}</span>`
@@ -532,12 +567,19 @@ export class TutorialController {
     const isNewStep = this.bannerEl.dataset.renderedStep !== stepId;
     this.bannerEl.dataset.renderedStep = stepId;
 
+    const stepExtraClass =
+      stepId === 'crown'
+        ? ' is-crown-step'
+        : stepId === 'stars'
+          ? ' is-stars-step'
+          : '';
+
     this.bannerEl.innerHTML = renderAlderwickScene({
       pose: STEP_POSE[stepId],
       variant: 'compact',
       animate: isNewStep,
       nudged: pulse,
-      extraClass: `tutorial-alderwick-scene${stepId === 'stars' ? ' is-stars-step' : ''}${hasInteractiveFooter ? '' : ' is-hint-only-actions'}`,
+      extraClass: `tutorial-alderwick-scene${stepExtraClass}${hasInteractiveFooter ? '' : ' is-hint-only-actions'}`,
       headerHtml: `
         <span class="tutorial-icon-badge" aria-hidden="true">${renderIcon(step.icon, 'icon icon-xs')}</span>
         <strong class="tutorial-title">${esc(step.title)}</strong>
@@ -550,7 +592,15 @@ export class TutorialController {
       actionsHtml,
     });
 
-    if (stepId === 'stars') {
+    if (stepId === 'crown') {
+      this.bannerEl
+        .querySelector<HTMLButtonElement>('[data-tutorial-next]')
+        ?.addEventListener('click', () => {
+          if (this.stage !== 'crown') return;
+          this.setStage('stars');
+          this.callbacks.onAdvanceFromCrown?.();
+        });
+    } else if (stepId === 'stars') {
       this.bannerEl
         .querySelector<HTMLButtonElement>('[data-tutorial-next]')
         ?.addEventListener('click', () => {
@@ -595,14 +645,14 @@ export class TutorialController {
         pose: 'idea',
         bodyHtml: `
           <p class="alderwick-bubble-lead">Oh! By the way, Commander…</p>
-          <p>That circle up top is your <strong>Star-Shard</strong>. Reach <strong>Age III</strong> in your Codex to unleash <strong>${esc(yourPower)}</strong>!</p>
+          <p>See the <strong>Age medallion</strong> at the bottom? Reach <strong>Age III</strong> in your Codex to charge it up and unleash <strong>${esc(yourPower)}</strong>!</p>
           <p class="alderwick-bubble-signoff">Good luck! I’ll be watching. With snacks.</p>
         `,
         actionLabel: 'Challenge accepted!',
       },
     ];
 
-    this.modalEl.setAttribute('aria-label', 'Oh, by the way: your Star-Shard and Superpower');
+    this.modalEl.setAttribute('aria-label', 'Oh, by the way: your Age medallion and Superpower');
     mountAlderwickDialogue(this.modalEl, pages, () => this.dismissModal(), 'is-star-shard-tip');
   }
 }

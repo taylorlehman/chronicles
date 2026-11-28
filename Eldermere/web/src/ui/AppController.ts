@@ -77,6 +77,7 @@ import {
   ResignationOverlay,
   TitleScreen,
   type StartGameOptions,
+  type VictoryCrownData,
 } from './Screens';
 import { TechModal, type TechModalViewModel } from './TechModal';
 import { TopBar } from './TopBar';
@@ -175,6 +176,7 @@ export class AppController {
   private titleShowcaseState: GameState | null = null;
   private tutorialScenario: TutorialScenarioCoords | null = null;
   private pendingEndTurnAfterTutorial = false;
+  private lastVictoryCrown: VictoryCrownData | null = null;
 
   constructor(
     canvasContainer: HTMLElement,
@@ -221,9 +223,13 @@ export class AppController {
 
     this.topBar = new TopBar(this.hudRoot, {
       onOpenLeaderboard: () => this.openLeaderboardModal(),
-      onOpenCodex: () => this.openTechModal(),
-      onActivateSuperpower: () => {
-        void this.handleSuperpowerButtonClick();
+      onCrownClick: () => {
+        if (this.tutorial.isActive() && this.tutorial.getStage() === 'crown') {
+          triggerAndroidHaptic('tap');
+          this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
+          return;
+        }
+        this.openLeaderboardModal();
       },
     });
 
@@ -235,6 +241,10 @@ export class AppController {
       onDeselect: () => this.clearSelection(),
       onSwitchLayer: (layer) => this.switchSelectionLayer(layer),
       onOpenTech: () => this.openTechModal(),
+      onAgeClick: () => this.openTechModal(),
+      onSuperpowerClick: () => {
+        void this.handleSuperpowerButtonClick();
+      },
       onActivateSuperpower: () => {
         void this.handleSuperpowerButtonClick();
       },
@@ -317,10 +327,18 @@ export class AppController {
       onStartTutorial: () => {
         triggerAndroidHaptic('tap');
         this.syncTutorialContext();
-        this.focusTutorialCameraForStage('stars');
+        this.focusTutorialCameraForStage('crown');
         this.syncTutorialProgress();
         this.syncTutorialHighlights();
         this.resumeSceneAfterOpaqueSheet();
+      },
+      onAdvanceFromCrown: () => {
+        triggerAndroidHaptic('tap');
+        this.syncTutorialContext();
+        this.syncTutorialProgress();
+        this.focusTutorialCameraForStage('stars');
+        this.syncTutorialHighlights();
+        this.refreshHUD();
       },
       onAdvanceFromStars: () => {
         triggerAndroidHaptic('tap');
@@ -753,7 +771,12 @@ export class AppController {
       if (typeof player.superpowerUsed !== 'boolean') {
         player.superpowerUsed = false;
       }
+      if (!Array.isArray(player.crownShards)) {
+        player.crownShards = player.alive ? [player.faction] : [];
+      }
     }
+
+    this.lastVictoryCrown = null;
 
     this.state = state;
     const humanPlayer = getPlayer(state, humanPlayerId) ?? state.players[0];
@@ -982,6 +1005,7 @@ export class AppController {
     this.isBusy = false;
     this.isAITurnRunning = false;
     this.pendingEndTurnAfterTutorial = false;
+    this.lastVictoryCrown = null;
     this.selectedCoord = null;
     this.selectedUnitId = null;
     this.selectionLayer = 'unit';
@@ -1237,7 +1261,7 @@ export class AppController {
       def.targetHint ?? 'Select a highlighted tile',
     );
     triggerAndroidHaptic('select');
-    this.refreshTopBar();
+    this.refreshHUD();
   }
 
   private showSuperpowerTargetingBanner(faction: FactionId, name: string, hint: string): void {
@@ -1275,7 +1299,7 @@ export class AppController {
     this.superpowerBannerEl.style.display = 'none';
     this.superpowerBannerEl.innerHTML = '';
     this.board?.clearHighlights();
-    this.refreshTopBar();
+    this.refreshHUD();
   }
 
   private async handleTileClick(coord: Coord): Promise<void> {
@@ -1679,7 +1703,7 @@ export class AppController {
     if (!scenario) return;
 
     let target: Coord | null = null;
-    if (stage === 'stars' || stage === 'upgrade' || stage === 'train') {
+    if (stage === 'crown' || stage === 'stars' || stage === 'upgrade' || stage === 'train') {
       target = scenario.capitalCoord;
     } else if (stage === 'move') {
       target = {
@@ -1699,7 +1723,7 @@ export class AppController {
     if (!this.tutorial.isActive()) return true;
     const stage = this.tutorial.getStage();
     const scenario = this.tutorialScenario;
-    if (!stage || stage === 'intro' || stage === 'stars') return false;
+    if (!stage || stage === 'intro' || stage === 'crown' || stage === 'stars') return false;
 
     if (stage === 'upgrade') {
       if (action.type === 'CHOOSE_CITY_REWARD') return true;
@@ -1758,6 +1782,8 @@ export class AppController {
   private getTutorialNudgeForCurrentStage(): string {
     const stage = this.tutorial.getStage();
     switch (stage) {
+      case 'crown':
+        return 'Not so fast, Commander! Tap “Got It!” above so we can inspect your Stars next.';
       case 'stars':
         return 'Not so fast, Commander! Tap “Got It!” above so we can grow your capital first.';
       case 'upgrade': {
@@ -2274,15 +2300,46 @@ export class AppController {
         this.handleHumanDefeated(ev.eliminatedByPlayerId);
         return;
       }
-      // If this elimination ended the match (e.g. final rival defeated -> Domination Victory),
-      // go straight to GameOverOverlay without a redundant mid-game modal beforehand.
-      if (state.phase !== 'playing') {
-        continue;
-      }
       const defeated = getPlayer(state, ev.playerId);
       const victor = getPlayer(state, ev.eliminatedByPlayerId);
+      const isHumanVictor = ev.eliminatedByPlayerId === this.humanPlayerId;
+
+      let crownForge:
+        | { beforeShards: FactionId[]; addedShards: FactionId[]; afterShards: FactionId[] }
+        | undefined;
+      if (isHumanVictor && defeated && victor) {
+        const addedShards: FactionId[] =
+          ev.shardsAwarded && ev.shardsAwarded.length > 0
+            ? [...ev.shardsAwarded]
+            : [defeated.faction];
+        const afterShards: FactionId[] =
+          ev.killerShardsAfter && ev.killerShardsAfter.length > 0
+            ? [...ev.killerShardsAfter]
+            : Array.from(
+                new Set([
+                  ...(Array.isArray(victor.crownShards) && victor.crownShards.length > 0
+                    ? victor.crownShards
+                    : [victor.faction]),
+                  ...addedShards,
+                ]),
+              );
+        const beforeShards: FactionId[] =
+          ev.killerShardsBefore && ev.killerShardsBefore.length > 0
+            ? [...ev.killerShardsBefore]
+            : afterShards.filter((f) => !addedShards.includes(f));
+        crownForge = { beforeShards, addedShards, afterShards };
+      }
+
+      // If this elimination ended the match (e.g. final rival defeated -> Domination Victory),
+      // capture the final shard snap for GameOverOverlay and skip the redundant mid-game modal.
+      if (state.phase !== 'playing') {
+        if (crownForge) {
+          this.lastVictoryCrown = crownForge;
+        }
+        continue;
+      }
+
       if (defeated && victor) {
-        const isHumanVictor = ev.eliminatedByPlayerId === this.humanPlayerId;
         if (isHumanVictor) {
           triggerAndroidHaptic('victory');
         }
@@ -2293,9 +2350,19 @@ export class AppController {
             victor.faction,
             false,
             isHumanVictor,
+            crownForge,
           );
         } finally {
           this.resumeSceneAfterOpaqueSheet();
+        }
+        if (
+          isHumanVictor &&
+          token === this.sessionToken &&
+          this.state?.phase === 'playing' &&
+          this.topBar
+        ) {
+          this.refreshTopBar();
+          this.topBar.pulseCrown?.();
         }
       }
     }
@@ -2351,9 +2418,12 @@ export class AppController {
       this.actionBar.hide();
       this.clearSelection();
       this.input?.setInputLocked(true);
+      const victoryCrown = this.lastVictoryCrown ?? undefined;
+      this.lastVictoryCrown = null;
       this.gameOverOverlay.show({
         state: this.state,
         humanPlayerId: this.humanPlayerId,
+        victoryCrown,
       });
       return;
     }
@@ -2602,14 +2672,9 @@ export class AppController {
     this.topBar.update({
       player: human,
       activePlayer,
+      crownShards: human.crownShards,
       turn: this.state.turn,
       maxTurns: this.state.config.maxTurns,
-      age: getPlayerAge(human),
-      techCount: human.techs.length,
-      canUseSuperpower: canUseSuperpower(this.state, human.id),
-      superpowerUsed: Boolean(human.superpowerUsed),
-      superpowerName: SUPERPOWER_DEFINITIONS[human.faction].shortLabel,
-      superpowerTargeting: this.isSuperpowerTargeting,
       isHumanTurn: isHuman,
     });
   }
@@ -2644,6 +2709,9 @@ export class AppController {
     const allUnitsActed = remainingUnitsCount === 0 || isTutorialEndTurnStep;
     const combatPreview = this.buildCombatPreview();
 
+    const humanAge = getPlayerAge(human);
+    const techCount = human.techs.length;
+    const superpowerUsed = Boolean(human.superpowerUsed);
     const canPower =
       !this.tutorial.isActive() && canUseSuperpower(this.state, this.humanPlayerId);
     const spDef = SUPERPOWER_DEFINITIONS[human.faction];
@@ -2657,7 +2725,11 @@ export class AppController {
         affordableTechCount,
         remainingUnitsCount,
         allUnitsActed,
+        age: humanAge,
+        techCount,
         canUseSuperpower: canPower,
+        superpowerUsed,
+        superpowerName: spDef.name,
         superpowerTargeting: this.isSuperpowerTargeting,
         superpowerLabel: spDef.shortLabel,
         selectionLayer: 'unit',
@@ -2692,6 +2764,13 @@ export class AppController {
       affordableTechCount,
       remainingUnitsCount,
       allUnitsActed,
+      age: humanAge,
+      techCount,
+      canUseSuperpower: canPower,
+      superpowerUsed,
+      superpowerName: spDef.name,
+      superpowerTargeting: this.isSuperpowerTargeting,
+      superpowerLabel: spDef.shortLabel,
       selectionLayer: this.selectionLayer,
       canToggleLayer,
       altLayerLabel,

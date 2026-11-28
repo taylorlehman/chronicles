@@ -1,49 +1,37 @@
 import { FACTION_DEFINITIONS } from '../game/data';
-import { AGE_ROMAN, getPlayerAge } from '../game/rules';
 import type { FactionId, PlayerAge, PlayerState } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
-import { renderFactionCrest, renderFactionSuperpowerIcon, renderIcon } from './icons';
+import { STAR_CROWN_TOTAL_SHARDS, renderStarCrownHud } from './StarCrown';
+import { renderFactionCrest, renderIcon } from './icons';
 
 export interface TopBarViewModel {
   player: PlayerState;
   activePlayer: PlayerState;
+  crownShards?: readonly FactionId[];
   turn?: number;
   maxTurns?: number;
+  /** @deprecated Moved to ActionBar bottom-center Age medallion; kept optional for compatibility. */
   age?: PlayerAge;
+  /** @deprecated Moved to ActionBar bottom-center Age medallion; kept optional for compatibility. */
   techCount?: number;
+  /** @deprecated Moved to ActionBar bottom-center Age medallion; kept optional for compatibility. */
   canUseSuperpower?: boolean;
+  /** @deprecated Moved to ActionBar bottom-center Age medallion; kept optional for compatibility. */
   superpowerUsed?: boolean;
+  /** @deprecated Moved to ActionBar bottom-center Age medallion; kept optional for compatibility. */
   superpowerName?: string;
+  /** @deprecated Moved to ActionBar bottom-center Age medallion; kept optional for compatibility. */
   superpowerTargeting?: boolean;
   isHumanTurn: boolean;
 }
 
 export interface TopBarCallbacks {
   onOpenLeaderboard?: () => void;
+  onCrownClick?: () => void;
+  /** @deprecated Moved to ActionBar; kept optional for compatibility. */
   onOpenCodex?: () => void;
+  /** @deprecated Moved to ActionBar; kept optional for compatibility. */
   onActivateSuperpower?: () => void;
-}
-
-function shortSuperpowerLabel(faction: FactionId, name?: string): string {
-  const trimmed = name?.trim();
-  if (trimmed) {
-    if (/eclipse/i.test(trimmed)) return 'Eclipse';
-    if (/volcano|eruption|doom/i.test(trimmed)) return 'Volcano';
-    if (/dragon|wyrm|drake/i.test(trimmed)) return 'Dragon';
-    if (/tower|beacon|citadel/i.test(trimmed)) return 'Tower';
-    if (trimmed.length <= 10) return trimmed;
-    return trimmed.split(/\s+/)[0] || trimmed;
-  }
-  switch (faction) {
-    case 'humans':
-      return 'Tower';
-    case 'orcs':
-      return 'Volcano';
-    case 'elves':
-      return 'Eclipse';
-    case 'dwarves':
-      return 'Dragon';
-  }
 }
 
 function esc(value: string): string {
@@ -60,6 +48,8 @@ export class TopBar {
   private readonly callbacks: TopBarCallbacks;
   private lastBannerKey: string | null = null;
   private lastBarKey: string | null = null;
+  private crownPulseActive = false;
+  private crownPulseTimer: number | null = null;
 
   constructor(container: HTMLElement, callbacks: TopBarCallbacks) {
     this.callbacks = callbacks;
@@ -78,6 +68,8 @@ export class TopBar {
   }
 
   public hide(): void {
+    this.clearCrownPulseTimer();
+    this.crownPulseActive = false;
     this.root.classList.add('hidden');
     this.aiBanner.classList.add('hidden');
     this.lastBannerKey = null;
@@ -88,9 +80,38 @@ export class TopBar {
     this.render(vm);
   }
 
+  public pulseCrown(): void {
+    this.clearCrownPulseTimer();
+    this.crownPulseActive = true;
+
+    const badge = this.root.querySelector<HTMLElement>('.sc-hud-badge');
+    if (badge) {
+      badge.classList.remove('is-pulse');
+      // Force reflow so consecutive pulses replay the CSS animation cleanly
+      void badge.offsetWidth;
+      badge.classList.add('is-pulse');
+    }
+
+    if (typeof window !== 'undefined') {
+      this.crownPulseTimer = window.setTimeout(() => {
+        this.crownPulseTimer = null;
+        this.crownPulseActive = false;
+        this.root.querySelector<HTMLElement>('.sc-hud-badge')?.classList.remove('is-pulse');
+      }, 1250);
+    }
+  }
+
   public destroy(): void {
+    this.clearCrownPulseTimer();
     this.root.remove();
     this.aiBanner.remove();
+  }
+
+  private clearCrownPulseTimer(): void {
+    if (this.crownPulseTimer !== null && typeof window !== 'undefined') {
+      window.clearTimeout(this.crownPulseTimer);
+      this.crownPulseTimer = null;
+    }
   }
 
   private render(vm: TopBarViewModel): void {
@@ -116,91 +137,39 @@ export class TopBar {
       }
     }
 
-    const age: PlayerAge = vm.age ?? getPlayerAge(vm.player);
-    const techCount = vm.techCount ?? vm.player.techs.length;
-    const clampedTechs = Math.max(0, Math.min(7, techCount));
-    const superpowerUsed = Boolean(vm.superpowerUsed);
-    const fillRatio = superpowerUsed ? 0 : Math.min(1, clampedTechs / 7);
-    const superpowerTargeting = Boolean(vm.superpowerTargeting);
-    const canUseSuperpower = Boolean(vm.canUseSuperpower && !superpowerUsed);
-    const isSuperpowerMode = (canUseSuperpower || superpowerTargeting) && !superpowerUsed;
-    const isAlmost = clampedTechs === 6 && !superpowerUsed && !isSuperpowerMode;
-    const ageLabel = `Age ${AGE_ROMAN[age]}`;
-    const superpowerShort = superpowerTargeting
-      ? 'Cancel'
-      : shortSuperpowerLabel(vm.player.faction, vm.superpowerName);
-    const superpowerTitle = superpowerTargeting
-      ? 'Cancel superpower targeting'
-      : isSuperpowerMode
-        ? `Activate ${vm.superpowerName ?? superpowerShort}`
-        : `${ageLabel} (${clampedTechs}/7 to ${superpowerShort}) — Open Codex`;
-
-    const circum = 2 * Math.PI * 25;
-    const dashOffset = (circum * (1 - (isSuperpowerMode ? 1 : fillRatio))).toFixed(1);
+    const shards: readonly FactionId[] =
+      vm.crownShards ??
+      (Array.isArray(vm.player.crownShards) && vm.player.crownShards.length > 0
+        ? vm.player.crownShards
+        : vm.player.alive
+          ? [vm.player.faction]
+          : []);
+    const totalShards = STAR_CROWN_TOTAL_SHARDS;
+    const shardCount = Math.min(totalShards, shards.length);
+    const crownLabel = `Star-Crown: ${shardCount} of ${totalShards} pieces`;
 
     const barKey = [
       vm.player.faction,
       vm.player.score,
       vm.player.gold,
       vm.player.goldPerTurn,
-      age,
-      clampedTechs,
-      canUseSuperpower ? 1 : 0,
-      superpowerUsed ? 1 : 0,
-      superpowerTargeting ? 1 : 0,
-      vm.superpowerName ?? '',
+      shards.join(','),
     ].join('|');
     if (barKey === this.lastBarKey) {
       return;
     }
     this.lastBarKey = barKey;
 
-    const btnStateClass = superpowerTargeting
-      ? 'is-targeting'
-      : isSuperpowerMode
-        ? 'is-ready'
-        : superpowerUsed
-          ? 'is-spent'
-          : isAlmost
-            ? 'is-almost'
-            : 'is-dormant';
-
-    const badgeText = superpowerTargeting
-      ? 'CANCEL'
-      : isSuperpowerMode
-        ? 'READY'
-        : `AGE ${AGE_ROMAN[age]}`;
-
-    const centerButtonHtml = `
-      <div class="sp-round-wrap ${btnStateClass}">
-        <svg class="sp-ring-svg" viewBox="0 0 58 58" aria-hidden="true">
-          <circle class="sp-ring-bg" cx="29" cy="29" r="25" />
-          <circle
-            class="sp-ring-fg"
-            cx="29"
-            cy="29"
-            r="25"
-            stroke-dasharray="${circum.toFixed(1)}"
-            stroke-dashoffset="${dashOffset}"
-          />
-        </svg>
-        <button
-          type="button"
-          class="sp-round-btn ${btnStateClass}"
-          data-action="${isSuperpowerMode ? 'superpower' : 'codex'}"
-          title="${esc(superpowerTitle)}"
-          aria-label="${esc(superpowerTitle)}"
-        >
-          <span class="sp-btn-gloss" aria-hidden="true"></span>
-          ${isSuperpowerMode && !superpowerTargeting ? '<span class="sp-btn-sweep" aria-hidden="true"></span>' : ''}
-          ${
-            superpowerTargeting
-              ? renderIcon('close', 'icon sp-round-icon')
-              : renderFactionSuperpowerIcon(vm.player.faction, 'icon sp-round-icon')
-          }
-        </button>
-        <span class="sp-round-badge ${btnStateClass}">${esc(badgeText)}</span>
-      </div>
+    const centerCrownHtml = `
+      <button
+        type="button"
+        class="top-pill-crown"
+        data-action="crown"
+        title="${esc(crownLabel)}"
+        aria-label="${esc(crownLabel)}"
+      >
+        ${renderStarCrownHud(shards, { total: totalShards, pulse: this.crownPulseActive })}
+      </button>
     `;
 
     this.root.innerHTML = `
@@ -221,7 +190,7 @@ export class TopBar {
       </div>
 
       <div class="top-cluster top-cluster-center">
-        ${centerButtonHtml}
+        ${centerCrownHtml}
       </div>
 
       <div class="top-cluster top-cluster-right">
@@ -240,15 +209,9 @@ export class TopBar {
       });
 
     this.root
-      .querySelector<HTMLButtonElement>('[data-action="codex"]')
+      .querySelector<HTMLButtonElement>('[data-action="crown"]')
       ?.addEventListener('click', () => {
-        this.callbacks.onOpenCodex?.();
-      });
-
-    this.root
-      .querySelector<HTMLButtonElement>('[data-action="superpower"]')
-      ?.addEventListener('click', () => {
-        this.callbacks.onActivateSuperpower?.();
+        (this.callbacks.onCrownClick ?? this.callbacks.onOpenLeaderboard)?.();
       });
   }
 }

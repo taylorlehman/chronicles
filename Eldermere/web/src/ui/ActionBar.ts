@@ -1,10 +1,12 @@
 import { IMPROVEMENT_DEFINITIONS, TECH_DEFINITIONS, UNIT_DEFINITIONS } from '../game/data';
+import { AGE_ROMAN, AGE_THRESHOLDS } from '../game/rules';
 import type {
   ActionOption,
   City,
   CombatPreview,
   FactionId,
   GameAction,
+  PlayerAge,
   PlayerState,
   TechId,
   Tile,
@@ -15,6 +17,7 @@ import {
   renderActionIcon,
   renderFactionCodexIcon,
   renderFactionEndTurnIcon,
+  renderFactionSuperpowerIcon,
   renderIcon,
   renderUnitIcon,
 } from './icons';
@@ -69,7 +72,11 @@ export interface ActionBarViewModel {
   affordableTechCount: number;
   remainingUnitsCount: number;
   allUnitsActed: boolean;
+  age?: PlayerAge;
+  techCount?: number;
   canUseSuperpower?: boolean;
+  superpowerUsed?: boolean;
+  superpowerName?: string;
   superpowerTargeting?: boolean;
   superpowerLabel?: string;
   selectionLayer: SelectionLayer;
@@ -92,6 +99,8 @@ export interface ActionBarCallbacks {
   onSwitchLayer?: (layer: SelectionLayer) => void;
   onUnlockTech?: (techId: TechId) => void;
   onOpenTech?: () => void;
+  onAgeClick?: () => void;
+  onSuperpowerClick?: () => void;
   onActivateSuperpower?: () => void;
   onNextReadyUnit?: () => void;
   onEndTurn?: () => void;
@@ -120,6 +129,28 @@ const ACTION_3D_THUMB_KEYS: Record<string, string> = {
   build_road: 'road',
   plant_ancient_woods: 'ancient_woods',
 };
+
+function shortSuperpowerLabel(faction: FactionId, name?: string): string {
+  const trimmed = name?.trim();
+  if (trimmed) {
+    if (/eclipse/i.test(trimmed)) return 'Eclipse';
+    if (/volcano|eruption|doom/i.test(trimmed)) return 'Volcano';
+    if (/dragon|wyrm|drake/i.test(trimmed)) return 'Dragon';
+    if (/tower|beacon|citadel/i.test(trimmed)) return 'Tower';
+    if (trimmed.length <= 10) return trimmed;
+    return trimmed.split(/\s+/)[0] || trimmed;
+  }
+  switch (faction) {
+    case 'humans':
+      return 'Tower';
+    case 'orcs':
+      return 'Volcano';
+    case 'elves':
+      return 'Eclipse';
+    case 'dwarves':
+      return 'Dragon';
+  }
+}
 
 function esc(value: string): string {
   return value
@@ -261,6 +292,7 @@ export class ActionBar {
   private render(vm: ActionBarViewModel): void {
     const combatHtml = vm.combatPreview ? this.renderCombatStrip(vm.combatPreview) : '';
     const hasSelection = Boolean(vm.selectedUnit || vm.selectedCity || vm.selectedTile);
+    this.root.classList.toggle('is-drawer-open', hasSelection);
 
     const bodyHtml = hasSelection
       ? this.renderSelectionDrawer(vm)
@@ -268,6 +300,86 @@ export class ActionBar {
 
     this.root.innerHTML = `${combatHtml}${bodyHtml}`;
     this.bindEvents(vm);
+  }
+
+  private renderAgeMedallion(vm: ActionBarViewModel): string {
+    const techCount =
+      vm.techCount ??
+      (vm.age === 3 ? AGE_THRESHOLDS[3] : vm.age === 2 ? AGE_THRESHOLDS[2] : 1);
+    const age: PlayerAge =
+      vm.age ??
+      (techCount >= AGE_THRESHOLDS[3] ? 3 : techCount >= AGE_THRESHOLDS[2] ? 2 : 1);
+    const clampedTechs = Math.max(0, Math.min(7, techCount));
+    const superpowerUsed = Boolean(vm.superpowerUsed);
+    const fillRatio = superpowerUsed ? 0 : Math.min(1, clampedTechs / 7);
+    const superpowerTargeting = Boolean(vm.superpowerTargeting);
+    const canUseSuperpower = Boolean(vm.canUseSuperpower && !superpowerUsed);
+    const isSuperpowerMode = (canUseSuperpower || superpowerTargeting) && !superpowerUsed;
+    const isAlmost = clampedTechs === 6 && !superpowerUsed && !isSuperpowerMode;
+    const ageLabel = `Age ${AGE_ROMAN[age]}`;
+    const spName = vm.superpowerName ?? vm.superpowerLabel;
+    const superpowerShort = superpowerTargeting
+      ? 'Cancel'
+      : shortSuperpowerLabel(vm.playerFaction, spName);
+    const superpowerTitle = superpowerTargeting
+      ? 'Cancel superpower targeting'
+      : isSuperpowerMode
+        ? `Activate ${spName ?? superpowerShort}`
+        : `${ageLabel} (${clampedTechs}/7 to ${superpowerShort}) — Open Codex`;
+
+    const circum = 2 * Math.PI * 28;
+    const dashOffset = (circum * (1 - (isSuperpowerMode ? 1 : fillRatio))).toFixed(1);
+
+    const btnStateClass = superpowerTargeting
+      ? 'is-targeting'
+      : isSuperpowerMode
+        ? 'is-ready'
+        : superpowerUsed
+          ? 'is-spent'
+          : isAlmost
+            ? 'is-almost'
+            : 'is-dormant';
+
+    const badgeText = superpowerTargeting
+      ? 'CANCEL'
+      : isSuperpowerMode
+        ? 'READY'
+        : `AGE ${AGE_ROMAN[age]}`;
+
+    return `
+      <button
+        type="button"
+        class="tt-dock-btn tt-dock-btn-age bottom-age-medallion ${btnStateClass}"
+        data-age-medallion="true"
+        data-idle-action="${isSuperpowerMode ? 'superpower' : 'age'}"
+        title="${esc(superpowerTitle)}"
+        aria-label="${esc(superpowerTitle)}"
+      >
+        <span class="sp-round-wrap ${btnStateClass}">
+          <svg class="sp-ring-svg" viewBox="0 0 64 64" aria-hidden="true">
+            <circle class="sp-ring-bg" cx="32" cy="32" r="28" />
+            <circle
+              class="sp-ring-fg"
+              cx="32"
+              cy="32"
+              r="28"
+              stroke-dasharray="${circum.toFixed(1)}"
+              stroke-dashoffset="${dashOffset}"
+            />
+          </svg>
+          <span class="sp-round-btn ${btnStateClass}" aria-hidden="true">
+            <span class="sp-btn-gloss"></span>
+            ${isSuperpowerMode && !superpowerTargeting ? '<span class="sp-btn-sweep"></span>' : ''}
+            ${
+              superpowerTargeting
+                ? renderIcon('close', 'icon sp-round-icon')
+                : renderFactionSuperpowerIcon(vm.playerFaction, 'icon sp-round-icon')
+            }
+          </span>
+        </span>
+        <span class="tt-dock-label sp-round-badge ${btnStateClass}">${esc(badgeText)}</span>
+      </button>
+    `;
   }
 
   private renderIdleBar(vm: ActionBarViewModel): string {
@@ -295,6 +407,8 @@ export class ActionBar {
           </span>
           <span class="tt-dock-label">Codex</span>
         </button>
+
+        ${this.renderAgeMedallion(vm)}
 
         <button
           type="button"
@@ -608,10 +722,16 @@ export class ActionBar {
       });
 
     this.root
+      .querySelector<HTMLButtonElement>('[data-idle-action="age"]')
+      ?.addEventListener('click', () => {
+        (this.callbacks.onAgeClick ?? this.callbacks.onOpenTech)?.();
+      });
+
+    this.root
       .querySelector<HTMLButtonElement>('[data-idle-action="superpower"]')
       ?.addEventListener('click', () => {
-        if (vm.isHumanTurn) {
-          this.callbacks.onActivateSuperpower?.();
+        if (vm.isHumanTurn || vm.superpowerTargeting) {
+          (this.callbacks.onSuperpowerClick ?? this.callbacks.onActivateSuperpower)?.();
         }
       });
 

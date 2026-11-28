@@ -426,7 +426,10 @@ describe('Polish Adjustments — Tutorial Rings, Owning-City Pulse & Alderwick R
       controller.state = state;
       controller.humanPlayerId = human.id;
       controller.sessionToken = 1;
+      controller.lastVictoryCrown = null;
       controller.sceneManager = { stop: vi.fn(), start: vi.fn() };
+      const pulseCrown = vi.fn();
+      controller.topBar = { update: vi.fn(), pulseCrown };
       controller.defeatNoticeModal = {
         isOpen: () => false,
         show: vi.fn(
@@ -450,17 +453,27 @@ describe('Polish Adjustments — Tutorial Rings, Owning-City Pulse & Alderwick R
         }
       ).showEliminationNotices.bind(controller);
 
-      // 1. Mid-game human defeats Orcs (phase === 'playing') -> isHumanVictor === true
+      // 1. Mid-game human defeats Orcs (phase === 'playing') -> isHumanVictor === true & pulses TopBar crown
       await showEliminationNotices(
-        [{ type: 'PLAYER_ELIMINATED', playerId: orcs.id, eliminatedByPlayerId: human.id }],
+        [
+          {
+            type: 'PLAYER_ELIMINATED',
+            playerId: orcs.id,
+            eliminatedByPlayerId: human.id,
+            shardsAwarded: ['orcs'],
+            killerShardsBefore: ['humans'],
+            killerShardsAfter: ['humans', 'orcs'],
+          },
+        ],
         state,
         1,
       );
       expect(showCalls).toEqual([
         { defeated: 'orcs', victor: 'humans', isHumanDefeated: false, isHumanVictor: true },
       ]);
+      expect(pulseCrown).toHaveBeenCalledTimes(1);
 
-      // 2. Mid-game AI defeats AI (phase === 'playing') -> isHumanVictor === false
+      // 2. Mid-game AI defeats AI (phase === 'playing') -> isHumanVictor === false & does NOT pulse crown
       await showEliminationNotices(
         [{ type: 'PLAYER_ELIMINATED', playerId: dwarves.id, eliminatedByPlayerId: orcs.id }],
         state,
@@ -473,15 +486,30 @@ describe('Polish Adjustments — Tutorial Rings, Owning-City Pulse & Alderwick R
         isHumanDefeated: false,
         isHumanVictor: false,
       });
+      expect(pulseCrown).toHaveBeenCalledTimes(1);
 
-      // 3. Final Domination Victory (phase === 'game_over') -> skips mid-game modal so GameOverOverlay runs cleanly
+      // 3. Final Domination Victory (phase === 'game_over') -> skips mid-game modal, stores final victoryCrown
       const victoryState: GameState = { ...state, phase: 'game_over', winnerId: human.id };
       await showEliminationNotices(
-        [{ type: 'PLAYER_ELIMINATED', playerId: orcs.id, eliminatedByPlayerId: human.id }],
+        [
+          {
+            type: 'PLAYER_ELIMINATED',
+            playerId: orcs.id,
+            eliminatedByPlayerId: human.id,
+            shardsAwarded: ['orcs'],
+            killerShardsBefore: ['humans', 'elves', 'dwarves'],
+            killerShardsAfter: ['humans', 'elves', 'dwarves', 'orcs'],
+          },
+        ],
         victoryState,
         1,
       );
       expect(showCalls).toHaveLength(2);
+      expect(controller.lastVictoryCrown).toEqual({
+        beforeShards: ['humans', 'elves', 'dwarves'],
+        addedShards: ['orcs'],
+        afterShards: ['humans', 'elves', 'dwarves', 'orcs'],
+      });
     });
   });
 });

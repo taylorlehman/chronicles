@@ -330,6 +330,7 @@ export function createGame(config: GameConfig): GameState {
       alive: true,
       eliminatedOnTurn: null,
       superpowerUsed: false,
+      crownShards: [faction],
     };
   });
 
@@ -418,6 +419,11 @@ export function cloneState(state: GameState): GameState {
     players: state.players.map((p) => ({
       ...p,
       superpowerUsed: p.superpowerUsed ?? false,
+      crownShards: Array.isArray(p.crownShards)
+        ? p.crownShards.slice()
+        : p.alive
+          ? [p.faction]
+          : [],
       techs: p.techs.slice(),
       revealedTiles: p.revealedTiles.slice(),
     })),
@@ -905,15 +911,48 @@ export function applyAction(state: GameState, action: GameAction): ActionResult 
               delete next.units[u.id];
             }
           }
+          // Transfer all Star-Crown shards held by the defeated realm to the victor
+          const killerShardsBefore = Array.isArray(activePlayer.crownShards)
+            ? activePlayer.crownShards.slice()
+            : [activePlayer.faction];
+          const victimShards =
+            Array.isArray(oldOwner.crownShards) && oldOwner.crownShards.length > 0
+              ? oldOwner.crownShards.slice()
+              : [oldOwner.faction];
+          const killerShardsAfter = killerShardsBefore.slice();
+          const shardsAwarded: FactionId[] = [];
+          for (const shard of victimShards) {
+            if (!killerShardsAfter.includes(shard)) {
+              killerShardsAfter.push(shard);
+              shardsAwarded.push(shard);
+            }
+          }
+          activePlayer.crownShards = killerShardsAfter.slice();
+          oldOwner.crownShards = [];
+
           events.push({
             type: 'PLAYER_ELIMINATED',
             playerId: oldOwnerId,
             eliminatedByPlayerId: activePlayer.id,
+            shardsAwarded,
+            killerShardsBefore,
+            killerShardsAfter,
           });
         }
 
         // Check Domination victory
         if (checkDominationWinner(next, activePlayer.id)) {
+          // Ensure Domination victor holds all Star-Crown shards even if an outpost survived
+          for (const p of next.players) {
+            if (p.id === activePlayer.id) continue;
+            const remaining = Array.isArray(p.crownShards) ? p.crownShards : [];
+            for (const shard of remaining) {
+              if (!activePlayer.crownShards.includes(shard)) {
+                activePlayer.crownShards.push(shard);
+              }
+            }
+            p.crownShards = [];
+          }
           refreshPlayerStats(next);
           const scores = buildScoresRecord(next);
           next.phase = 'game_over';

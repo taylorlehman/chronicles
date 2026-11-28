@@ -517,11 +517,28 @@ textarea {
   width: 100%;
   max-width: 520px;
   margin: 0 auto;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 8px;
   padding: 0 2px;
   pointer-events: none;
+}
+
+.idle-bottom-bar .idle-codex-btn {
+  justify-self: start;
+}
+
+.idle-bottom-bar .bottom-age-medallion {
+  justify-self: center;
+}
+
+.idle-bottom-bar .idle-end-turn-btn {
+  justify-self: end;
+}
+
+.bottom-hud-wrapper.is-drawer-open .idle-bottom-bar {
+  display: none !important;
 }
 
 .tt-dock-btn,
@@ -2055,14 +2072,92 @@ html.android-webview .tech-confirm-card {
   color: #ffffff;
 }
 
-/* Push Tutorial Banner slightly lower so it never clips the centered round Superpower button */
+/* Bottom-Center Dock Placement for Age / Superpower Medallion */
+.bottom-age-medallion {
+  pointer-events: auto;
+  position: relative;
+}
+
+.bottom-age-medallion .sp-round-wrap {
+  width: 64px;
+  height: 64px;
+  margin-top: 0;
+  border-radius: 50%;
+  background: rgba(12, 18, 34, 0.44);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.36);
+  pointer-events: none;
+}
+
+.bottom-age-medallion .sp-ring-svg {
+  width: 64px;
+  height: 64px;
+}
+
+.bottom-age-medallion .sp-round-btn {
+  width: 50px;
+  height: 50px;
+  pointer-events: none;
+}
+
+.bottom-age-medallion .sp-round-btn.is-ready,
+.bottom-age-medallion .sp-round-btn.is-targeting {
+  width: 54px;
+  height: 54px;
+}
+
+.bottom-age-medallion .sp-round-icon {
+  width: 25px !important;
+  height: 25px !important;
+}
+
+.bottom-age-medallion .sp-round-btn.is-ready .sp-round-icon {
+  width: 28px !important;
+  height: 28px !important;
+}
+
+.bottom-age-medallion .sp-round-badge {
+  position: static;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  padding: 3px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: 0.02em;
+  background: var(--tt-label-bg);
+  border: 2px solid var(--tt-label-border);
+  color: var(--tt-label-ink);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.26);
+}
+
+.bottom-age-medallion .sp-round-badge.is-ready {
+  background: #fde047;
+  border-color: #a16207;
+  color: #1c1408;
+}
+
+.bottom-age-medallion .sp-round-badge.is-targeting {
+  background: #dc2626;
+  border-color: #fecaca;
+  color: #ffffff;
+}
+
+.bottom-age-medallion:active .sp-round-btn.is-ready {
+  transform: none !important;
+}
+
+/* Push Tutorial Banner slightly lower so it never clips the centered Star-Crown */
 .tutorial-banner {
   top: calc(70px + var(--safe-top));
 }
 
 /* Android WebView GPU Safety */
 html.android-webview .sp-round-btn,
-html.android-webview .sp-btn-sweep {
+html.android-webview .sp-btn-sweep,
+html.android-webview .bottom-age-medallion .sp-round-wrap,
+html.android-webview .bottom-age-medallion .sp-round-badge {
   animation: none !important;
   box-shadow: none !important;
 }

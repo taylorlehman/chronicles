@@ -119,6 +119,7 @@ export function createMockGameState(humanFaction: FactionId = 'humans'): GameSta
       alive: true,
       eliminatedOnTurn: null,
       superpowerUsed: false,
+      crownShards: [faction],
     };
   });
 

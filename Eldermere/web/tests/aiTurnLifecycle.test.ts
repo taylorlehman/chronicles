@@ -231,6 +231,7 @@ function createAppControllerHarness(state: GameState, humanPlayerId: PlayerId) {
   harness.isAITurnRunning = false;
   harness.sessionToken = 1;
   harness.pendingEndTurnAfterTutorial = false;
+  harness.lastVictoryCrown = null;
   harness.tutorialScenario = null;
   harness.selectedCoord = null;
   harness.selectedUnitId = null;
@@ -262,6 +263,7 @@ function createAppControllerHarness(state: GameState, humanPlayerId: PlayerId) {
   };
   harness.topBar = {
     update: vi.fn(),
+    pulseCrown: vi.fn(),
     hide: vi.fn(() => {
       calls.topBarHides += 1;
     }),

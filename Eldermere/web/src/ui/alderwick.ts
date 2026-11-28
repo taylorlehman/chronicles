@@ -160,34 +160,67 @@ export const HUMAN_RIVAL_DEFEAT_CONGRATS: Record<FactionId, RivalDefeatCongratsC
   humans: {
     kicker: 'Valoria & Sunmark Fall',
     lead: 'Splendid triumph, Commander!',
-    body: 'The sunlit highways and beacons of Valoria & Sunmark now bow to your banner—the Humans’ shard of the Star-Crown shines proudly in your Chronicle!',
+    body: 'The sunlit highways and beacons of Valoria & Sunmark bow to your banner—take the Humans’ piece of the Star-Crown for your Chronicle!',
     signoff: 'One fewer rival stands between you and the reforged Star-Crown!',
   },
   orcs: {
     kicker: 'Ashfell & Ironspire Fall',
     lead: 'Huzzah, Commander!',
-    body: 'You’ve quieted the roaring war-forges of Ashfell & Ironspire—the Orcs’ shard of the Star-Crown is yours, and my beard wasn’t even singed!',
-    signoff: 'A roaring new chapter is sealed in your Chronicle!',
+    body: 'You’ve quieted the roaring war-forges of Ashfell & Ironspire—here is the Orcs’ piece of the Star-Crown for your Chronicle, and my beard wasn’t even singed!',
+    signoff: 'A roaring new piece is forged into your Star-Crown!',
   },
   elves: {
     kicker: 'Sylvanvale & Starhaven Fall',
     lead: 'Marvelous command, Commander!',
-    body: 'Even the Keepers of the Starlight in Sylvanvale & Starhaven could not hold back your march—the Elves’ shard of the Star-Crown now illuminates your Chronicle!',
-    signoff: 'Celestial Starlight yields to your rising realm!',
+    body: 'Even the Keepers of the Starlight in Sylvanvale & Starhaven yield to your march—claim the Elves’ piece of the Star-Crown as it illuminates your Chronicle!',
+    signoff: 'Celestial Starlight joins your rising Star-Crown!',
   },
   dwarves: {
     kicker: 'Deepforge & Stonehelm Fall',
     lead: 'By my star-hat, what a feat!',
-    body: 'You’ve claimed the mighty mountain halls of Deepforge & Stonehelm—not even Starsteel walls could halt you, and the Dwarves’ shard of the Star-Crown joins your Chronicle!',
-    signoff: 'Onward to claim Eldermere’s throne, Commander!',
+    body: 'You’ve claimed the mighty mountain halls of Deepforge & Stonehelm—not even Starsteel walls could halt you! Take the Dwarves’ piece of the Star-Crown for your Chronicle!',
+    signoff: 'Onward to complete the Star-Crown, Commander!',
   },
 };
+
+export interface RivalDefeatShardsProgress {
+  afterCount: number;
+  addedCount?: number;
+  total?: number;
+}
 
 export function getRivalDefeatCongrats(
   defeatedFaction: FactionId,
   _victorFaction?: FactionId,
+  shardsProgress?: RivalDefeatShardsProgress,
 ): RivalDefeatCongratsCopy {
-  return HUMAN_RIVAL_DEFEAT_CONGRATS[defeatedFaction];
+  const base = HUMAN_RIVAL_DEFEAT_CONGRATS[defeatedFaction];
+  if (!shardsProgress) {
+    return base;
+  }
+  const total = shardsProgress.total ?? 4;
+  const count = Math.max(1, Math.min(total, shardsProgress.afterCount));
+  const remaining = Math.max(0, total - count);
+  const added = shardsProgress.addedCount ?? 1;
+
+  let signoff: string;
+  if (remaining === 0) {
+    signoff = `${count} of ${total} pieces reforged—the Star-Crown shines whole at last!`;
+  } else if (remaining === 1) {
+    signoff =
+      added > 1
+        ? `${count} of ${total} pieces reforged—you claimed ${added} pieces at once, and only one rival remains!`
+        : `${count} of ${total} pieces reforged—only one rival remains!`;
+  } else if (added > 1) {
+    signoff = `${count} of ${total} pieces reforged—${added} pieces snapped into place!`;
+  } else {
+    signoff = `${count} of ${total} pieces reforged—${remaining} rival pieces remain to complete the Crown!`;
+  }
+
+  return {
+    ...base,
+    signoff,
+  };
 }
 
 export function getEliminationWhisper(

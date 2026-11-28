@@ -89,13 +89,23 @@ describe('Campaign Persistence & Guided Tutorial', () => {
     expect(loadSavedCampaign()).toBeNull();
   });
 
-  it('tracks first-time tutorial completion, sequences all 8 scripted tutorial steps, and persists train stage', () => {
+  it('tracks first-time tutorial completion, sequences all 9 scripted tutorial steps, and persists crown & train stages', () => {
     expect(isTutorialCompleted()).toBe(false);
     markTutorialCompleted();
     expect(isTutorialCompleted()).toBe(true);
 
     const ids = TUTORIAL_STEPS.map((s) => s.id);
-    expect(ids).toEqual(['stars', 'upgrade', 'move', 'combat', 'capture', 'codex', 'train', 'end_turn']);
+    expect(ids).toEqual([
+      'crown',
+      'stars',
+      'upgrade',
+      'move',
+      'combat',
+      'capture',
+      'codex',
+      'train',
+      'end_turn',
+    ]);
 
     const { state, scenario } = createTutorialGame({
       humanFaction: 'humans',
@@ -104,6 +114,8 @@ describe('Campaign Persistence & Guided Tutorial', () => {
       maxTurns: 0,
     });
     const human = state.players.find((p) => p.isHuman)!;
+    expect(saveCampaign(state, human.id, 'crown', scenario)).toBe(true);
+    expect(loadSavedCampaign()?.tutorialStage).toBe('crown');
     expect(saveCampaign(state, human.id, 'train', scenario)).toBe(true);
     expect(loadSavedCampaign()?.tutorialStage).toBe('train');
   });

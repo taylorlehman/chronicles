@@ -6,9 +6,11 @@ export const SAVED_CAMPAIGN_KEY = 'eldermere_saved_campaign_v1';
 export const TUTORIAL_DONE_KEY = 'eldermere_tutorial_done_v1';
 
 const VALID_DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+const VALID_FACTIONS: readonly FactionId[] = ['humans', 'orcs', 'elves', 'dwarves'];
 
-const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
+const VALID_TUTORIAL_STAGES: readonly string[] = [
   'intro',
+  'crown',
   'stars',
   'upgrade',
   'move',
@@ -19,6 +21,26 @@ const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
   'end_turn',
   'complete',
 ];
+
+function normalizeCrownShards(shards: unknown, faction: FactionId, alive: boolean): FactionId[] {
+  if (!Array.isArray(shards)) {
+    return alive ? [faction] : [];
+  }
+  const deduped: FactionId[] = [];
+  for (const item of shards) {
+    if (
+      typeof item === 'string' &&
+      (VALID_FACTIONS as readonly string[]).includes(item) &&
+      !deduped.includes(item as FactionId)
+    ) {
+      deduped.push(item as FactionId);
+    }
+  }
+  if (deduped.length === 0 && alive) {
+    return [faction];
+  }
+  return deduped;
+}
 
 export function isValidDifficulty(value: unknown): value is Difficulty {
   return typeof value === 'string' && (VALID_DIFFICULTIES as readonly string[]).includes(value);
@@ -147,6 +169,14 @@ export function loadSavedCampaign(): SavedCampaignRecord | null {
         ...parsed.state.config,
         difficulty: normalizeDifficulty(parsed.state.config.difficulty),
       },
+      players: parsed.state.players.map((p) => ({
+        ...p,
+        crownShards: normalizeCrownShards(
+          (p as { crownShards?: unknown }).crownShards,
+          p.faction,
+          p.alive,
+        ),
+      })),
     };
 
     return {

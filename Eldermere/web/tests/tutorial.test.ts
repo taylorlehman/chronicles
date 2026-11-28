@@ -67,9 +67,9 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
     },
   );
 
-  describe.each<FactionId>(ALL_FACTIONS)('Full 8-step scripted tutorial sequence for %s', (faction) => {
+  describe.each<FactionId>(ALL_FACTIONS)('Full 9-step scripted tutorial sequence for %s', (faction) => {
     it.each<MapSize>([16, 18])(
-      'executes Upgrade -> Move -> Fight Orc on Village -> Capture -> Codex -> Train Warrior -> End Turn legally on %ix%i',
+      'initializes 1/4 Star-Crown shard and executes Upgrade -> Move -> Fight Orc on Village -> Capture -> Codex -> Train Warrior -> End Turn legally on %ix%i',
       (mapSize) => {
         const { state: initialState, scenario } = createTutorialGame({
           humanFaction: faction,
@@ -83,6 +83,7 @@ describe('Curated Tutorial Scenario (createTutorialGame)', () => {
         expect(human.faction).toBe(faction);
         expect(human.isHuman).toBe(true);
         expect(human.gold).toBe(10);
+        expect(human.crownShards).toEqual([faction]);
 
         const capital = getPlayerCities(state, human.id).find((c) => c.isCapital);
         expect(capital).toBeDefined();

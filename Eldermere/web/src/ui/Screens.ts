@@ -2,6 +2,7 @@ import { ALL_FACTIONS, FACTION_DEFINITIONS, UNIT_DEFINITIONS } from '../game/dat
 import { AGE_ROMAN } from '../game/rules';
 import type { Difficulty, FactionId, GameState, MapSize, PlayerAge, PlayerId } from '../game/types';
 import { mountAlderwickDialogue } from './AlderwickSpeech';
+import { renderStarCrownVictory } from './StarCrown';
 import {
   ALDERWICK_FULL_TITLE,
   RESIGN_CHRONICLE,
@@ -37,10 +38,17 @@ export interface ScoreBreakdown {
   total: number;
 }
 
+export interface VictoryCrownData {
+  beforeShards?: readonly FactionId[];
+  addedShards?: readonly FactionId[];
+  afterShards: readonly FactionId[];
+}
+
 export interface GameOverData {
   state: GameState;
   humanPlayerId: PlayerId;
   scoreBreakdowns?: Record<PlayerId, ScoreBreakdown>;
+  victoryCrown?: VictoryCrownData;
 }
 
 export interface GameOverCallbacks {
@@ -559,6 +567,20 @@ export class GameOverOverlay {
 
 
     if (isVictory) {
+      const isDomination = state.winReason === 'domination';
+      const afterShards =
+        data.victoryCrown?.afterShards && data.victoryCrown.afterShards.length > 0
+          ? data.victoryCrown.afterShards
+          : humanPlayer?.crownShards && humanPlayer.crownShards.length > 0
+            ? humanPlayer.crownShards
+            : ALL_FACTIONS;
+      const victoryCrownHtml = renderStarCrownVictory({
+        beforeShards: data.victoryCrown?.beforeShards,
+        addedShards: data.victoryCrown?.addedShards,
+        afterShards,
+        isDomination,
+      });
+
       this.root.innerHTML = `
         <div class="victory-curtain" style="--winner-heraldry: ${winnerHeraldry};">
           <div class="victory-sunburst" aria-hidden="true"></div>
@@ -574,6 +596,8 @@ export class GameOverOverlay {
 
             <h2 class="victory-headline">VICTORY!</h2>
             <p class="victory-subtitle">${esc(subtitle)}</p>
+
+            ${victoryCrownHtml}
 
             <div class="alderwick-endgame-host" data-alderwick-host></div>
           </div>
