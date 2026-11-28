@@ -43,7 +43,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     id: 'upgrade',
     icon: 'wheat',
     title: 'Grow Your Capital',
-    body: 'Every grand empire begins with a humble harvest! Tap both resource tiles inside your borders to level up your capital.',
+    body: 'Every grand empire begins with a humble harvest! Tap both berries inside your borders to level up your capital.',
   },
   {
     id: 'move',
@@ -450,6 +450,17 @@ export class TutorialController {
     switch (stepId) {
       case 'stars':
         return 'See those glowing <strong>Stars (★)</strong> up top? Spend them to harvest, train troops, and study lore—growing cities earns more each turn!';
+      case 'upgrade': {
+        const resourceWord =
+          this.context.resourceThumbKey === 'ore'
+            ? 'ore veins'
+            : this.context.resourceThumbKey === 'mithril'
+              ? 'mithril veins'
+              : this.context.resourceThumbKey === 'game'
+                ? 'wild game'
+                : 'berries';
+        return `Every grand empire begins with a humble harvest! Tap both <strong>${resourceWord}</strong> inside your borders to level up your capital.`;
+      }
       case 'capture':
         return 'Splendidly struck! Tap the glowing <strong>Claim</strong> button below to raise your banner over your second city.';
       case 'codex': {

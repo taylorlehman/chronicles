@@ -1760,8 +1760,11 @@ export class AppController {
     switch (stage) {
       case 'stars':
         return 'Not so fast, Commander! Tap “Got It!” above so we can grow your capital first.';
-      case 'upgrade':
-        return 'Easy does it! Harvest both resource tiles in your borders and pick a City Reward first.';
+      case 'upgrade': {
+        const human = this.state ? getPlayer(this.state, this.humanPlayerId) : null;
+        const resourceWord = human?.faction === 'dwarves' ? 'ore veins' : 'berries';
+        return `Easy does it! Harvest both ${resourceWord} in your borders and pick a City Reward first.`;
+      }
       case 'move':
         return 'Tap your unit at your capital and march onto the glowing blue ring to the east!';
       case 'combat':
