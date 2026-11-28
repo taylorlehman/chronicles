@@ -85,7 +85,12 @@ import {
   type TutorialBannerContext,
   type TutorialStage,
 } from './TutorialController';
-import { notifyAndroidGameReady, triggerAndroidHaptic } from './androidBridge';
+import {
+  isAndroidApp,
+  notifyAndroidGameReady,
+  shouldAutoStartAndroidTutorial,
+  triggerAndroidHaptic,
+} from './androidBridge';
 import { renderFactionSuperpowerIcon, renderIcon } from './icons';
 import {
   clearSavedCampaign,
@@ -159,12 +164,14 @@ export class AppController {
   private readonly onWindowPointerCancelBound: () => void;
   private readonly onAndroidBackBound: () => boolean;
   private readonly onAndroidSetPausedBound: (paused: boolean) => void;
+  private readonly onAndroidSizzleFinishedBound: () => void;
 
   private isBusy = false;
   private isAITurnRunning = false;
   private sessionToken = 0;
   private titleSettleTimer: number | null = null;
   private isTitleDioramaActive = false;
+  private hasAutoStartedFirstRunTutorial = false;
   private titleShowcaseState: GameState | null = null;
   private tutorialScenario: TutorialScenarioCoords | null = null;
   private pendingEndTurnAfterTutorial = false;
@@ -186,6 +193,7 @@ export class AppController {
     };
     this.onAndroidBackBound = () => this.handleAndroidBack();
     this.onAndroidSetPausedBound = (paused: boolean) => this.setPaused(paused);
+    this.onAndroidSizzleFinishedBound = () => this.handleAndroidSizzleFinished();
     this.onPagePersistBound = () => this.persistActiveCampaign();
     this.onVisibilityPersistBound = () => {
       if (document.visibilityState === 'hidden') {
@@ -257,7 +265,15 @@ export class AppController {
       },
     });
 
-    this.defeatNoticeModal = new DefeatNoticeModal(this.hudRoot);
+    this.defeatNoticeModal = new DefeatNoticeModal(this.hudRoot, {
+      onClose: (isHumanDefeated) => {
+        if (isHumanDefeated) {
+          this.returnToTitle();
+        } else {
+          this.resumeSceneAfterOpaqueSheet();
+        }
+      },
+    });
 
     this.factionDossierModal = new FactionDossierModal(this.hudRoot, {
       onBack: () => {
@@ -360,13 +376,25 @@ export class AppController {
       'box-shadow:0 8px 24px rgba(0,0,0,0.45);color:#f7eedc;pointer-events:auto;';
     this.hudRoot.appendChild(this.superpowerBannerEl);
 
-    this.titleScreen.setSavedCampaign(getSavedCampaignSummary());
-    this.applyFactionTheme(this.titleScreen.getSelectedFaction());
-    this.mountTitleDiorama();
-    this.titleScreen.show();
+    const savedSummary = getSavedCampaignSummary();
+    this.titleScreen.setSavedCampaign(savedSummary);
+
+    if (
+      isAndroidApp() &&
+      !isTutorialCompleted() &&
+      !savedSummary &&
+      shouldAutoStartAndroidTutorial()
+    ) {
+      this.startFirstRunAndroidTutorial();
+    } else {
+      this.applyFactionTheme(this.titleScreen.getSelectedFaction());
+      this.mountTitleDiorama();
+      this.titleScreen.show();
+    }
 
     window.__eldermereHandleBack = this.onAndroidBackBound;
     window.__eldermereSetPaused = this.onAndroidSetPausedBound;
+    window.__eldermereOnSizzleFinished = this.onAndroidSizzleFinishedBound;
     window.addEventListener('pagehide', this.onPagePersistBound);
     document.addEventListener('visibilitychange', this.onVisibilityPersistBound);
 
@@ -466,8 +494,13 @@ export class AppController {
 
   private persistActiveCampaign(): void {
     if (!this.state || !this.humanPlayerId) return;
-    if (this.state.phase !== 'playing') {
+    if (this.state.phase !== 'playing' || !this.isHumanAlive()) {
       clearSavedCampaign();
+      return;
+    }
+    // Never overwrite the clean human-turn save with a mid-AI-turn snapshot (e.g. on tab hide
+    // or Android background pause while AIs are acting).
+    if (this.isAITurnRunning || !this.isHumanTurn()) {
       return;
     }
     const stageToSave = this.tutorial.getStage();
@@ -631,12 +664,38 @@ export class AppController {
     }
   }
 
+  private startFirstRunAndroidTutorial(): void {
+    this.hasAutoStartedFirstRunTutorial = true;
+    const { state, scenario } = createTutorialGame({
+      humanFaction: 'humans',
+      difficulty: 'easy',
+      mapSize: 16,
+      maxTurns: 0,
+    });
+    const humanPlayer = state.players.find((p) => p.isHuman) ?? state.players[0];
+    this.mountActiveGame(state, humanPlayer.id, 'intro', scenario);
+  }
+
+  private handleAndroidSizzleFinished(): void {
+    if (
+      !this.hasAutoStartedFirstRunTutorial &&
+      !this.state &&
+      this.isTitleDioramaActive &&
+      isAndroidApp() &&
+      shouldAutoStartAndroidTutorial() &&
+      !isTutorialCompleted() &&
+      !loadSavedCampaign()
+    ) {
+      this.startFirstRunAndroidTutorial();
+    }
+  }
+
   public startGame(options: StartGameOptions): void {
     triggerAndroidHaptic('select');
     if (!isTutorialCompleted()) {
       const { state, scenario } = createTutorialGame({
         humanFaction: options.humanFaction,
-        difficulty: options.difficulty,
+        difficulty: 'easy',
         mapSize: options.mapSize,
         maxTurns: 0,
       });
@@ -801,7 +860,14 @@ export class AppController {
     }
     this.syncTutorialHighlights();
     this.refreshHUD();
-    this.persistActiveCampaign();
+    if (this.state.phase === 'playing' && !this.isHumanAlive()) {
+      this.handleHumanDefeated(null);
+    } else if (this.state.phase === 'playing' && !this.isHumanTurn()) {
+      // Unbrick any previously saved campaign that was persisted mid-AI-turn.
+      void this.runAITurnSequence(false);
+    } else {
+      this.persistActiveCampaign();
+    }
   }
 
   private handleResignCampaign(): void {
@@ -809,6 +875,12 @@ export class AppController {
       this.returnToTitle();
       return;
     }
+    // Invalidate any in-flight async action or AI turn immediately so it cannot race behind ResignationOverlay.
+    this.sessionToken += 1;
+    this.animQueue?.cancelAll();
+    this.isBusy = false;
+    this.isAITurnRunning = false;
+
     const human = getPlayer(this.state, this.humanPlayerId);
     const faction: FactionId = human?.faction ?? this.titleScreen.getSelectedFaction();
     const turn = this.state.turn;
@@ -826,7 +898,7 @@ export class AppController {
     this.ageUpModal.close();
     this.techModal.close();
     this.cityRewardModal.close();
-    this.defeatNoticeModal.close();
+    this.defeatNoticeModal.close(true);
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     this.hideRewardToast();
@@ -855,7 +927,7 @@ export class AppController {
     this.ageUpModal.close();
     this.techModal.close();
     this.cityRewardModal.close();
-    this.defeatNoticeModal.close();
+    this.defeatNoticeModal.close(true);
     this.factionDossierModal.close();
     this.leaderboardModal.close();
     this.hideRewardToast();
@@ -875,6 +947,9 @@ export class AppController {
     }
     if (window.__eldermereSetPaused === this.onAndroidSetPausedBound) {
       delete window.__eldermereSetPaused;
+    }
+    if (window.__eldermereOnSizzleFinished === this.onAndroidSizzleFinishedBound) {
+      delete window.__eldermereOnSizzleFinished;
     }
     this.disposeSession();
     this.hideRewardToast();
@@ -903,7 +978,7 @@ export class AppController {
     }
     this.cancelSuperpowerTargeting();
     this.ageUpModal.close();
-    this.defeatNoticeModal.close();
+    this.defeatNoticeModal.close(true);
     this.isBusy = false;
     this.isAITurnRunning = false;
     this.pendingEndTurnAfterTutorial = false;
@@ -927,13 +1002,115 @@ export class AppController {
     this.sceneManager = null;
 
     this.board = null;
+    this.animQueue?.cancelAll();
     this.animQueue = null;
     this.state = null;
+  }
+
+  private isHumanAlive(): boolean {
+    if (!this.state || !this.humanPlayerId) return false;
+    return Boolean(getPlayer(this.state, this.humanPlayerId)?.alive);
   }
 
   private isHumanTurn(): boolean {
     if (!this.state || this.state.phase !== 'playing') return false;
     return getActivePlayer(this.state).id === this.humanPlayerId;
+  }
+
+  private concludeHumanDefeat(eliminatedByPlayerId?: PlayerId | null): void {
+    if (!this.state || this.state.phase === 'game_over') return;
+    const conqueror =
+      (eliminatedByPlayerId && getPlayer(this.state, eliminatedByPlayerId)) ||
+      this.state.players
+        .filter((p) => p.alive && p.id !== this.humanPlayerId)
+        .sort((a, b) => b.score - a.score)[0] ||
+      this.state.players.find((p) => p.id !== this.humanPlayerId) ||
+      null;
+    this.state = {
+      ...this.state,
+      phase: 'game_over',
+      winnerId: conqueror?.id ?? null,
+      winReason: 'domination',
+    };
+  }
+
+  /**
+   * Immediately halts the match when the human player's civilization is eliminated, clears the
+   * saved campaign, hides active HUD/banners, and shows Alderwick's defeated message. Closing
+   * that modal returns straight to the Main Menu (TitleScreen) with zero hang or duplicate screen.
+   */
+  private handleHumanDefeated(eliminatedByPlayerId?: PlayerId | null): void {
+    if (!this.state || !this.humanPlayerId) {
+      this.returnToTitle();
+      return;
+    }
+
+    const human = getPlayer(this.state, this.humanPlayerId);
+    const humanFaction: FactionId = human?.faction ?? this.titleScreen.getSelectedFaction();
+    const conqueror =
+      (eliminatedByPlayerId && getPlayer(this.state, eliminatedByPlayerId)) ||
+      this.state.players
+        .filter((p) => p.alive && p.id !== this.humanPlayerId)
+        .sort((a, b) => b.score - a.score)[0] ||
+      this.state.players.find((p) => p.id !== this.humanPlayerId) ||
+      null;
+    const victorFaction: FactionId =
+      conqueror?.faction ?? (humanFaction === 'orcs' ? 'humans' : 'orcs');
+
+    this.concludeHumanDefeat(conqueror?.id ?? eliminatedByPlayerId);
+
+    // Invalidate any in-flight AI loop / animation promises immediately
+    this.sessionToken += 1;
+    this.animQueue?.cancelAll();
+    this.isBusy = false;
+    this.isAITurnRunning = false;
+
+    clearSavedCampaign();
+    this.cancelSuperpowerTargeting();
+    this.pendingEndTurnAfterTutorial = false;
+    this.tutorialScenario = null;
+    this.tutorial.hide();
+    this.topBar.hide();
+    this.actionBar.hide();
+    this.ageUpModal.close();
+    this.techModal.close();
+    this.cityRewardModal.close();
+    this.factionDossierModal.close();
+    this.leaderboardModal.close();
+    this.hideRewardToast();
+    this.clearSelection();
+    this.input?.setInputLocked(true);
+
+    this.pauseSceneBehindOpaqueSheet();
+    void this.defeatNoticeModal.show(humanFaction, victorFaction, true);
+  }
+
+  /**
+   * Hard defensive recovery: guarantees a live campaign can NEVER exit an AI turn loop
+   * stuck on a rival's turn with the thinking banner frozen on screen.
+   */
+  private ensureTurnReturnedToHuman(eliminatedByPlayerId?: PlayerId | null): void {
+    if (!this.state || this.state.phase !== 'playing') return;
+    if (!this.isHumanAlive()) {
+      this.concludeHumanDefeat(eliminatedByPlayerId);
+      return;
+    }
+    const maxHops = this.state.players.length + 1;
+    for (let i = 0; i < maxHops; i++) {
+      if (this.state.phase !== 'playing' || this.isHumanTurn()) break;
+      if (!this.isHumanAlive()) {
+        this.concludeHumanDefeat(eliminatedByPlayerId);
+        return;
+      }
+      const res = applyAction(this.state, { type: 'END_TURN' });
+      if (res.events.length === 0 && res.state.activePlayerIndex === this.state.activePlayerIndex) {
+        break;
+      }
+      this.state = res.state;
+    }
+    if (this.state.phase === 'playing' && !this.isHumanAlive()) {
+      this.concludeHumanDefeat(eliminatedByPlayerId);
+    }
   }
 
   private getUnitAtCoord(coord: Coord): Unit | null {
@@ -1803,6 +1980,14 @@ export class AppController {
     }
 
     triggerAndroidHaptic('tap');
+    // Save clean human-turn snapshot right before handing control to AIs.
+    this.persistActiveCampaign();
+    await this.runAITurnSequence(true);
+  }
+
+  private async runAITurnSequence(applyHumanEndTurn: boolean): Promise<void> {
+    if (!this.state || this.isBusy || this.isAITurnRunning) return;
+    if (this.state.phase !== 'playing') return;
 
     const token = this.sessionToken;
     this.ageUpModal.close();
@@ -1814,21 +1999,29 @@ export class AppController {
     this.isAITurnRunning = true;
     this.input?.setInputLocked(true);
 
-    try {
-      const endRes = applyAction(this.state, { type: 'END_TURN' });
-      this.state = endRes.state;
-      if (this.animQueue && endRes.events.length > 0) {
-        await this.animQueue.playEvents(endRes.events, this.state, this.humanPlayerId, 1.2);
-      }
-      if (token !== this.sessionToken) return;
+    let humanEliminatedById: PlayerId | null = null;
 
-      this.sceneManager?.setEclipseMode((this.state.eclipseTurnsRemaining ?? 0) > 0);
-      this.board?.syncState(this.state, this.humanPlayerId);
-      this.badges?.syncState(this.state, this.humanPlayerId, null);
-      this.refreshActionBar();
-      this.refreshTopBar();
-      await this.showEliminationNotices(endRes.events, this.state, token);
-      if (token !== this.sessionToken || !this.state) return;
+    try {
+      if (applyHumanEndTurn) {
+        const endRes = applyAction(this.state, { type: 'END_TURN' });
+        this.state = endRes.state;
+        if (this.animQueue && endRes.events.length > 0) {
+          try {
+            await this.animQueue.playEvents(endRes.events, this.state, this.humanPlayerId, 1.2);
+          } catch (err) {
+            console.error('[AppController] End-turn animation failed:', err);
+          }
+        }
+        if (token !== this.sessionToken || !this.state) return;
+
+        this.sceneManager?.setEclipseMode((this.state.eclipseTurnsRemaining ?? 0) > 0);
+        this.board?.syncState(this.state, this.humanPlayerId);
+        this.badges?.syncState(this.state, this.humanPlayerId, null);
+        this.refreshActionBar();
+        this.refreshTopBar();
+        await this.showEliminationNotices(endRes.events, this.state, token);
+        if (token !== this.sessionToken || !this.state) return;
+      }
 
       const frozenTutorialEnemyId =
         this.tutorial.isActive() && this.tutorialScenario
@@ -1837,11 +2030,14 @@ export class AppController {
 
       let safetyTurns = 0;
       let boardNeedsSync = false;
+      const maxAiTurns = Math.max(12, this.state.players.length * 3);
+
       while (
         this.state &&
         this.state.phase === 'playing' &&
+        this.isHumanAlive() &&
         !getActivePlayer(this.state).isHuman &&
-        safetyTurns < 12
+        safetyTurns < maxAiTurns
       ) {
         safetyTurns += 1;
         const aiPlayer = getActivePlayer(this.state);
@@ -1849,7 +2045,14 @@ export class AppController {
         await sleep(110);
         if (token !== this.sessionToken || !this.state) return;
 
-        const plannedActions = planAITurn(this.state, aiPlayer.id, this.state.config.difficulty);
+        let plannedActions: GameAction[];
+        try {
+          plannedActions = planAITurn(this.state, aiPlayer.id, this.state.config.difficulty);
+        } catch (err) {
+          console.error('[AppController] planAITurn threw; skipping AI turn:', aiPlayer.id, err);
+          plannedActions = [{ type: 'END_TURN' }];
+        }
+
         const filteredActions = frozenTutorialEnemyId
           ? plannedActions.filter((a) => {
               if ('unitId' in a && a.unitId === frozenTutorialEnemyId) return false;
@@ -1857,7 +2060,7 @@ export class AppController {
               return true;
             })
           : plannedActions;
-        const actions =
+        const actions: GameAction[] =
           filteredActions.length > 0 && filteredActions[filteredActions.length - 1].type === 'END_TURN'
             ? filteredActions
             : [...filteredActions, { type: 'END_TURN' as const }];
@@ -1865,11 +2068,30 @@ export class AppController {
         for (const aiAction of actions) {
           if (token !== this.sessionToken || !this.state) return;
           if (this.state.phase !== 'playing') break;
+          if (!this.isHumanAlive()) break;
           if (getActivePlayer(this.state).id !== aiPlayer.id) break;
 
           const prevState = this.state;
-          const { state: nextState, events } = applyAction(prevState, aiAction);
+          let nextState: GameState;
+          let events: GameEvent[];
+          try {
+            const applied = applyAction(prevState, aiAction);
+            nextState = applied.state;
+            events = applied.events;
+          } catch (err) {
+            console.error('[AppController] AI applyAction threw; skipping action:', aiAction.type, err);
+            if (aiAction.type === 'END_TURN') break;
+            continue;
+          }
           this.state = nextState;
+
+          const humanElimEv = events.find(
+            (ev): ev is Extract<GameEvent, { type: 'PLAYER_ELIMINATED' }> =>
+              ev.type === 'PLAYER_ELIMINATED' && ev.playerId === this.humanPlayerId,
+          );
+          if (humanElimEv) {
+            humanEliminatedById = humanElimEv.eliminatedByPlayerId;
+          }
 
           const isVisible = this.hasVisibleEventsForHuman(events, nextState);
           if (isVisible) {
@@ -1881,25 +2103,64 @@ export class AppController {
             this.focusOnVisibleAction(events, nextState);
 
             if (this.animQueue && events.length > 0) {
-              await this.animQueue.playEvents(events, nextState, this.humanPlayerId, 1.5);
+              try {
+                await this.animQueue.playEvents(events, nextState, this.humanPlayerId, 1.5);
+              } catch (err) {
+                console.error('[AppController] AI animation error; continuing turn:', err);
+              }
             }
             if (token !== this.sessionToken) return;
 
             this.sceneManager?.setEclipseMode((nextState.eclipseTurnsRemaining ?? 0) > 0);
             this.board?.syncState(nextState, this.humanPlayerId);
             this.badges?.syncState(nextState, this.humanPlayerId, null);
-            this.refreshTopBar();
 
+            if (!this.isHumanAlive()) {
+              this.handleHumanDefeated(humanEliminatedById ?? aiPlayer.id);
+              return;
+            }
+
+            this.refreshTopBar();
             await this.showEliminationNotices(events, nextState, token);
             if (token !== this.sessionToken) return;
           } else {
             boardNeedsSync = true;
           }
+
+          if (!this.isHumanAlive()) {
+            this.board?.syncState(nextState, this.humanPlayerId);
+            this.badges?.syncState(nextState, this.humanPlayerId, null);
+            this.handleHumanDefeated(humanEliminatedById ?? aiPlayer.id);
+            return;
+          }
+        }
+
+        if (token !== this.sessionToken || !this.state) return;
+        if (!this.isHumanAlive()) {
+          this.handleHumanDefeated(humanEliminatedById ?? aiPlayer.id);
+          return;
+        }
+        // Guarantee the active AI always yields the turn even if END_TURN was skipped/failed.
+        if (this.state.phase === 'playing' && getActivePlayer(this.state).id === aiPlayer.id) {
+          this.state = applyAction(this.state, { type: 'END_TURN' }).state;
+          boardNeedsSync = true;
         }
       }
 
       if (token !== this.sessionToken || !this.state) return;
+      if (!this.isHumanAlive()) {
+        this.handleHumanDefeated(humanEliminatedById);
+        return;
+      }
 
+      // Guarantee the campaign never exits this loop stuck on an AI turn.
+      this.ensureTurnReturnedToHuman(humanEliminatedById);
+      if (!this.isHumanAlive()) {
+        this.handleHumanDefeated(humanEliminatedById);
+        return;
+      }
+
+      this.isAITurnRunning = false;
       this.readyUnitCycleIndex = 0;
       this.sceneManager?.setEclipseMode((this.state.eclipseTurnsRemaining ?? 0) > 0);
       this.board?.syncState(this.state, this.humanPlayerId);
@@ -1913,13 +2174,32 @@ export class AppController {
       }
       this.refreshHUD();
       this.checkPostActionState();
+    } catch (err) {
+      console.error('[AppController] Unexpected error during AI turn; recovering:', err);
+      if (token === this.sessionToken && this.state) {
+        this.isAITurnRunning = false;
+        if (!this.isHumanAlive()) {
+          this.handleHumanDefeated(humanEliminatedById);
+          return;
+        }
+        this.ensureTurnReturnedToHuman(humanEliminatedById);
+        if (!this.isHumanAlive()) {
+          this.handleHumanDefeated(humanEliminatedById);
+          return;
+        }
+        this.sceneManager?.setEclipseMode((this.state.eclipseTurnsRemaining ?? 0) > 0);
+        this.board?.syncState(this.state, this.humanPlayerId);
+        this.badges?.syncState(this.state, this.humanPlayerId, null);
+        this.refreshHUD();
+        this.checkPostActionState();
+      }
     } finally {
       if (token === this.sessionToken) {
         this.isAITurnRunning = false;
         if (this.state?.phase === 'playing') {
           this.input?.setInputLocked(false);
+          this.refreshHUD();
         }
-        this.refreshHUD();
       }
     }
   }
@@ -1978,14 +2258,19 @@ export class AppController {
 
     for (const ev of elimEvents) {
       if (token !== this.sessionToken) return;
+      if (ev.playerId === this.humanPlayerId) {
+        this.handleHumanDefeated(ev.eliminatedByPlayerId);
+        return;
+      }
       const defeated = getPlayer(state, ev.playerId);
       const victor = getPlayer(state, ev.eliminatedByPlayerId);
       if (defeated && victor) {
-        await this.defeatNoticeModal.show(
-          defeated.faction,
-          victor.faction,
-          defeated.id === this.humanPlayerId,
-        );
+        this.pauseSceneBehindOpaqueSheet();
+        try {
+          await this.defeatNoticeModal.show(defeated.faction, victor.faction, false);
+        } finally {
+          this.resumeSceneAfterOpaqueSheet();
+        }
       }
     }
   }
@@ -2022,10 +2307,15 @@ export class AppController {
 
   private checkPostActionState(): void {
     if (!this.state) return;
+    if (!this.isHumanAlive()) {
+      this.handleHumanDefeated(this.state.winnerId);
+      return;
+    }
     if (this.state.phase === 'game_over') {
       clearSavedCampaign();
       this.cancelSuperpowerTargeting();
       this.tutorial.hide();
+      this.topBar.hide();
       this.ageUpModal.close();
       this.techModal.close();
       this.cityRewardModal.close();
@@ -2075,7 +2365,7 @@ export class AppController {
   }
 
   private openTechModal(): void {
-    if (!this.state) return;
+    if (!this.state || this.state.phase !== 'playing' || this.isBusy || this.isAITurnRunning) return;
     if (this.tutorial.isActive() && this.tutorial.getStage() !== 'codex') {
       triggerAndroidHaptic('tap');
       this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
@@ -2093,7 +2383,7 @@ export class AppController {
   }
 
   private handleUnlockTechRequest(techId: TechId): void {
-    if (!this.state) return;
+    if (!this.state || this.state.phase !== 'playing' || this.isBusy || this.isAITurnRunning) return;
     if (this.tutorial.isActive() && this.tutorial.getStage() !== 'codex') {
       triggerAndroidHaptic('tap');
       this.tutorial.nudge(this.getTutorialNudgeForCurrentStage());
@@ -2127,7 +2417,7 @@ export class AppController {
   }
 
   private openFactionDossier(focusFaction?: FactionId): void {
-    if (!this.state) return;
+    if (!this.state || this.state.phase !== 'playing') return;
     triggerAndroidHaptic('tap');
     this.cancelSuperpowerTargeting();
     this.techModal.close();
@@ -2140,7 +2430,7 @@ export class AppController {
   }
 
   private openLeaderboardModal(): void {
-    if (!this.state) return;
+    if (!this.state || this.state.phase !== 'playing') return;
     triggerAndroidHaptic('tap');
     this.cancelSuperpowerTargeting();
     this.techModal.close();
@@ -2273,6 +2563,10 @@ export class AppController {
 
   private refreshTopBar(): void {
     if (!this.state) return;
+    if (this.state.phase !== 'playing') {
+      this.topBar.hide();
+      return;
+    }
     const human = getPlayer(this.state, this.humanPlayerId);
     if (!human) return;
 

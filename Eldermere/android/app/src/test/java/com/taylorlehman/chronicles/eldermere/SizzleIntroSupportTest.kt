@@ -230,16 +230,74 @@ class SizzleIntroSupportTest {
     }
 
     @Test
-    fun videoViewportTransform_landscapeScreen_centerFitsWithoutClippingCaptions() {
+    fun videoViewportTransform_landscapeScreenWithPortraitVideo_centerFitsWithoutClippingCaptions() {
         val transform = VideoViewportTransform.compute(
             viewWidth = 1920,
             viewHeight = 1080,
             videoWidth = 1080,
             videoHeight = 1920,
+            isLandscapeViewport = true,
         )
-        // viewAspect = 16/9, videoAspect = 9/16 -> center-fit scaleX = (9/16)/(16/9) = 81/256
+        // viewAspect = 16/9, videoAspect = 9/16 -> orientation mismatch -> center-fit scaleX = 81/256
         assertEquals(81f / 256f, transform.scaleX, 0.0001f)
         assertEquals(1f, transform.scaleY, 0.0001f)
+    }
+
+    @Test
+    fun videoViewportTransform_portraitScreenWithLandscapeVideo_centerFitsWithoutClippingCaptions() {
+        val transform = VideoViewportTransform.compute(
+            viewWidth = 1080,
+            viewHeight = 1920,
+            videoWidth = 1920,
+            videoHeight = 1080,
+            isLandscapeViewport = false,
+        )
+        // viewAspect = 9/16, videoAspect = 16/9 -> orientation mismatch -> center-fit scaleY = 81/256
+        assertEquals(1f, transform.scaleX, 0.0001f)
+        assertEquals(81f / 256f, transform.scaleY, 0.0001f)
+    }
+
+    @Test
+    fun videoViewportTransform_exactSixteenByNineLandscape_isIdentityScale() {
+        val transform = VideoViewportTransform.compute(
+            viewWidth = 1920,
+            viewHeight = 1080,
+            videoWidth = 1280,
+            videoHeight = 720,
+            isLandscapeViewport = true,
+        )
+        assertEquals(1f, transform.scaleX, 0.0001f)
+        assertEquals(1f, transform.scaleY, 0.0001f)
+        assertEquals(960f, transform.pivotX, 0.0001f)
+        assertEquals(540f, transform.pivotY, 0.0001f)
+    }
+
+    @Test
+    fun videoViewportTransform_landscapeSixteenByTenTablet_centerCropsHorizontallyFullBleed() {
+        val transform = VideoViewportTransform.compute(
+            viewWidth = 2560,
+            viewHeight = 1600,
+            videoWidth = 1280,
+            videoHeight = 720,
+            isLandscapeViewport = true,
+        )
+        // viewAspect = 1.6, videoAspect = 16/9 (1.7778) -> full-bleed center-crop scaleX = (16/9)/1.6
+        assertEquals((16f / 9f) / 1.6f, transform.scaleX, 0.0001f)
+        assertEquals(1f, transform.scaleY, 0.0001f)
+    }
+
+    @Test
+    fun videoViewportTransform_ultrawideLandscape_centerCropsVerticallyFullBleed() {
+        val transform = VideoViewportTransform.compute(
+            viewWidth = 2400,
+            viewHeight = 1080,
+            videoWidth = 1280,
+            videoHeight = 720,
+            isLandscapeViewport = true,
+        )
+        // viewAspect = 2400/1080 (2.2222), videoAspect = 16/9 -> full-bleed center-crop scaleY = 1.25
+        assertEquals(1f, transform.scaleX, 0.0001f)
+        assertEquals(1.25f, transform.scaleY, 0.0001f)
     }
 
     @Test
@@ -252,5 +310,56 @@ class SizzleIntroSupportTest {
             VideoViewportTransform.IDENTITY,
             VideoViewportTransform.compute(1080, 1920, 0, 1920),
         )
+    }
+
+    @Test
+    fun sizzleMediaSelector_selectsLandscapeOrPortraitVariantAndResource() {
+        assertEquals(SizzleVideoVariant.PORTRAIT, SizzleMediaSelector.selectVariant(isLandscape = false))
+        assertEquals(SizzleVideoVariant.LANDSCAPE, SizzleMediaSelector.selectVariant(isLandscape = true))
+        assertEquals(
+            101,
+            SizzleMediaSelector.selectRawResId(isLandscape = false, portraitResId = 101, landscapeResId = 202),
+        )
+        assertEquals(
+            202,
+            SizzleMediaSelector.selectRawResId(isLandscape = true, portraitResId = 101, landscapeResId = 202),
+        )
+    }
+
+    @Test
+    fun isFirstRunSession_andBridgeAutoStartTutorial_stayTrueForEntireFirstLaunchOnly() {
+        val firstRunStore = InMemorySizzleStore(initialSeen = false)
+        val firstRunMachine = SizzleIntroStateMachine(firstRunStore)
+        val firstRunBridge = EldermereJsBridge(
+            onGameReadyCallback = {},
+            onHapticCallback = {},
+            shouldAutoStartTutorialProvider = { firstRunMachine.isFirstRunSession },
+        )
+
+        assertTrue(firstRunMachine.isFirstRunSession)
+        assertTrue(firstRunBridge.shouldAutoStartTutorial())
+
+        // Even after playback starts and marks sizzle seen, this session stays a first-run session.
+        firstRunMachine.onMediaPrepared(isActivityResumed = true)
+        firstRunMachine.onLoadingOverlayDismissed(isActivityResumed = true)
+        assertTrue(firstRunStore.seen)
+        assertTrue(firstRunMachine.isFirstRunSession)
+        assertTrue(firstRunBridge.shouldAutoStartTutorial())
+
+        // And after completion / skip, shouldAutoStartTutorial remains true for the launch session.
+        firstRunMachine.onPlaybackCompleted()
+        assertEquals(SizzlePlaybackPhase.FINISHED, firstRunMachine.phase)
+        assertTrue(firstRunMachine.isFirstRunSession)
+        assertTrue(firstRunBridge.shouldAutoStartTutorial())
+
+        // Next launch sees hasSeenSizzleVideo() == true -> returns false.
+        val secondLaunchMachine = SizzleIntroStateMachine(firstRunStore)
+        val secondLaunchBridge = EldermereJsBridge(
+            onGameReadyCallback = {},
+            onHapticCallback = {},
+            shouldAutoStartTutorialProvider = { secondLaunchMachine.isFirstRunSession },
+        )
+        assertFalse(secondLaunchMachine.isFirstRunSession)
+        assertFalse(secondLaunchBridge.shouldAutoStartTutorial())
     }
 }

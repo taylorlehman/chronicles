@@ -10,6 +10,7 @@ class EldermereJsBridge(
     private val onGameReadyCallback: () -> Unit,
     private val onHapticCallback: (HapticStyle) -> Unit,
     private val onResetAppStateAndExitCallback: () -> Unit = {},
+    private val shouldAutoStartTutorialProvider: () -> Boolean = { false },
 ) {
     @JavascriptInterface
     fun onGameReady() {
@@ -25,4 +26,7 @@ class EldermereJsBridge(
     fun resetAppStateAndExit() {
         onResetAppStateAndExitCallback()
     }
+
+    @JavascriptInterface
+    fun shouldAutoStartTutorial(): Boolean = shouldAutoStartTutorialProvider()
 }

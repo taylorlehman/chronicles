@@ -246,8 +246,8 @@ function smoothstep(x: number): number {
  */
 export function humanPressure(turn: number, diff: DifficultyConfig): number {
   const s = smoothstep((turn - 1) / Math.max(1, diff.humanPressureRampTurns));
-  const floor = diff.difficulty === 'easy' ? 0.12 : 0.3;
-  const ceil = diff.difficulty === 'easy' ? 0.85 : 1.0;
+  const floor = diff.difficulty === 'easy' ? 0.1 : diff.difficulty === 'normal' ? 0.22 : 0.3;
+  const ceil = diff.difficulty === 'easy' ? 0.7 : diff.difficulty === 'normal' ? 0.9 : 1.0;
   return floor + (ceil - floor) * s;
 }
 
@@ -560,10 +560,9 @@ export function buildStrategicContext(
       attr *= hTargetW;
     }
 
-    // Strong campaign commitment: keep finishing the war we started unless a major invasion
-    // forces a pivot or our target is eliminated.
+    // Campaign commitment scales smoothly with focusFire (Hard holds disciplined sieges; Easy pivots organically).
     if (p.id === prev.target) {
-      attr *= 3.4;
+      attr *= 1.5 + 1.9 * diff.focusFire;
     }
 
     if (attr > bestAttr) {
@@ -682,6 +681,7 @@ export function assignRoles(
   state: GameState,
   ctx: SpatialContext,
   sctx: StrategicContext,
+  diff?: DifficultyConfig,
 ): void {
   const size = state.mapSize;
   const roles = sctx.roles;
@@ -689,12 +689,13 @@ export function assignRoles(
   roles.clear();
   defendCity.clear();
   const pool: Unit[] = [];
+  const allowRetreat = (diff?.dangerAwareness ?? 1) >= 0.2;
   for (const u of ctx.ownUnits) {
     if (UNIT_DEFINITIONS[u.type].movement === 0) {
       roles.set(u.id, 'static');
       continue;
     }
-    if (u.hp / u.maxHp < 0.4) {
+    if (allowRetreat && u.hp / u.maxHp < 0.4) {
       roles.set(u.id, 'retreat');
       continue;
     }
@@ -805,6 +806,7 @@ export function refreshCombatContext(
   state: GameState,
   ctx: SpatialContext,
   sctx: StrategicContext,
+  diff?: DifficultyConfig,
 ): void {
   const { enemyReach, enemyAtk, enemyForce, enemyRanged, enemyReachPower, threats } =
     populateEnemyCombatArrays(state, ctx);
@@ -815,5 +817,5 @@ export function refreshCombatContext(
   sctx.enemyReachPower = enemyReachPower;
   sctx.threats = threats;
   refreshDynamicContext(state, ctx, sctx);
-  assignRoles(state, ctx, sctx);
+  assignRoles(state, ctx, sctx, diff);
 }

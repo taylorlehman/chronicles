@@ -17,6 +17,7 @@ import {
   getTile,
   getTrainableUnits,
   getUnitCost,
+  type Difficulty,
   type FactionId,
   type GameAction,
   type GameState,
@@ -40,7 +41,7 @@ export interface MatchSpec {
   /** Faction placed in seat 0 (the "human" seat, isHuman=true in engine terms). */
   humanFaction: FactionId;
   /** Engine difficulty stored in config (affects nothing engine-side; AI reads it). */
-  difficulty: 'easy' | 'normal';
+  difficulty: Difficulty;
   /** Controller label per faction (for reporting). */
   labels: Record<FactionId, string>;
   controllers: Record<FactionId, SeatController>;
@@ -267,7 +268,7 @@ export function runMatch(spec: MatchSpec): GameRecord {
     const dt = performance.now() - t0;
     aiTurns++;
     aiMs += dt;
-    if (!rec.label.startsWith('human=novice')) aiTurnTimesMs.push(dt);
+    if (!rec.label.startsWith('human=')) aiTurnTimesMs.push(dt);
     if (dt > 60) rec.slowTurns60++;
     if (dt > 100) rec.slowTurns100++;
     rec.maxTurnMs = Math.max(rec.maxTurnMs, dt);
@@ -763,7 +764,7 @@ export function formatBehaviour(records: GameRecord[]): string {
   }
 
   // Performance tails (avg / p50 / p95 / p99 / max)
-  const allP = records.flatMap((r) => r.players.filter((p) => !p.label.startsWith('human=novice')));
+  const allP = records.flatMap((r) => r.players.filter((p) => !p.label.startsWith('human=')));
   const allTimes = records.flatMap((r) => r.aiTurnTimesMs ?? []);
   const g100 = records.filter((r) => r.players.some((p) => (p.slowTurns100 ?? 0) > 0)).length;
   const g60 = records.filter((r) => r.players.some((p) => (p.slowTurns60 ?? 0) > 0)).length;

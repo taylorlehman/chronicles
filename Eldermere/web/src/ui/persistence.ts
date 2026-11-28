@@ -5,6 +5,8 @@ import type { TutorialStage } from './TutorialController';
 export const SAVED_CAMPAIGN_KEY = 'eldermere_saved_campaign_v1';
 export const TUTORIAL_DONE_KEY = 'eldermere_tutorial_done_v1';
 
+const VALID_DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+
 const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
   'intro',
   'stars',
@@ -17,6 +19,14 @@ const VALID_TUTORIAL_STAGES: readonly TutorialStage[] = [
   'end_turn',
   'complete',
 ];
+
+export function isValidDifficulty(value: unknown): value is Difficulty {
+  return typeof value === 'string' && (VALID_DIFFICULTIES as readonly string[]).includes(value);
+}
+
+function normalizeDifficulty(value: unknown): Difficulty {
+  return isValidDifficulty(value) ? value : 'normal';
+}
 
 export interface SavedCampaignRecord {
   version: 1;
@@ -129,12 +139,21 @@ export function loadSavedCampaign(): SavedCampaignRecord | null {
     }
     const human = parsed.state.players.find((p) => p.id === parsed.humanPlayerId);
     if (!human || !human.alive) return null;
+    if (!parsed.state.config || typeof parsed.state.config !== 'object') return null;
+
+    const normalizedState: GameState = {
+      ...parsed.state,
+      config: {
+        ...parsed.state.config,
+        difficulty: normalizeDifficulty(parsed.state.config.difficulty),
+      },
+    };
 
     return {
       version: 1,
       savedAt: typeof parsed.savedAt === 'number' ? parsed.savedAt : Date.now(),
       humanPlayerId: parsed.humanPlayerId,
-      state: parsed.state,
+      state: normalizedState,
       tutorialStage: isValidTutorialStage(parsed.tutorialStage) ? parsed.tutorialStage : null,
       tutorialScenario: isValidTutorialScenario(parsed.tutorialScenario)
         ? parsed.tutorialScenario

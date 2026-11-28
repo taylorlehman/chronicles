@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/root_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/eldermere_bg_dark">
+
+    <WebView
+        android:id="@+id/game_webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/eldermere_bg_dark" />
+
+    <!-- First-run Full-Bleed Sizzle Video Overlay (plays once after Launch Loading Screen) -->
+    <FrameLayout
+        android:id="@+id/sizzle_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/eldermere_bg_dark"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <TextureView
+            android:id="@+id/sizzle_texture_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="96dp"
+            android:layout_gravity="top"
+            android:alpha="0.50"
+            android:background="@drawable/scrim_loading_top" />
+
+        <LinearLayout
+            android:id="@+id/sizzle_controls_container"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="20dp"
+            android:paddingTop="14dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="8dp">
+
+            <ImageButton
+                android:id="@+id/sizzle_mute_button"
+                android:layout_width="42dp"
+                android:layout_height="42dp"
+                android:layout_marginEnd="10dp"
+                android:background="@drawable/bg_sizzle_pill"
+                android:contentDescription="@string/sizzle_mute_cd"
+                android:padding="10dp"
+                android:scaleType="centerInside"
+                android:src="@drawable/ic_sizzle_volume_on" />
+
+            <TextView
+                android:id="@+id/sizzle_skip_button"
+                android:layout_width="wrap_content"
+                android:layout_height="42dp"
+                android:background="@drawable/bg_sizzle_pill"
+                android:clickable="true"
+                android:contentDescription="@string/sizzle_skip_cd"
+                android:focusable="true"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:letterSpacing="0.08"
+                android:minWidth="80dp"
+                android:paddingHorizontal="20dp"
+                android:text="@string/sizzle_skip"
+                android:textAllCaps="true"
+                android:textColor="@color/eldermere_gold_bright"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Full-bleed Native Launch Loading Screen tailored for Tablet Landscape -->
+    <FrameLayout
+        android:id="@+id/loading_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/eldermere_bg_dark"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:id="@+id/loading_bg_image"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop"
+            android:src="@drawable/splash_loading_bg" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="196dp"
+            android:layout_gravity="top"
+            android:background="@drawable/scrim_loading_top" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="164dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/scrim_loading_bottom" />
+
+        <!-- Top stylized game crest typography nestled cleanly in upper twilight sky -->
+        <LinearLayout
+            android:id="@+id/loading_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingHorizontal="32dp"
+            android:paddingTop="24dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="serif"
+                android:letterSpacing="0.34"
+                android:shadowColor="#CC040812"
+                android:shadowDy="2"
+                android:shadowRadius="6"
+                android:text="@string/loading_kicker"
+                android:textColor="@color/eldermere_gold_muted"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <View
+                android:layout_width="112dp"
+                android:layout_height="1.5dp"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="4dp"
+                android:background="@drawable/divider_gold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:fontFamily="serif"
+                android:letterSpacing="0.16"
+                android:shadowColor="#E603060E"
+                android:shadowDy="4"
+                android:shadowRadius="10"
+                android:text="@string/loading_title"
+                android:textColor="@color/eldermere_gold_bright"
+                android:textSize="40sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:fontFamily="serif"
+                android:letterSpacing="0.08"
+                android:shadowColor="#CC040812"
+                android:shadowDy="2"
+                android:shadowRadius="6"
+                android:text="@string/loading_tagline"
+                android:textColor="@color/eldermere_ink_soft"
+                android:textSize="14sp"
+                android:textStyle="italic" />
+        </LinearLayout>
+
+        <!-- Bottom centered sleek golden progress bar & cycling Eldermere tips -->
+        <LinearLayout
+            android:id="@+id/loading_footer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:gravity="center_horizontal"
+            android:orientation="vertical"
+            android:paddingHorizontal="32dp"
+            android:paddingBottom="24dp">
+
+            <TextView
+                android:id="@+id/loading_tip_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="10dp"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:letterSpacing="0.03"
+                android:shadowColor="#F2040812"
+                android:shadowDy="2"
+                android:shadowRadius="8"
+                android:text="@string/loading_tip_default"
+                android:textColor="@color/eldermere_tip_text"
+                android:textSize="14sp" />
+
+            <ProgressBar
+                android:id="@+id/loading_progress_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="460dp"
+                android:layout_height="7dp"
+                android:indeterminate="false"
+                android:max="1000"
+                android:progress="120"
+                android:progressDrawable="@drawable/progress_gold_bar" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Secret State Reset Confirmation Overlay (fades slowly before exiting) -->
+    <FrameLayout
+        android:id="@+id/state_cleared_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#B3080F1E"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/state_cleared_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_sizzle_pill"
+            android:fontFamily="serif"
+            android:gravity="center"
+            android:letterSpacing="0.06"
+            android:paddingHorizontal="28dp"
+            android:paddingVertical="16dp"
+            android:shadowColor="#CC040812"
+            android:shadowDy="2"
+            android:shadowRadius="6"
+            android:text="@string/state_cleared_message"
+            android:textColor="@color/eldermere_gold_bright"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
+</FrameLayout>

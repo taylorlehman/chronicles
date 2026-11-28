@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { createGame, createTutorialGame } from '../src/game';
 import { TUTORIAL_STEPS } from '../src/ui/TutorialController';
 import {
+  SAVED_CAMPAIGN_KEY,
   clearSavedCampaign,
   getSavedCampaignSummary,
   isTutorialCompleted,
+  isValidDifficulty,
   loadSavedCampaign,
   markTutorialCompleted,
   saveCampaign,
@@ -104,5 +106,35 @@ describe('Campaign Persistence & Guided Tutorial', () => {
     const human = state.players.find((p) => p.isHuman)!;
     expect(saveCampaign(state, human.id, 'train', scenario)).toBe(true);
     expect(loadSavedCampaign()?.tutorialStage).toBe('train');
+  });
+
+  it('validates and preserves easy, normal, and hard difficulties across save/load and normalizes invalid values', () => {
+    expect(isValidDifficulty('easy')).toBe(true);
+    expect(isValidDifficulty('normal')).toBe(true);
+    expect(isValidDifficulty('hard')).toBe(true);
+    expect(isValidDifficulty('squire')).toBe(false);
+    expect(isValidDifficulty('captain')).toBe(false);
+
+    for (const difficulty of ['easy', 'normal', 'hard'] as const) {
+      const state = createGame({
+        humanFaction: 'humans',
+        difficulty,
+        mapSize: 16,
+        maxTurns: 0,
+        seed: 999,
+      });
+      const human = state.players.find((p) => p.isHuman)!;
+      expect(saveCampaign(state, human.id, null, null)).toBe(true);
+      expect(loadSavedCampaign()?.state.config.difficulty).toBe(difficulty);
+      expect(getSavedCampaignSummary()?.difficulty).toBe(difficulty);
+    }
+
+    // Corrupt/unknown difficulty string in localStorage normalizes safely to 'normal'
+    const raw = JSON.parse(window.localStorage.getItem(SAVED_CAMPAIGN_KEY)!);
+    raw.state.config.difficulty = 'impossible';
+    window.localStorage.setItem(SAVED_CAMPAIGN_KEY, JSON.stringify(raw));
+
+    expect(loadSavedCampaign()?.state.config.difficulty).toBe('normal');
+    expect(getSavedCampaignSummary()?.difficulty).toBe('normal');
   });
 });

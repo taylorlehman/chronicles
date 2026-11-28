@@ -17,6 +17,8 @@ interface TweenTask {
   duration: number;
   onUpdate: (t: number) => void;
   onComplete: () => void;
+  done: boolean;
+  timeoutId: ReturnType<typeof setTimeout> | null;
 }
 
 interface SharedParticleMatRef {
@@ -79,6 +81,7 @@ export class AnimationQueue {
   private readonly tweens: TweenTask[] = [];
   private readonly particles: Particle[] = [];
   private playing = false;
+  private cancelled = false;
 
   constructor(board: BoardRenderer, badges: WorldBadges, sceneManager?: SceneManager) {
     this.board = board;
@@ -90,6 +93,25 @@ export class AnimationQueue {
     return this.playing;
   }
 
+  public cancelAll(): void {
+    this.cancelled = true;
+    const pending = this.tweens.splice(0, this.tweens.length);
+    for (const task of pending) {
+      this.finishTween(task);
+    }
+    this.playing = false;
+  }
+
+  private finishTween(task: TweenTask): void {
+    if (task.done) return;
+    task.done = true;
+    if (task.timeoutId !== null) {
+      globalThis.clearTimeout(task.timeoutId);
+      task.timeoutId = null;
+    }
+    task.onComplete();
+  }
+
   public update(rawDt: number): void {
     // Clamp dt <= 33ms so a single slow frame never teleports an animation
     const dt = Math.min(Math.max(rawDt, 0), MAX_FRAME_DT);
@@ -98,10 +120,16 @@ export class AnimationQueue {
       const task = this.tweens[i];
       task.elapsed += dt;
       const t = Math.min(1, task.elapsed / Math.max(task.duration, 0.001));
-      task.onUpdate(t);
-      if (t >= 1) {
+      let failed = false;
+      try {
+        task.onUpdate(t);
+      } catch (err) {
+        failed = true;
+        console.error('[AnimationQueue] Tween update failed; completing early:', err);
+      }
+      if (failed || t >= 1) {
         this.tweens.splice(i, 1);
-        task.onComplete();
+        this.finishTween(task);
       }
     }
 
@@ -130,13 +158,46 @@ export class AnimationQueue {
   }
 
   private runTween(durationSec: number, onUpdate: (t: number) => void): Promise<void> {
+    if (this.cancelled) {
+      return Promise.resolve();
+    }
+    // When the scene RAF loop is intentionally paused (e.g. behind an opaque modal on Android
+    // or while backgrounded), fast-complete immediately so awaited event animations never deadlock.
+    if (this.sceneManager && !this.sceneManager.isRunning()) {
+      try {
+        onUpdate(1);
+      } catch (err) {
+        console.error('[AnimationQueue] Fast-complete tween error:', err);
+      }
+      return Promise.resolve();
+    }
+
+    const safeDuration = Math.max(durationSec, 0.001);
+    const timeoutMs = Math.max(1500, Math.ceil(safeDuration * 1000 * 3) + 1000);
+
     return new Promise((resolve) => {
-      this.tweens.push({
+      const task: TweenTask = {
         elapsed: 0,
-        duration: durationSec,
+        duration: safeDuration,
         onUpdate,
         onComplete: resolve,
-      });
+        done: false,
+        timeoutId: null,
+      };
+      task.timeoutId = globalThis.setTimeout(() => {
+        if (task.done) return;
+        const idx = this.tweens.indexOf(task);
+        if (idx !== -1) {
+          this.tweens.splice(idx, 1);
+        }
+        try {
+          task.onUpdate(1);
+        } catch (err) {
+          console.error('[AnimationQueue] Safety-timeout tween error:', err);
+        }
+        this.finishTween(task);
+      }, timeoutMs);
+      this.tweens.push(task);
     });
   }
 
@@ -222,12 +283,18 @@ export class AnimationQueue {
     speedMultiplier = 1,
   ): Promise<void> {
     if (events.length === 0) return;
+    this.cancelled = false;
     this.playing = true;
     const invSpeed = 1 / Math.max(speedMultiplier, 0.25);
 
     try {
       for (const ev of events) {
-        await this.playSingleEvent(ev, stateAfter, viewerPlayerId, invSpeed);
+        if (this.cancelled) break;
+        try {
+          await this.playSingleEvent(ev, stateAfter, viewerPlayerId, invSpeed);
+        } catch (err) {
+          console.error('[AnimationQueue] Event playback failed:', ev.type, err);
+        }
       }
     } finally {
       this.playing = false;

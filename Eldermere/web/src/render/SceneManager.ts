@@ -304,6 +304,10 @@ export class SceneManager {
     };
   }
 
+  public isRunning(): boolean {
+    return this.rafId !== null;
+  }
+
   public start(): void {
     if (this.rafId !== null) return;
     this.lastTime = performance.now();
@@ -317,7 +321,11 @@ export class SceneManager {
 
       this.stepCamera(dt);
       for (const cb of this.callbacks) {
-        cb(dt, this.elapsed);
+        try {
+          cb(dt, this.elapsed);
+        } catch (err) {
+          console.error('[SceneManager] frame callback error:', err);
+        }
       }
       this.renderer.render(this.scene, this.camera);
     };

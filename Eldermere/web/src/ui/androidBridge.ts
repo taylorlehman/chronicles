@@ -4,6 +4,7 @@ export interface EldermereAndroidBridge {
   onGameReady?: () => void;
   haptic?: (style: AndroidHapticStyle) => void;
   resetAppStateAndExit?: () => void;
+  shouldAutoStartTutorial?: () => boolean;
 }
 
 declare global {
@@ -11,6 +12,7 @@ declare global {
     EldermereAndroid?: EldermereAndroidBridge;
     __eldermereHandleBack?: () => boolean;
     __eldermereSetPaused?: (paused: boolean) => void;
+    __eldermereOnSizzleFinished?: () => void;
   }
 }
 
@@ -37,6 +39,15 @@ export function notifyAndroidGameReady(): void {
 
 export function isAndroidApp(): boolean {
   return typeof window !== 'undefined' && Boolean(window.EldermereAndroid);
+}
+
+export function shouldAutoStartAndroidTutorial(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return Boolean(window.EldermereAndroid?.shouldAutoStartTutorial?.());
+  } catch {
+    return false;
+  }
 }
 
 export function triggerAndroidHaptic(style: AndroidHapticStyle): void {

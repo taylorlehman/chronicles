@@ -31,9 +31,14 @@ describe('Rules-Based AI (src/ai)', () => {
     const easyA = planAITurn(state, activeId, 'easy');
     const easyB = planAITurn(state, activeId, 'easy');
     expect(easyA).toEqual(easyB);
+
+    const hardA = planAITurn(state, activeId, 'hard');
+    const hardB = planAITurn(state, activeId, 'hard');
+    expect(hardA).toEqual(hardB);
+    expect(hardA[hardA.length - 1]?.type).toBe('END_TURN');
   });
 
-  it('encodes distinct faction AI personalities and approachable difficulty presets', () => {
+  it('encodes distinct faction AI personalities and 3-tier difficulty presets', () => {
     expect(FACTION_AI_PROFILES.orcs.attackWeight).toBeGreaterThan(
       FACTION_AI_PROFILES.dwarves.attackWeight,
     );
@@ -50,15 +55,21 @@ describe('Rules-Based AI (src/ai)', () => {
     expect(DIFFICULTY_CONFIGS.easy.noiseRange).toBeGreaterThan(
       DIFFICULTY_CONFIGS.normal.noiseRange,
     );
+    expect(DIFFICULTY_CONFIGS.normal.noiseRange).toBeGreaterThan(
+      DIFFICULTY_CONFIGS.hard.noiseRange,
+    );
     expect(DIFFICULTY_CONFIGS.easy.earlyHumanCapitalPressure).toBeLessThan(
       DIFFICULTY_CONFIGS.normal.earlyHumanCapitalPressure,
+    );
+    expect(DIFFICULTY_CONFIGS.normal.earlyHumanCapitalPressure).toBeLessThan(
+      DIFFICULTY_CONFIGS.hard.earlyHumanCapitalPressure,
     );
   });
 
   it('AI evaluates and researches Tier 3 capstones when eligible and affordable', () => {
     const state = createGame({
       humanFaction: 'humans',
-      difficulty: 'normal',
+      difficulty: 'hard',
       mapSize: 16,
       maxTurns: 30,
       seed: 101,
@@ -76,7 +87,9 @@ describe('Rules-Based AI (src/ai)', () => {
     );
     player.gold = 25;
 
-    const plan = planAITurn(state, player.id, 'normal');
+    const plan = planAITurn(state, player.id, 'hard', {
+      config: { ...DIFFICULTY_CONFIGS.hard, techResearchChance: 1.0 },
+    });
     const researchedT3 = plan.some(
       (a) =>
         a.type === 'RESEARCH_TECH' &&
@@ -111,7 +124,7 @@ describe('Rules-Based AI (src/ai)', () => {
     unit.actedThisTurn = false;
     player.revealedTiles[village.y * state.mapSize + village.x] = true;
 
-    for (const diff of ['easy', 'normal'] as const) {
+    for (const diff of ['easy', 'normal', 'hard'] as const) {
       const plan = planAITurn(state, player.id, diff);
       const captureIdx = plan.findIndex(
         (a) => a.type === 'CAPTURE_CITY' && a.unitId === unit.id,
@@ -147,7 +160,7 @@ describe('Rules-Based AI (src/ai)', () => {
     unit.actedThisTurn = false;
     player.revealedTiles[ruin.y * state.mapSize + ruin.x] = true;
 
-    for (const diff of ['easy', 'normal'] as const) {
+    for (const diff of ['easy', 'normal', 'hard'] as const) {
       const plan = planAITurn(state, player.id, diff);
       const exploreIdx = plan.findIndex(
         (a) => a.type === 'EXPLORE_RUINS' && a.unitId === unit.id,
@@ -179,9 +192,10 @@ describe('Rules-Based AI (src/ai)', () => {
       dwarves: 0,
     };
 
+    const difficulties: Difficulty[] = ['easy', 'normal', 'hard'];
     for (let m = 0; m < MATCH_COUNT; m++) {
       const humanFaction = ALL_FACTIONS[m % ALL_FACTIONS.length];
-      const difficulty: Difficulty = m % 2 === 0 ? 'normal' : 'easy';
+      const difficulty: Difficulty = difficulties[m % difficulties.length];
       const mapSize: MapSize = m % 2 === 0 ? 16 : 18;
 
       let state = createGame({

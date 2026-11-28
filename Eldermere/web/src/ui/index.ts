@@ -31,9 +31,12 @@ export {
   type LeaderboardModalViewModel,
 } from './LeaderboardModal';
 export {
+  DIFFICULTY_LABELS,
   FACTION_HERALDRY,
   GameOverOverlay,
   TitleScreen,
+  formatDifficultyLabel,
+  nextDifficulty,
   type GameOverCallbacks,
   type GameOverData,
   type ScoreBreakdown,

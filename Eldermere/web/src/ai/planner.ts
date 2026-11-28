@@ -166,7 +166,7 @@ export function planAITurn(
   const promoteEligibleUnits = () => {
     for (const unit of Object.values(state.units)) {
       if (unit.ownerId === playerId && unit.canPromote) {
-        if (diff.difficulty === 'easy' && roll(`promo:${unit.id}`) > 0.4) continue;
+        if (diff.difficulty === 'easy' && roll(`promo:${unit.id}`) > 0.1) continue;
         commit({ type: 'PROMOTE_UNIT', unitId: unit.id });
       }
     }
@@ -175,7 +175,7 @@ export function planAITurn(
   const strategy = (): { ctx: SpatialContext; sctx: StrategicContext } => {
     const ctx = buildSpatialContext(state, playerId);
     const sctx = buildStrategicContext(state, ctx, profile, diff);
-    assignRoles(state, ctx, sctx);
+    assignRoles(state, ctx, sctx, diff);
     return { ctx, sctx };
   };
 
@@ -229,7 +229,13 @@ export function planAITurn(
     };
     rebuildOwnedTiles();
 
-    while (econActionsUsed < diff.maxEconActionsPerTurn && state.phase === 'playing') {
+    let econIter = 0;
+    const maxEconIter = diff.maxEconActionsPerTurn + 4;
+    while (
+      econActionsUsed < diff.maxEconActionsPerTurn &&
+      econIter++ < maxEconIter &&
+      state.phase === 'playing'
+    ) {
       const ctx = buildSpatialContext(state, playerId);
       const reserve = respectReserve ? computeReserveGold(state, ctx, profile, diff) : 0;
       let bestEcon: ScoredAction | null = null;
@@ -284,8 +290,8 @@ export function planAITurn(
   // Reuses BFS fields across moves AND non-city-changing combats, and bounds total move/attack
   // scoring with a deterministic work budget so even huge 18x18 late-game turns stay phone-safe.
   const initialUnits = ctx.ownUnits.length;
-  const maxTacticalSteps = Math.min(110, 24 + initialUnits * 2);
-  const WORK_BUDGET = 3200;
+  const maxTacticalSteps = Math.min(80, 20 + Math.ceil(initialUnits * 1.4));
+  const WORK_BUDGET = 2200;
   let work = 0;
   let tacticalSteps = 0;
   rememberWarTarget(state, playerId, sctx.warTargetId, sctx.targetCity?.id ?? null);
@@ -377,7 +383,8 @@ export function planAITurn(
         const to = moves[i];
         work++;
         let rawScore = scoreMove(state, unit, to, ctx, profile, diff, sctx, hereDanger);
-        if (nearbyEnemies.length > 0) {
+        if (nearbyEnemies.length > 0 && work <= WORK_BUDGET) {
+          work += nearbyEnemies.length;
           const strike = bestStrikeFrom(state, unit, to, nearbyEnemies, range, ctx, profile, diff, sctx);
           if (strike > 10) rawScore += strike * 0.85 * diff.dashLookaheadWeight;
         }
@@ -390,7 +397,7 @@ export function planAITurn(
 
     // 4c. Candidate Recover (Heal)
     if (!unit.hasMoved && !unit.hasAttacked && unit.hp < unit.maxHp) {
-      const rawScore = scoreRecover(state, unit, profile, sctx);
+      const rawScore = scoreRecover(state, unit, profile, sctx, diff);
       if (rawScore > 0) {
         const score = rawScore + noiseOffset(state.rngState, saltCounter++, diff.noiseRange * 0.5);
         if (!best || score > best.score) {
@@ -455,7 +462,7 @@ export function planAITurn(
     if (mapChanged) {
       ctx = newCtx;
       sctx = buildStrategicContext(state, ctx, profile, diff);
-      assignRoles(state, ctx, sctx);
+      assignRoles(state, ctx, sctx, diff);
       cached.clear();
       dirty = null;
       continue;
@@ -467,7 +474,7 @@ export function planAITurn(
 
     if (combatChanged) {
       // Reuse the 4 BFS fields while refreshing enemy reach, threats, friendPower, and roles!
-      refreshCombatContext(state, ctx, sctx);
+      refreshCombatContext(state, ctx, sctx, diff);
       const changed: Coord[] = [];
       const actor = state.units[bestUnit] ?? before.units[bestUnit];
       if (actor) changed.push({ x: actor.x, y: actor.y });
@@ -544,7 +551,9 @@ export function planAITurn(
     let prodCtx = ctx;
     let trainedThisTurn = 0;
     const effectiveMaxTrains =
-      Number.isFinite(diff.maxTrainsPerTurn) && ctx.ownCities.length >= 10
+      Number.isFinite(diff.maxTrainsPerTurn) &&
+      diff.difficulty !== 'easy' &&
+      ctx.ownCities.length >= 10
         ? diff.maxTrainsPerTurn + 1
         : diff.maxTrainsPerTurn;
     for (let ci = 0; ci < sortedCities.length; ci++) {

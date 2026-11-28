@@ -7,13 +7,14 @@ import {
   ALL_FACTIONS,
   createGame,
   getTile,
+  type Difficulty,
   type FactionId,
   type GameState,
   type UnitType,
 } from '../src/game/index';
 import { runMatch, type SeatController } from '../src/sim/harness';
 
-function aiSeats(difficulty: 'easy' | 'normal'): Record<FactionId, SeatController> {
+function aiSeats(difficulty: Difficulty): Record<FactionId, SeatController> {
   const c = {} as Record<FactionId, SeatController>;
   for (const f of ALL_FACTIONS) c[f] = (s, id) => planAITurn(s, id, difficulty);
   return c;
@@ -127,32 +128,34 @@ describe('AI strategy & production (regressions for "civs stop producing units")
     expect(grewCount).toBeGreaterThanOrEqual(2);
   }, 60_000);
 
-  it('Squire (easy) also keeps training units without stalling cities', () => {
-    const rec = runMatch({
-      seed: 19,
-      mapSize: 16,
-      humanFaction: 'elves',
-      difficulty: 'easy',
-      labels: labels('ai:easy'),
-      controllers: aiSeats('easy'),
-      engineMaxTurns: 0,
-      turnCap: 40,
-    });
-    expect(rec.illegalActions).toBe(0);
-    for (const p of rec.players) {
-      for (let b = 1; b < p.buckets.length; b++) {
-        const bucket = p.buckets[b];
-        if (bucket.samples < 10) continue;
-        expect(bucket.trained, `Squire ${p.faction} stalled in turns ${b * 10 + 1}-${b * 10 + 10}`).toBeGreaterThan(0);
+  it('Easy, Normal, and Hard all keep training units without stalling cities', () => {
+    for (const diff of ['easy', 'normal', 'hard'] as const) {
+      const rec = runMatch({
+        seed: diff === 'easy' ? 19 : diff === 'normal' ? 23 : 31,
+        mapSize: 16,
+        humanFaction: 'elves',
+        difficulty: diff,
+        labels: labels(`ai:${diff}`),
+        controllers: aiSeats(diff),
+        engineMaxTurns: 0,
+        turnCap: 40,
+      });
+      expect(rec.illegalActions).toBe(0);
+      for (const p of rec.players) {
+        for (let b = 1; b < p.buckets.length; b++) {
+          const bucket = p.buckets[b];
+          if (bucket.samples < 10) continue;
+          expect(bucket.trained, `${diff} ${p.faction} stalled in turns ${b * 10 + 1}-${b * 10 + 10}`).toBeGreaterThan(0);
+        }
+        const idleCouldTrain = p.buckets.reduce((a, x) => a + x.idleGoldCouldTrain, 0);
+        const samples = p.buckets.reduce((a, x) => a + x.samples, 0);
+        expect(idleCouldTrain / Math.max(1, samples)).toBeLessThan(0.05);
       }
-      const idleCouldTrain = p.buckets.reduce((a, x) => a + x.idleGoldCouldTrain, 0);
-      const samples = p.buckets.reduce((a, x) => a + x.samples, 0);
-      expect(idleCouldTrain / Math.max(1, samples)).toBeLessThan(0.05);
     }
   }, 60_000);
 
-  it('uses a smooth, cliff-free difficulty pressure curve against the human player', () => {
-    for (const diff of [DIFFICULTY_CONFIGS.easy, DIFFICULTY_CONFIGS.normal]) {
+  it('uses a smooth, cliff-free difficulty pressure curve against the human player across all 3 tiers', () => {
+    for (const diff of [DIFFICULTY_CONFIGS.easy, DIFFICULTY_CONFIGS.normal, DIFFICULTY_CONFIGS.hard]) {
       let prevP = humanPressure(1, diff);
       let prevW = humanTargetWeight(1, diff);
       expect(prevP).toBeGreaterThan(0);
@@ -171,19 +174,40 @@ describe('AI strategy & production (regressions for "civs stop producing units")
     expect(humanTargetWeight(10, DIFFICULTY_CONFIGS.easy)).toBeLessThan(
       humanTargetWeight(10, DIFFICULTY_CONFIGS.normal),
     );
+    expect(humanTargetWeight(10, DIFFICULTY_CONFIGS.normal)).toBeLessThan(
+      humanTargetWeight(10, DIFFICULTY_CONFIGS.hard),
+    );
   });
 
-  it('difficulty presets are separated by decision quality and tempo, not by cheating or stalled cities', () => {
+  it('difficulty presets are cleanly separated across Easy < Normal < Hard without cheating or stalled cities', () => {
     const e = DIFFICULTY_CONFIGS.easy;
     const n = DIFFICULTY_CONFIGS.normal;
+    const h = DIFFICULTY_CONFIGS.hard;
+
+    expect(e.noiseRange).toBeGreaterThan(n.noiseRange);
+    expect(n.noiseRange).toBeGreaterThan(h.noiseRange);
     expect(e.dangerAwareness).toBeLessThan(n.dangerAwareness);
+    expect(n.dangerAwareness).toBeLessThan(h.dangerAwareness);
     expect(e.focusFire).toBeLessThan(n.focusFire);
+    expect(n.focusFire).toBeLessThan(h.focusFire);
     expect(e.aggressionDelay).toBeGreaterThan(n.aggressionDelay);
-    expect(e.maxTechsPerTurn).toBeLessThan(n.maxTechsPerTurn);
+    expect(n.aggressionDelay).toBeGreaterThan(h.aggressionDelay);
+    expect(e.techResearchChance).toBeLessThan(n.techResearchChance);
+    expect(n.techResearchChance).toBeLessThan(h.techResearchChance);
+    expect(e.maxTechsPerTurn).toBeLessThanOrEqual(n.maxTechsPerTurn);
+    expect(n.maxTechsPerTurn).toBeLessThan(h.maxTechsPerTurn);
     expect(e.maxEconActionsPerTurn).toBeLessThan(n.maxEconActionsPerTurn);
+    expect(n.maxEconActionsPerTurn).toBeLessThan(h.maxEconActionsPerTurn);
+    expect(e.maxTrainsPerTurn).toBeLessThan(n.maxTrainsPerTurn);
+    expect(n.maxTrainsPerTurn).toBeLessThan(h.maxTrainsPerTurn);
     expect(e.unitNeglectChance).toBeGreaterThan(n.unitNeglectChance);
+    expect(n.unitNeglectChance).toBeGreaterThan(h.unitNeglectChance);
     expect(e.trainSkipChance).toBe(0);
     expect(n.trainSkipChance).toBe(0);
+    expect(h.trainSkipChance).toBe(0);
+    expect(e.gangUpOnHuman).toBe(false);
+    expect(n.gangUpOnHuman).toBe(false);
+    expect(h.gangUpOnHuman).toBe(false);
     // Faction personalities: Orcs strike earliest, Dwarves turtle longest.
     expect(FACTION_AI_PROFILES.orcs.aggressionTurn).toBeLessThan(FACTION_AI_PROFILES.dwarves.aggressionTurn);
     expect(FACTION_AI_PROFILES.elves.rangedShare).toBeGreaterThan(FACTION_AI_PROFILES.orcs.rangedShare);
@@ -244,18 +268,21 @@ describe('AI tactics', () => {
   });
 
   it('uses its Age III superpower once available (Dwarves summon the Fire Drake)', () => {
-    const state = createGame({ humanFaction: 'dwarves', difficulty: 'normal', mapSize: 16, maxTurns: 0, seed: 13 });
-    const dw = state.players[0];
-    dw.techs.push(
-      'dwarves_mining',
-      'dwarves_khazad_forges',
-      'dwarves_shieldbearers',
-      'dwarves_runic_plate',
-      'dwarves_foraging',
-      'dwarves_ram_riders',
-    );
-    const plan = planAITurn(state, dw.id, 'normal');
-    expect(plan.some((a) => a.type === 'USE_SUPERPOWER')).toBe(true);
+    for (const diff of ['normal', 'hard'] as const) {
+      const state = createGame({ humanFaction: 'dwarves', difficulty: diff, mapSize: 16, maxTurns: 0, seed: 13 });
+      state.turn = 24;
+      const dw = state.players[0];
+      dw.techs.push(
+        'dwarves_mining',
+        'dwarves_khazad_forges',
+        'dwarves_shieldbearers',
+        'dwarves_runic_plate',
+        'dwarves_foraging',
+        'dwarves_ram_riders',
+      );
+      const plan = planAITurn(state, dw.id, diff);
+      expect(plan.some((a) => a.type === 'USE_SUPERPOWER')).toBe(true);
+    }
   });
 
   it('simulation harness is deterministic by seed', () => {

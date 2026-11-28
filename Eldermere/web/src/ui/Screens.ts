@@ -72,6 +72,23 @@ export const FACTION_HERALDRY: Record<FactionId, string> = {
   dwarves: '#d47415',
 };
 
+export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
+  easy: 'Easy',
+  normal: 'Normal',
+  hard: 'Hard',
+};
+
+const DIFFICULTY_CYCLE: readonly Difficulty[] = ['easy', 'normal', 'hard'];
+
+export function formatDifficultyLabel(difficulty: Difficulty): string {
+  return DIFFICULTY_LABELS[difficulty] ?? 'Normal';
+}
+
+export function nextDifficulty(difficulty: Difficulty): Difficulty {
+  const idx = DIFFICULTY_CYCLE.indexOf(difficulty);
+  return DIFFICULTY_CYCLE[(idx + 1) % DIFFICULTY_CYCLE.length];
+}
+
 /** 3 crisp single-line icon-led perks per faction for the Start Console */
 const FACTION_PERKS: Record<FactionId, FactionPerk[]> = {
   humans: [
@@ -155,7 +172,7 @@ export class TitleScreen {
   constructor(container: HTMLElement, callbacks: TitleScreenCallbacks) {
     this.callbacks = callbacks;
     this.root = document.createElement('div');
-    this.root.className = 'title-screen';
+    this.root.className = 'title-screen hidden';
     this.root.setAttribute('data-faction', this.selectedFaction);
     this.railEl = document.createElement('aside');
     this.railEl.className = 'campaign-rail';
@@ -247,7 +264,7 @@ export class TitleScreen {
       `;
     };
 
-    const diffLabel = this.difficulty === 'easy' ? 'Squire' : 'Captain';
+    const diffLabel = formatDifficultyLabel(this.difficulty);
     const mapLabel = `${this.mapSize}×${this.mapSize}`;
 
     this.railEl.innerHTML = `
@@ -274,7 +291,7 @@ export class TitleScreen {
             type="button"
             class="tt-cycle-btn"
             data-cycle-difficulty="true"
-            title="Switch AI Difficulty (Squire / Captain)"
+            title="Switch AI Difficulty (Easy / Normal / Hard)"
             aria-label="AI Difficulty: ${diffLabel}"
           >
             <span class="tt-cycle-medallion" aria-hidden="true">${renderIcon('helm', 'icon')}</span>
@@ -338,7 +355,7 @@ export class TitleScreen {
     this.root
       .querySelector<HTMLButtonElement>('[data-cycle-difficulty]')
       ?.addEventListener('click', () => {
-        this.difficulty = this.difficulty === 'normal' ? 'easy' : 'normal';
+        this.difficulty = nextDifficulty(this.difficulty);
         this.syncSelectionState();
       });
 
@@ -399,7 +416,7 @@ export class TitleScreen {
         </div>
       `;
     }
-    const diffLabel = this.difficulty === 'easy' ? 'Squire' : 'Captain';
+    const diffLabel = formatDifficultyLabel(this.difficulty);
     const diffEl = this.root.querySelector<HTMLElement>('[data-difficulty-label]');
     if (diffEl) diffEl.textContent = diffLabel;
     const diffBtn = this.root.querySelector<HTMLButtonElement>('[data-cycle-difficulty]');
@@ -428,6 +445,7 @@ export class TitleScreen {
     const saved = this.savedCampaign;
     const def = FACTION_DEFINITIONS[saved.faction];
     const heraldry = FACTION_HERALDRY[saved.faction];
+    const diffLabel = formatDifficultyLabel(saved.difficulty);
     const citiesLabel = saved.citiesCount === 1 ? '1 City' : `${saved.citiesCount} Cities`;
 
     slot.classList.remove('hidden');
@@ -439,7 +457,7 @@ export class TitleScreen {
           </span>
           <div class="tt-resume-text">
             <span class="tt-resume-title">${esc(def.name)} · ${esc(def.realm)}</span>
-            <span class="tt-resume-sub">${esc(citiesLabel)} · ${saved.score.toLocaleString()} Glory</span>
+            <span class="tt-resume-sub">${esc(diffLabel)} · ${esc(citiesLabel)} · ${saved.score.toLocaleString()} Glory</span>
           </div>
         </div>
         <button type="button" class="tt-resume-btn" data-action="resume">
@@ -495,7 +513,16 @@ export class GameOverOverlay {
     return { cities, techs, units, revealedTiles, total };
   }
 
-  private formatWinSubtitle(state: GameState): string {
+  private isHumanEliminatedEarly(state: GameState, humanPlayerId: PlayerId): boolean {
+    const human = state.players.find((p) => p.id === humanPlayerId);
+    if (!human || human.alive) return false;
+    return state.players.filter((p) => p.alive).length > 1;
+  }
+
+  private formatWinSubtitle(state: GameState, humanPlayerId?: PlayerId): string {
+    if (humanPlayerId && this.isHumanEliminatedEarly(state, humanPlayerId)) {
+      return 'Your Final Stronghold Has Fallen';
+    }
     return state.winReason === 'domination'
       ? 'The Star-Crown Reunites — All Rival Capitals Claimed'
       : 'The Star-Crown Reunites — Eternal Glory';
@@ -527,7 +554,8 @@ export class GameOverOverlay {
     const humanFactionId: FactionId = humanPlayer?.faction ?? 'humans';
     const winnerFaction = FACTION_DEFINITIONS[winnerFactionId];
     const winnerHeraldry = FACTION_HERALDRY[winnerFactionId];
-    const subtitle = this.formatWinSubtitle(state);
+    const subtitle = this.formatWinSubtitle(state, humanPlayerId);
+    const earlyHumanDefeat = this.isHumanEliminatedEarly(state, humanPlayerId);
 
 
     if (isVictory) {
@@ -571,7 +599,13 @@ export class GameOverOverlay {
 
             <h2 class="defeat-headline">DEFEAT</h2>
             <p class="defeat-victor-line">
-              ${winner ? `${esc(winnerFaction.name)} Claimed the Star-Crown` : 'The Age Concludes'}
+              ${
+                winner
+                  ? earlyHumanDefeat
+                    ? `${esc(winnerFaction.name)} Overran Your Realm`
+                    : `${esc(winnerFaction.name)} Claimed the Star-Crown`
+                  : 'The Age Concludes'
+              }
             </p>
             <p class="victory-subtitle">${esc(subtitle)}</p>
 
@@ -611,7 +645,8 @@ export class GameOverOverlay {
     const { state, humanPlayerId, scoreBreakdowns } = data;
     const winner = state.players.find((p) => p.id === state.winnerId) ?? null;
     const winnerFaction = winner ? FACTION_DEFINITIONS[winner.faction] : null;
-    const reasonText = this.formatWinSubtitle(state);
+    const reasonText = this.formatWinSubtitle(state, humanPlayerId);
+    const earlyHumanDefeat = this.isHumanEliminatedEarly(state, humanPlayerId);
 
     const rankedPlayers = [...state.players].sort((a, b) => {
       if (a.id === state.winnerId) return -1;
@@ -651,7 +686,13 @@ export class GameOverOverlay {
           <span>${isVictory ? 'Chronicle Triumphant' : 'Chronicle Sealed'}</span>
         </div>
         <h2 class="gameover-title">
-          ${winnerFaction ? `${esc(winnerFaction.name)} Claim the Star-Crown` : 'The Age Concludes'}
+          ${
+            winnerFaction
+              ? earlyHumanDefeat
+                ? `${esc(winnerFaction.name)} Overran Your Realm`
+                : `${esc(winnerFaction.name)} Claim the Star-Crown`
+              : 'The Age Concludes'
+          }
         </h2>
         <p class="gameover-reason">
           ${esc(reasonText)}
@@ -677,7 +718,7 @@ export class GameOverOverlay {
 
         <p class="gameover-chronicle-footnote">
           ${renderIcon('star', 'icon icon-xs icon-star')}
-          <span>Recorded in the Great Ledger by ${ALDERWICK_FULL_TITLE}</span>
+          <span>${esc(formatDifficultyLabel(state.config.difficulty))} · Recorded in the Great Ledger by ${ALDERWICK_FULL_TITLE}</span>
         </p>
 
         <button type="button" class="btn btn-cta btn-begin" data-action="play-again">

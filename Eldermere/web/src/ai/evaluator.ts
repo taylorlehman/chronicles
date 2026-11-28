@@ -180,7 +180,7 @@ export function chooseCityReward(
 ): CityRewardChoice {
   if (diff?.simpleCityRewards) {
     if (levelReached === 2) return 'workshop';
-    if (levelReached === 3) return city.isCapital && !city.hasWalls ? 'city_wall' : 'resources';
+    if (levelReached === 3) return 'resources';
     if (levelReached === 4) return 'pop_growth';
     return 'park';
   }
@@ -629,7 +629,10 @@ export function scoreAttack(
     nearOwnCity > 1 &&
     !canFinishThisTurn
   ) {
-    score -= 32 + (preview.retaliationDamage - preview.attackerDamage) * 7 * profile.selfPreservation;
+    const tradeDiscipline = 0.25 + 0.75 * diff.dangerAwareness;
+    score -=
+      (32 + (preview.retaliationDamage - preview.attackerDamage) * 7 * profile.selfPreservation) *
+      tradeDiscipline;
   }
 
   // Smooth human pressure curve for non-defensive skirmishes (no cliff).
@@ -881,6 +884,7 @@ export function scoreRecover(
   unit: Unit,
   profile: FactionAIProfile,
   sctx?: StrategicContext,
+  diff?: DifficultyConfig,
 ): number {
   if (canUnitCapture(state, unit.id) || canUnitExploreRuins(state, unit.id)) return -999;
   if (unit.hp >= unit.maxHp || unit.hasMoved || unit.hasAttacked) return -1;
@@ -899,6 +903,9 @@ export function scoreRecover(
     score = 26 * profile.selfPreservation;
   } else if (hpRatio <= 0.65 && inFriendlyBorders) {
     score = 18 * missingRatio * profile.selfPreservation;
+  }
+  if (diff && diff.dangerAwareness < 1) {
+    score *= 0.2 + 0.8 * diff.dangerAwareness;
   }
 
   // Don't sit healing ON an unthreatened under-cap city center — step off so it can train!
@@ -973,9 +980,13 @@ export function scoreTrainUnit(
   const share = armyLen > 0 ? sameType / armyLen : 0;
   let targetShare = profile.unitMix[unitType] ?? 0.05;
   if (eliteScale < 1) {
-    // Squire favors classic medieval troops (warriors/archers/riders/defenders) with a splash of elites.
-    if (isUnique || unitType === 'catapult') targetShare *= eliteScale;
-    else targetShare += (1 - eliteScale) * 0.06;
+    // Easy/Normal scale down elite/siege shares toward classic medieval troops.
+    if (isUnique || unitType === 'catapult') {
+      targetShare *= eliteScale;
+      if (eliteScale <= 0.15) score -= 45;
+    } else {
+      targetShare += (1 - eliteScale) * 0.06;
+    }
   }
 
   score += (targetShare - share) * 210;

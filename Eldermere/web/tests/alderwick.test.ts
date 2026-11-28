@@ -80,7 +80,11 @@ describe('Alderwick the Star-Keeper — Assets, Tutorial & Endgame Chronicles', 
 
     const rivalWhisper = getEliminationWhisper('orcs', 'humans', false);
     expect(rivalWhisper).toMatch(/Star-Crown/);
-    const humanWhisper = getEliminationWhisper('humans', 'orcs', true);
-    expect(humanWhisper).toMatch(/Chronicle/);
+    for (const faction of ALL_FACTIONS) {
+      const victor = ALL_FACTIONS.find((f) => f !== faction)!;
+      const humanWhisper = getEliminationWhisper(faction, victor, true);
+      expect(humanWhisper).toMatch(/Chronicle/);
+      expect(humanWhisper).toMatch(/final stronghold/i);
+    }
   });
 });

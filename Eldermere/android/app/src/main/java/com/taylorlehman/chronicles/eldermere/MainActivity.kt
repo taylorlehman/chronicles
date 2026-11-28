@@ -2,6 +2,7 @@ package com.taylorlehman.chronicles.eldermere
 
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.SurfaceTexture
 import android.media.AudioAttributes
@@ -29,6 +30,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -54,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var sizzleMuteButton: ImageButton
     private lateinit var sizzleSkipButton: TextView
     private lateinit var loadingOverlay: FrameLayout
+    private lateinit var loadingBgImage: ImageView
     private lateinit var loadingHeader: LinearLayout
     private lateinit var loadingFooter: LinearLayout
     private lateinit var loadingTipText: TextView
@@ -70,6 +73,8 @@ class MainActivity : AppCompatActivity() {
     private var isOverlayDismissed: Boolean = false
     private var isActivityResumed: Boolean = false
     private var isResettingAppState: Boolean = false
+    private var pendingSizzleFinishedNotification: Boolean = false
+    private var hasNotifiedSizzleFinished: Boolean = false
     private var latestSafeInsets: SafeAreaInsets = SafeAreaInsets.ZERO
     private var progressAnimator: ValueAnimator? = null
     private var tipIndex: Int = 0
@@ -132,6 +137,7 @@ class MainActivity : AppCompatActivity() {
         sizzleMuteButton = findViewById(R.id.sizzle_mute_button)
         sizzleSkipButton = findViewById(R.id.sizzle_skip_button)
         loadingOverlay = findViewById(R.id.loading_overlay)
+        loadingBgImage = findViewById(R.id.loading_bg_image)
         loadingHeader = findViewById(R.id.loading_header)
         loadingFooter = findViewById(R.id.loading_footer)
         loadingTipText = findViewById(R.id.loading_tip_text)
@@ -158,17 +164,31 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupWindowInsets() {
         val baseHeaderTopPadding = loadingHeader.paddingTop
+        val baseHeaderLeftPadding = loadingHeader.paddingLeft
+        val baseHeaderRightPadding = loadingHeader.paddingRight
         val baseFooterBottomPadding = loadingFooter.paddingBottom
+        val baseFooterLeftPadding = loadingFooter.paddingLeft
+        val baseFooterRightPadding = loadingFooter.paddingRight
         val baseSizzleControlsTopPadding = sizzleControlsContainer.paddingTop
+        val baseSizzleControlsLeftPadding = sizzleControlsContainer.paddingLeft
         val baseSizzleControlsRightPadding = sizzleControlsContainer.paddingRight
 
         ViewCompat.setOnApplyWindowInsetsListener(rootContainer) { _, windowInsets ->
             val bars = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
             )
-            loadingHeader.updatePadding(top = baseHeaderTopPadding + bars.top)
-            loadingFooter.updatePadding(bottom = baseFooterBottomPadding + bars.bottom)
+            loadingHeader.updatePadding(
+                left = baseHeaderLeftPadding + bars.left,
+                top = baseHeaderTopPadding + bars.top,
+                right = baseHeaderRightPadding + bars.right,
+            )
+            loadingFooter.updatePadding(
+                left = baseFooterLeftPadding + bars.left,
+                right = baseFooterRightPadding + bars.right,
+                bottom = baseFooterBottomPadding + bars.bottom,
+            )
             sizzleControlsContainer.updatePadding(
+                left = baseSizzleControlsLeftPadding + bars.left,
                 top = baseSizzleControlsTopPadding + bars.top,
                 right = baseSizzleControlsRightPadding + bars.right,
             )
@@ -273,8 +293,14 @@ class MainActivity : AppCompatActivity() {
     private fun prepareSizzleMediaPlayer(surface: Surface) {
         if (isDestroyed) return
         try {
-            val afd = resources.openRawResourceFd(R.raw.eldermere_sizzle)
-                ?: throw IllegalStateException("Missing raw resource R.raw.eldermere_sizzle")
+            val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val sizzleResId = SizzleMediaSelector.selectRawResId(
+                isLandscape = isLandscape,
+                portraitResId = R.raw.eldermere_sizzle,
+                landscapeResId = R.raw.eldermere_sizzle_land,
+            )
+            val afd = resources.openRawResourceFd(sizzleResId)
+                ?: throw IllegalStateException("Missing raw resource $sizzleResId")
             val player = MediaPlayer()
             sizzleMediaPlayer = player
             player.setAudioAttributes(
@@ -405,6 +431,8 @@ class MainActivity : AppCompatActivity() {
         sizzleSkipButton.isEnabled = false
         sizzleMuteButton.isEnabled = false
 
+        notifyWebViewSizzleFinished()
+
         if (!isOverlayDismissed || sizzleOverlay.visibility != View.VISIBLE) {
             sizzleOverlay.visibility = View.GONE
             releaseSizzleMediaPlayer()
@@ -421,6 +449,20 @@ class MainActivity : AppCompatActivity() {
                 releaseSizzleMediaPlayer()
             }
             .start()
+    }
+
+    private fun notifyWebViewSizzleFinished() {
+        if (hasNotifiedSizzleFinished || isDestroyed) return
+        if (!isPageLoaded) {
+            pendingSizzleFinishedNotification = true
+            return
+        }
+        hasNotifiedSizzleFinished = true
+        pendingSizzleFinishedNotification = false
+        webView.evaluateJavascript(
+            "if(typeof window.__eldermereOnSizzleFinished==='function'){window.__eldermereOnSizzleFinished();}",
+            null,
+        )
     }
 
     private fun releaseSizzleMediaPlayer() {
@@ -470,11 +512,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applySizzleVideoTransform(viewWidth: Int, viewHeight: Int) {
+        val isLandscapeViewport = if (viewWidth > 0 && viewHeight > 0) {
+            viewWidth > viewHeight
+        } else {
+            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        }
         val transform = VideoViewportTransform.compute(
             viewWidth = viewWidth,
             viewHeight = viewHeight,
             videoWidth = sizzleVideoWidth,
             videoHeight = sizzleVideoHeight,
+            isLandscapeViewport = isLandscapeViewport,
         )
         sizzleTextureView.setTransform(transform.toMatrix())
     }
@@ -534,6 +582,9 @@ class MainActivity : AppCompatActivity() {
             onResetAppStateAndExitCallback = {
                 mainHandler.post { handleSecretStateResetAndExit() }
             },
+            shouldAutoStartTutorialProvider = {
+                sizzleStateMachine.isFirstRunSession
+            },
         )
         webView.addJavascriptInterface(jsBridge, JS_BRIDGE_NAME)
 
@@ -585,6 +636,9 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 isPageLoaded = true
                 injectSafeAreaInsets(latestSafeInsets)
+                if (pendingSizzleFinishedNotification) {
+                    notifyWebViewSizzleFinished()
+                }
             }
         }
     }
@@ -770,6 +824,17 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!isOverlayDismissed) {
+            loadingBgImage.setImageResource(R.drawable.splash_loading_bg)
+        }
+        if (sizzleTextureView.width > 0 && sizzleTextureView.height > 0) {
+            applySizzleVideoTransform(sizzleTextureView.width, sizzleTextureView.height)
+        }
+        ViewCompat.requestApplyInsets(rootContainer)
     }
 
     override fun onPause() {

@@ -61,10 +61,17 @@ enum class SizzleAction {
 class SizzleIntroStateMachine(
     private val store: SizzleIntroStore,
 ) {
-    var phase: SizzlePlaybackPhase = if (store.hasSeenSizzleVideo()) {
-        SizzlePlaybackPhase.NOT_NEEDED
-    } else {
+    /**
+     * True when this launch began as a first-run session (sizzle had not been seen yet at init).
+     * Remains true for the full Activity launch session even after playback marks sizzle seen in
+     * persistent storage so the WebView can auto-start directly into the tutorial.
+     */
+    val isFirstRunSession: Boolean = !store.hasSeenSizzleVideo()
+
+    var phase: SizzlePlaybackPhase = if (isFirstRunSession) {
         SizzlePlaybackPhase.WAITING_FOR_LOADING
+    } else {
+        SizzlePlaybackPhase.NOT_NEEDED
     }
         private set
 
@@ -193,14 +200,33 @@ class SizzleIntroStateMachine(
     }
 }
 
+enum class SizzleVideoVariant {
+    PORTRAIT,
+    LANDSCAPE,
+}
+
 /**
- * Aspect-preserving transform for rendering a 9:16 portrait video onto a TextureView
- * without stretching or squishing on any phone/tablet aspect ratio.
+ * Selects the portrait (9:16) or landscape (16:9) sizzle video resource based on orientation.
+ */
+object SizzleMediaSelector {
+    fun selectVariant(isLandscape: Boolean): SizzleVideoVariant =
+        if (isLandscape) SizzleVideoVariant.LANDSCAPE else SizzleVideoVariant.PORTRAIT
+
+    fun selectRawResId(
+        isLandscape: Boolean,
+        portraitResId: Int,
+        landscapeResId: Int,
+    ): Int = if (isLandscape) landscapeResId else portraitResId
+}
+
+/**
+ * Aspect-preserving transform for rendering a portrait (9:16) or landscape (16:9) video onto
+ * a TextureView without stretching or squishing on any phone/tablet aspect ratio.
  *
- * - In portrait / square viewports (`viewHeight >= viewWidth`): center-crop so playback is
- *   full-bleed edge-to-edge with zero letterboxing.
- * - In landscape viewports (`viewWidth > viewHeight`): center-fit so captions and framing
- *   of the 9:16 video are never clipped off the top/bottom.
+ * - When viewport orientation matches video orientation (portrait-in-portrait, landscape-in-landscape,
+ *   or square viewport): center-crop so playback is full-bleed edge-to-edge with zero black bars.
+ * - When viewport and video orientations mismatch (e.g. device rotated mid-playback): center-fit so
+ *   captions and framing are never clipped off the edges.
  */
 data class VideoViewportTransform(
     val scaleX: Float,
@@ -220,6 +246,7 @@ data class VideoViewportTransform(
             viewHeight: Int,
             videoWidth: Int,
             videoHeight: Int,
+            isLandscapeViewport: Boolean = viewWidth > viewHeight,
         ): VideoViewportTransform {
             if (viewWidth <= 0 || viewHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) {
                 return IDENTITY
@@ -229,9 +256,12 @@ data class VideoViewportTransform(
             val pivotX = viewWidth / 2f
             val pivotY = viewHeight / 2f
 
-            val isPortraitOrSquare = viewHeight >= viewWidth
-            return if (isPortraitOrSquare) {
-                // Center-crop: fill the full viewport while preserving exact video aspect ratio.
+            val isLandscapeVideo = videoWidth > videoHeight
+            val isSquareViewport = viewWidth == viewHeight
+            val orientationsMatch = isSquareViewport || (isLandscapeViewport == isLandscapeVideo)
+
+            return if (orientationsMatch) {
+                // Center-crop: fill the full viewport edge-to-edge while preserving exact video aspect ratio.
                 if (videoAspect > viewAspect) {
                     VideoViewportTransform(
                         scaleX = videoAspect / viewAspect,
@@ -248,7 +278,7 @@ data class VideoViewportTransform(
                     )
                 }
             } else {
-                // Center-fit in landscape: preserve full 9:16 frame & captions without distortion.
+                // Orientation mismatch: center-fit to preserve full frame & captions without distortion.
                 if (videoAspect < viewAspect) {
                     VideoViewportTransform(
                         scaleX = videoAspect / viewAspect,

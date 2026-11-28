@@ -12,13 +12,20 @@ function esc(value: string): string {
     .replace(/"/g, '&quot;');
 }
 
+export interface DefeatNoticeCallbacks {
+  onClose?: (isHumanDefeated: boolean) => void;
+}
+
 export class DefeatNoticeModal {
   private readonly root: HTMLElement;
+  private readonly callbacks: DefeatNoticeCallbacks;
   private openState = false;
+  private humanDefeatedMode = false;
   private pendingResolve: (() => void) | null = null;
   private readonly onKeyDown: (e: KeyboardEvent) => void;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, callbacks: DefeatNoticeCallbacks = {}) {
+    this.callbacks = callbacks;
     this.root = document.createElement('div');
     this.root.className = 'modal-backdrop defeat-notice-modal hidden';
     this.root.setAttribute('role', 'dialog');
@@ -46,16 +53,22 @@ export class DefeatNoticeModal {
     return this.openState;
   }
 
+  public isHumanDefeated(): boolean {
+    return this.openState && this.humanDefeatedMode;
+  }
+
   public show(
     defeatedFaction: FactionId,
     victorFaction: FactionId,
     isHumanDefeated = false,
   ): Promise<void> {
-    if (this.pendingResolve) {
-      this.close();
+    if (this.pendingResolve || this.openState) {
+      this.close(true);
     }
 
     this.openState = true;
+    this.humanDefeatedMode = isHumanDefeated;
+    this.root.setAttribute('data-human-defeated', String(isHumanDefeated));
     this.render(defeatedFaction, victorFaction, isHumanDefeated);
     this.root.classList.remove('hidden');
 
@@ -69,18 +82,25 @@ export class DefeatNoticeModal {
     });
   }
 
-  public close(): void {
+  public close(silent = false): void {
     if (!this.openState && !this.pendingResolve) return;
+    const wasOpen = this.openState;
+    const wasHumanDefeated = this.humanDefeatedMode;
     this.openState = false;
+    this.humanDefeatedMode = false;
     this.root.classList.add('hidden');
+    this.root.removeAttribute('data-human-defeated');
     const resolve = this.pendingResolve;
     this.pendingResolve = null;
     resolve?.();
+    if (wasOpen && !silent) {
+      this.callbacks.onClose?.(wasHumanDefeated);
+    }
   }
 
   public destroy(): void {
     window.removeEventListener('keydown', this.onKeyDown);
-    this.close();
+    this.close(true);
     this.root.remove();
   }
 
@@ -154,7 +174,7 @@ export class DefeatNoticeModal {
         </div>
 
         <button type="button" class="btn btn-cta defeat-notice-btn" data-action="continue">
-          <span>Continue</span>
+          <span>${isHumanDefeated ? 'Return to Main Menu' : 'Continue'}</span>
           ${renderIcon('chevronRight', 'icon icon-sm')}
         </button>
       </div>

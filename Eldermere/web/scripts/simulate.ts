@@ -7,7 +7,7 @@
  *
  * Options
  *   --games N          number of games (default 40)
- *   --difficulty D     easy | normal: difficulty of the AI seats (default normal)
+ *   --difficulty D     easy | normal | hard: difficulty of the AI seats (default normal)
  *   --map M            16 | 18 | mixed (default mixed: alternates)
  *   --mode X           ai     : all four seats are the AI at --difficulty (default)
  *                      human  : seat 0 is the --human stand-in, seats 1-3 are AI at --difficulty
@@ -23,10 +23,12 @@
  *   --ctrl-<faction> C pin one faction to a controller (e.g. --ctrl-elves novice)
  *   --by faction       print the time series per faction instead of per seat controller
  *
- * Controllers: novice | weak | casual | ai:easy | ai:normal | legacy:easy | legacy:normal
- *   novice = scripted weak human (src/sim/noviceBot.ts, independent of the AI code)
- *   weak   = the AI played very sloppily (active but clumsy)
- *   casual = the AI played sloppily (a reasonable player still learning)
+ * Controllers: novice | average | expert | weak | casual | ai:easy | ai:normal | ai:hard | legacy:easy | legacy:normal
+ *   novice  = scripted beginner human (src/sim/noviceBot.ts, independent of the AI code)
+ *   average = realistic casual human proxy (src/sim/playerBots.ts, frozen config)
+ *   expert  = strong tactical veteran human proxy (src/sim/playerBots.ts, frozen config)
+ *   weak    = legacy sloppy stand-in (between novice and average)
+ *   casual  = alias for average
  *   (legacy:* is the pre-overhaul AI snapshot kept in scripts/legacy-ai for before/after comparisons)
  */
 import { spawn } from 'node:child_process';
@@ -34,10 +36,15 @@ import { availableParallelism } from 'node:os';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { DIFFICULTY_CONFIGS, planAITurn, type DifficultyConfig } from '../src/ai/index';
+import { planAITurn, type DifficultyConfig } from '../src/ai/index';
 import { ALL_FACTIONS, type Difficulty, type FactionId, type MapSize } from '../src/game/index';
 import { formatReport, runMatch, type GameRecord, type SeatController } from '../src/sim/harness';
-import { planNoviceTurn } from '../src/sim/noviceBot';
+import {
+  AVERAGE_PLAYER_CONFIG,
+  planAverageTurn,
+  planExpertTurn,
+  planNoviceTurn,
+} from '../src/sim/playerBots';
 import { planAITurn as planLegacyTurn } from './legacy-ai/index';
 
 type Args = Record<string, string>;
@@ -54,25 +61,9 @@ function parseArgs(argv: string[]): Args {
   return args;
 }
 
-/**
- * "Casual" human stand-in: the AI's own decision machinery played sloppier than Captain
- * (forgets some units, shakier tactics, a bit less production) but without Squire's
- * deliberate restraint. Roughly a reasonable player still learning the game.
- */
-const CASUAL_CONFIG: DifficultyConfig = {
-  ...DIFFICULTY_CONFIGS.normal,
-  noiseRange: 8,
-  dangerAwareness: 0.6,
-  focusFire: 0.5,
-  armyTargetMult: 0.85,
-  trainSkipChance: 0.15,
-  unitNeglectChance: 0.15,
-  economySkipChance: 0.1,
-};
-
-/** "Weak" human stand-in (from the QA evaluation): sloppier-but-active, between novice and casual. */
+/** "Weak" human stand-in (sloppier-but-active, between novice and average). */
 const WEAK_CONFIG: DifficultyConfig = {
-  ...DIFFICULTY_CONFIGS.normal,
+  ...AVERAGE_PLAYER_CONFIG,
   noiseRange: 14,
   dangerAwareness: 0.35,
   focusFire: 0.25,
@@ -85,14 +76,17 @@ const WEAK_CONFIG: DifficultyConfig = {
 
 function controllerFor(spec: string): SeatController {
   if (spec === 'novice') return planNoviceTurn;
-  if (spec === 'casual')
-    return (s, id, report) => planAITurn(s, id, 'normal', { config: CASUAL_CONFIG, onStrategy: report });
+  if (spec === 'average' || spec === 'casual') return planAverageTurn;
+  if (spec === 'expert') return planExpertTurn;
   if (spec === 'weak')
-    return (s, id, report) => planAITurn(s, id, 'normal', { config: WEAK_CONFIG, onStrategy: report });
+    return (s, id, report) => planAITurn(s, id, 'hard', { config: WEAK_CONFIG, onStrategy: report });
   const [kind, diff] = spec.split(':') as [string, Difficulty];
-  if (diff !== 'easy' && diff !== 'normal') throw new Error(`Bad controller ${spec}`);
+  if (diff !== 'easy' && diff !== 'normal' && diff !== 'hard') throw new Error(`Bad controller ${spec}`);
   if (kind === 'ai') return (s, id, report) => planAITurn(s, id, diff, { onStrategy: report });
-  if (kind === 'legacy') return (s, id) => planLegacyTurn(s, id, diff);
+  if (kind === 'legacy') {
+    if (diff === 'hard') throw new Error(`Legacy AI does not support hard`);
+    return (s, id) => planLegacyTurn(s, id, diff);
+  }
   throw new Error(`Unknown controller ${spec}`);
 }
 

@@ -5,7 +5,7 @@
 
 export type FactionId = 'humans' | 'orcs' | 'elves' | 'dwarves';
 export type PlayerId = string;
-export type Difficulty = 'easy' | 'normal';
+export type Difficulty = 'easy' | 'normal' | 'hard';
 export type MapSize = 16 | 18;
 export type PlayerAge = 1 | 2 | 3;
 
