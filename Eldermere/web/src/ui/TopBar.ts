@@ -26,8 +26,9 @@ export interface TopBarViewModel {
 }
 
 export interface TopBarCallbacks {
-  onOpenLeaderboard?: () => void;
   onCrownClick?: () => void;
+  /** @deprecated Leaderboard button retired; falls back to onCrownClick if provided. */
+  onOpenLeaderboard?: () => void;
   /** @deprecated Moved to ActionBar; kept optional for compatibility. */
   onOpenCodex?: () => void;
   /** @deprecated Moved to ActionBar; kept optional for compatibility. */
@@ -49,6 +50,7 @@ export class TopBar {
   private lastBannerKey: string | null = null;
   private lastBarKey: string | null = null;
   private crownPulseActive = false;
+  private crownDetached = false;
   private crownPulseTimer: number | null = null;
 
   constructor(container: HTMLElement, callbacks: TopBarCallbacks) {
@@ -70,6 +72,7 @@ export class TopBar {
   public hide(): void {
     this.clearCrownPulseTimer();
     this.crownPulseActive = false;
+    this.crownDetached = false;
     this.root.classList.add('hidden');
     this.aiBanner.classList.add('hidden');
     this.lastBannerKey = null;
@@ -78,6 +81,26 @@ export class TopBar {
 
   public update(vm: TopBarViewModel): void {
     this.render(vm);
+  }
+
+  public getCrownAnchorRect(): DOMRect | null {
+    const wrap =
+      this.root.querySelector<HTMLElement>('.sc-hud-crown-wrap') ??
+      this.root.querySelector<HTMLElement>('.top-pill-crown');
+    if (!wrap || typeof wrap.getBoundingClientRect !== 'function') {
+      return null;
+    }
+    const rect = wrap.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    return rect;
+  }
+
+  public setCrownDetached(detached: boolean): void {
+    this.crownDetached = detached;
+    const crownBtn = this.root.querySelector<HTMLElement>('.top-pill-crown');
+    crownBtn?.classList.toggle('is-hero-detached', detached);
   }
 
   public pulseCrown(): void {
@@ -115,6 +138,7 @@ export class TopBar {
   }
 
   private render(vm: TopBarViewModel): void {
+    const playerDef = FACTION_DEFINITIONS[vm.player.faction];
     const activeDef = FACTION_DEFINITIONS[vm.activePlayer.faction];
     const playerHeraldry = FACTION_HERALDRY[vm.player.faction];
     const activeHeraldry = FACTION_HERALDRY[vm.activePlayer.faction];
@@ -146,11 +170,15 @@ export class TopBar {
           : []);
     const totalShards = STAR_CROWN_TOTAL_SHARDS;
     const shardCount = Math.min(totalShards, shards.length);
-    const crownLabel = `Star-Crown: ${shardCount} of ${totalShards} pieces`;
+    const crownLabel = `Star-Crown: ${shardCount} of ${totalShards} pieces — View Crown Progress`;
+    const turn = Math.max(1, vm.turn ?? 1);
+    const maxTurns = vm.maxTurns ?? 0;
+    const turnLabel = maxTurns > 0 ? `Turn ${turn}/${maxTurns}` : `Turn ${turn}`;
 
     const barKey = [
       vm.player.faction,
-      vm.player.score,
+      turn,
+      maxTurns,
       vm.player.gold,
       vm.player.goldPerTurn,
       shards.join(','),
@@ -160,10 +188,11 @@ export class TopBar {
     }
     this.lastBarKey = barKey;
 
+    const detachedCls = this.crownDetached ? ' is-hero-detached' : '';
     const centerCrownHtml = `
       <button
         type="button"
-        class="top-pill-crown"
+        class="top-pill-crown${detachedCls}"
         data-action="crown"
         title="${esc(crownLabel)}"
         aria-label="${esc(crownLabel)}"
@@ -174,19 +203,15 @@ export class TopBar {
 
     this.root.innerHTML = `
       <div class="top-cluster top-cluster-left">
-        <button
-          type="button"
-          class="top-pill top-pill-leaderboard top-pill-merged"
-          data-action="leaderboard"
-          title="Realm Standings &amp; Civilization Info"
-          aria-label="Open Realm Standings — Glory Score ${vm.player.score}"
+        <div
+          class="top-pill top-pill-realm"
+          title="${esc(playerDef.name)} · ${esc(turnLabel)}"
         >
           <span class="faction-crest-badge top-crest-badge" style="background: ${playerHeraldry};">
             ${renderFactionCrest(vm.player.faction, 'icon icon-crest-sm')}
           </span>
-          ${renderIcon('trophy', 'icon icon-sm icon-star')}
-          <span class="top-glory-val">${vm.player.score.toLocaleString()}</span>
-        </button>
+          <span class="top-turn-val">${esc(turnLabel)}</span>
+        </div>
       </div>
 
       <div class="top-cluster top-cluster-center">
@@ -201,12 +226,6 @@ export class TopBar {
         </div>
       </div>
     `;
-
-    this.root
-      .querySelector<HTMLButtonElement>('[data-action="leaderboard"]')
-      ?.addEventListener('click', () => {
-        this.callbacks.onOpenLeaderboard?.();
-      });
 
     this.root
       .querySelector<HTMLButtonElement>('[data-action="crown"]')

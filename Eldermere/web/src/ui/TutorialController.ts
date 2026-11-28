@@ -482,7 +482,7 @@ export class TutorialController {
   private formatStepBodyHtml(stepId: TutorialStepId, step: TutorialStep): string {
     switch (stepId) {
       case 'crown':
-        return 'See the <strong>Star-Crown</strong> at the top? It tracks your path to victory! You already hold <strong>1 of 4 pieces</strong>—defeat each rival realm to claim theirs, reforge the Crown, and win!';
+        return 'See the <strong>Star-Crown</strong> at the top? It tracks your path to victory! You already hold <strong>1 of 4 pieces</strong>—defeat each rival realm to claim theirs, reforge the Crown, and win! Tap it anytime to view Crown progress.';
       case 'stars':
         return 'See those glowing <strong>Stars (★)</strong> up top? Spend them to harvest, train troops, and study lore—growing cities earns more each turn!';
       case 'upgrade': {
@@ -559,9 +559,9 @@ export class TutorialController {
       ? `
         ${nextBtnHtml}
         ${progressHtml}
-        <span class="tutorial-hint-note">End anytime in Scores</span>
+        <span class="tutorial-hint-note">End anytime via the Crown</span>
       `
-      : `<span class="tutorial-hint-note is-only-hint">End anytime in Scores</span>`;
+      : `<span class="tutorial-hint-note is-only-hint">End anytime via the Crown</span>`;
 
     // Only replay the pop-in when the step itself changes (not on sub-progress/nudge refreshes).
     const isNewStep = this.bannerEl.dataset.renderedStep !== stepId;

@@ -431,17 +431,10 @@ textarea {
   gap: 7px !important;
 }
 
-.top-pill-leaderboard {
+.top-pill-realm {
   padding-left: 6px !important;
-  cursor: pointer;
-}
-
-.top-pill-leaderboard:active {
-  transform: translateY(2px);
-  box-shadow:
-    0 2px 0 var(--ui-border-strong),
-    0 3px 8px rgba(0, 0, 0, 0.24),
-    var(--ui-inset-highlight) !important;
+  pointer-events: none;
+  cursor: default;
 }
 
 .top-crest-badge {
@@ -453,7 +446,6 @@ textarea {
   color: #ffffff !important;
 }
 
-.top-glory-val,
 .top-stars-val,
 .top-turn-val,
 .top-age-val {

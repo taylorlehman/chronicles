@@ -222,7 +222,6 @@ export class AppController {
     });
 
     this.topBar = new TopBar(this.hudRoot, {
-      onOpenLeaderboard: () => this.openLeaderboardModal(),
       onCrownClick: () => {
         if (this.tutorial.isActive() && this.tutorial.getStage() === 'crown') {
           triggerAndroidHaptic('tap');
@@ -909,6 +908,13 @@ export class AppController {
     const turn = this.state.turn;
     const age: PlayerAge = human ? getPlayerAge(human) : 1;
     const citiesCount = getPlayerCities(this.state, this.humanPlayerId).length;
+    const crownShardsCount = human
+      ? Array.isArray(human.crownShards) && human.crownShards.length > 0
+        ? new Set(human.crownShards).size
+        : human.alive
+          ? 1
+          : 0
+      : 1;
     const score = human?.score ?? 0;
 
     clearSavedCampaign();
@@ -934,6 +940,7 @@ export class AppController {
       turn,
       age,
       citiesCount,
+      crownShardsCount,
       score,
     });
   }
@@ -2342,27 +2349,79 @@ export class AppController {
       if (defeated && victor) {
         if (isHumanVictor) {
           triggerAndroidHaptic('victory');
-        }
-        this.pauseSceneBehindOpaqueSheet();
-        try {
-          await this.defeatNoticeModal.show(
-            defeated.faction,
-            victor.faction,
-            false,
-            isHumanVictor,
-            crownForge,
+          const captureEv = events.find(
+            (e): e is Extract<GameEvent, { type: 'CITY_CAPTURED' }> => e.type === 'CITY_CAPTURED',
           );
-        } finally {
-          this.resumeSceneAfterOpaqueSheet();
-        }
-        if (
-          isHumanVictor &&
-          token === this.sessionToken &&
-          this.state?.phase === 'playing' &&
-          this.topBar
-        ) {
-          this.refreshTopBar();
-          this.topBar.pulseCrown?.();
+          const originPoint =
+            captureEv && this.sceneManager?.projectWorldToViewport
+              ? this.sceneManager.projectWorldToViewport(
+                  tileToWorld(captureEv.coord.x, captureEv.coord.y, state.mapSize, 0.85),
+                )
+              : null;
+          const hudAnchorRect = this.topBar?.getCrownAnchorRect?.() ?? null;
+          const liveFlip = Boolean(hudAnchorRect && crownForge);
+
+          const fullCrownForge = crownForge
+            ? {
+                ...crownForge,
+                hudAnchorRect,
+                getHudAnchorRect: () => this.topBar?.getCrownAnchorRect?.() ?? null,
+                originPoint,
+                onDetachHudCrown: (detached: boolean) => {
+                  this.topBar?.setCrownDetached?.(detached);
+                },
+                onAfterScrimSettled: () => {
+                  this.pauseSceneBehindOpaqueSheet();
+                },
+                onBeforeReturnToHud: () => {
+                  this.refreshTopBar();
+                  this.resumeSceneAfterOpaqueSheet();
+                },
+                onLandedInHud: () => {
+                  this.refreshTopBar();
+                  this.topBar?.pulseCrown?.();
+                },
+              }
+            : undefined;
+
+          if (!liveFlip) {
+            this.pauseSceneBehindOpaqueSheet();
+          }
+          try {
+            await this.defeatNoticeModal.show(
+              defeated.faction,
+              victor.faction,
+              false,
+              true,
+              fullCrownForge,
+            );
+          } finally {
+            this.topBar?.setCrownDetached?.(false);
+            this.resumeSceneAfterOpaqueSheet();
+          }
+          if (
+            token === this.sessionToken &&
+            this.state?.phase === 'playing' &&
+            this.topBar
+          ) {
+            this.refreshTopBar();
+            if (!liveFlip) {
+              this.topBar.pulseCrown?.();
+            }
+          }
+        } else {
+          this.pauseSceneBehindOpaqueSheet();
+          try {
+            await this.defeatNoticeModal.show(
+              defeated.faction,
+              victor.faction,
+              false,
+              false,
+              crownForge,
+            );
+          } finally {
+            this.resumeSceneAfterOpaqueSheet();
+          }
         }
       }
     }
@@ -2541,8 +2600,20 @@ export class AppController {
   private buildLeaderboardViewModel(): LeaderboardModalViewModel | null {
     if (!this.state) return null;
     const human = getPlayer(this.state, this.humanPlayerId);
+    const crownShardsByPlayer: Record<PlayerId, readonly FactionId[]> = {};
+    for (const p of this.state.players) {
+      crownShardsByPlayer[p.id] =
+        Array.isArray(p.crownShards) && p.crownShards.length > 0
+          ? p.crownShards
+          : p.alive
+            ? [p.faction]
+            : [];
+    }
     return {
       entries: getLeaderboard(this.state),
+      humanPlayerId: this.humanPlayerId,
+      humanCrownShards: human ? crownShardsByPlayer[human.id] : [],
+      crownShardsByPlayer,
       turn: this.state.turn,
       maxTurns: this.state.config.maxTurns,
       age: human ? getPlayerAge(human) : 1,

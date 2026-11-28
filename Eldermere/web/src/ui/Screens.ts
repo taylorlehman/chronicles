@@ -60,7 +60,8 @@ export interface ResignationData {
   turn?: number;
   age?: PlayerAge;
   citiesCount: number;
-  score: number;
+  crownShardsCount?: number;
+  score?: number;
 }
 
 export interface ResignationCallbacks {
@@ -455,6 +456,8 @@ export class TitleScreen {
     const heraldry = FACTION_HERALDRY[saved.faction];
     const diffLabel = formatDifficultyLabel(saved.difficulty);
     const citiesLabel = saved.citiesCount === 1 ? '1 City' : `${saved.citiesCount} Cities`;
+    const crownCount = Math.max(0, Math.min(4, saved.crownShardsCount ?? 1));
+    const crownLabel = `${crownCount}/4 Crown ${crownCount === 1 ? 'Piece' : 'Pieces'}`;
 
     slot.classList.remove('hidden');
     slot.innerHTML = `
@@ -465,7 +468,7 @@ export class TitleScreen {
           </span>
           <div class="tt-resume-text">
             <span class="tt-resume-title">${esc(def.name)} · ${esc(def.realm)}</span>
-            <span class="tt-resume-sub">${esc(diffLabel)} · ${esc(citiesLabel)} · ${saved.score.toLocaleString()} Glory</span>
+            <span class="tt-resume-sub">${esc(diffLabel)} · ${esc(citiesLabel)} · ${esc(crownLabel)}</span>
           </div>
         </div>
         <button type="button" class="tt-resume-btn" data-action="resume">
@@ -533,7 +536,7 @@ export class GameOverOverlay {
     }
     return state.winReason === 'domination'
       ? 'The Star-Crown Reunites — All Rival Capitals Claimed'
-      : 'The Star-Crown Reunites — Eternal Glory';
+      : 'The Star-Crown Reunites Across Eldermere';
   }
 
   private render(): void {
@@ -653,7 +656,7 @@ export class GameOverOverlay {
               <p class="alderwick-bubble-lead">${esc(chronicle.alderwickQuote)}</p>
               <p class="alderwick-bubble-narration">${esc(chronicle.epilogue)}</p>
             `,
-            actionLabel: 'View Final Scores',
+            actionLabel: 'View Chronicle Summary',
           },
         ],
         () => {
@@ -672,10 +675,21 @@ export class GameOverOverlay {
     const reasonText = this.formatWinSubtitle(state, humanPlayerId);
     const earlyHumanDefeat = this.isHumanEliminatedEarly(state, humanPlayerId);
 
+    const shardCountOf = (p: GameState['players'][number]): number => {
+      if (Array.isArray(p.crownShards)) return Math.min(4, new Set(p.crownShards).size);
+      return p.alive ? 1 : 0;
+    };
+
     const rankedPlayers = [...state.players].sort((a, b) => {
       if (a.id === state.winnerId) return -1;
       if (b.id === state.winnerId) return 1;
-      return b.score - a.score;
+      const sa = shardCountOf(a);
+      const sb = shardCountOf(b);
+      if (sb !== sa) return sb - sa;
+      if (a.alive !== b.alive) return a.alive ? -1 : 1;
+      const ca = this.computeBreakdown(state, a.id).cities;
+      const cb = this.computeBreakdown(state, b.id).cities;
+      return cb - ca;
     });
 
     const rowsHtml = rankedPlayers
@@ -685,6 +699,8 @@ export class GameOverOverlay {
         const stats = scoreBreakdowns?.[player.id] ?? this.computeBreakdown(state, player.id);
         const isWinner = player.id === state.winnerId;
         const isHuman = player.id === humanPlayerId;
+        const shardsHeld = isWinner ? 4 : shardCountOf(player);
+        const crownCell = player.alive || isWinner ? `${shardsHeld}/4` : 'Fallen';
 
         return `
           <tr class="${isWinner ? 'winner-row' : ''} ${isHuman ? 'human-row' : ''}">
@@ -697,7 +713,7 @@ export class GameOverOverlay {
             <td class="col-fate">${player.alive ? 'Standing' : 'Fallen'}</td>
             <td class="num">${stats.cities}</td>
             <td class="num col-lore">${stats.techs}</td>
-            <td class="num score-total">${stats.total.toLocaleString()}</td>
+            <td class="num score-total">${crownCell}</td>
           </tr>
         `;
       })
@@ -731,7 +747,7 @@ export class GameOverOverlay {
                 <th class="col-fate">Fate</th>
                 <th class="num">Cities</th>
                 <th class="num col-lore">Lore</th>
-                <th class="num">Glory</th>
+                <th class="num">Crown</th>
               </tr>
             </thead>
             <tbody>
@@ -824,8 +840,8 @@ export class ResignationOverlay {
                 <strong class="resignation-stat-val">${data.citiesCount}</strong>
               </div>
               <div class="resignation-stat-card" role="listitem">
-                <span class="resignation-stat-label">Glory Score</span>
-                <strong class="resignation-stat-val">${data.score.toLocaleString()}</strong>
+                <span class="resignation-stat-label">Crown Pieces</span>
+                <strong class="resignation-stat-val">${Math.max(0, Math.min(4, data.crownShardsCount ?? 1))} / 4</strong>
               </div>
             </div>
           `,

@@ -1,11 +1,22 @@
 import { FACTION_DEFINITIONS } from '../game/data';
 import { AGE_ROMAN } from '../game/rules';
-import type { FactionId, LeaderboardEntry, PlayerAge } from '../game/types';
+import type { FactionId, LeaderboardEntry, PlayerAge, PlayerId } from '../game/types';
 import { FACTION_HERALDRY } from './Screens';
+import {
+  STAR_CROWN_TOTAL_SHARDS,
+  getShardPalette,
+  getShardSlotIndex,
+  renderShardPips,
+  renderStarCrownStandaloneSvg,
+  type CrownShardSlot,
+} from './StarCrown';
 import { renderFactionCrest, renderIcon } from './icons';
 
 export interface LeaderboardModalViewModel {
   entries: LeaderboardEntry[];
+  humanPlayerId?: PlayerId;
+  humanCrownShards?: readonly FactionId[];
+  crownShardsByPlayer?: Record<PlayerId, readonly FactionId[]>;
   turn?: number;
   maxTurns?: number;
   age?: PlayerAge;
@@ -41,7 +52,7 @@ export class LeaderboardModal {
     this.root.className = 'modal-backdrop leaderboard-modal hidden';
     this.root.setAttribute('role', 'dialog');
     this.root.setAttribute('aria-modal', 'true');
-    this.root.setAttribute('aria-label', 'Live Leaderboard');
+    this.root.setAttribute('aria-label', 'Star-Crown Progress');
     container.appendChild(this.root);
 
     this.root.addEventListener('click', (e) => {
@@ -94,15 +105,44 @@ export class LeaderboardModal {
     const vm = this.lastVm;
     if (!vm) return;
 
-    const maxScore = Math.max(1, ...vm.entries.map((e) => e.score));
+    const total = STAR_CROWN_TOTAL_SHARDS;
+    const shardsForEntry = (entry: LeaderboardEntry): readonly FactionId[] => {
+      const explicit = vm.crownShardsByPlayer?.[entry.playerId];
+      if (explicit) return explicit;
+      if (entry.isHuman && vm.humanCrownShards) return vm.humanCrownShards;
+      return entry.isEliminated ? [] : [entry.faction];
+    };
 
-    const rowsHtml = vm.entries
+    const humanEntry =
+      vm.entries.find((e) => e.playerId === vm.humanPlayerId) ??
+      vm.entries.find((e) => e.isHuman);
+    const humanShards: readonly FactionId[] =
+      vm.humanCrownShards ?? (humanEntry ? shardsForEntry(humanEntry) : ['humans']);
+    const humanSlots = new Set<CrownShardSlot>(humanShards.map((f) => getShardSlotIndex(f)));
+    const humanCount = Math.min(total, humanSlots.size);
+
+    const sortedEntries = [...vm.entries].sort((a, b) => {
+      const sa = shardsForEntry(a).length;
+      const sb = shardsForEntry(b).length;
+      if (sb !== sa) return sb - sa;
+      if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+      if (b.citiesCount !== a.citiesCount) return b.citiesCount - a.citiesCount;
+      if (a.isHuman !== b.isHuman) return a.isHuman ? -1 : 1;
+      return 0;
+    });
+
+    const rowsHtml = sortedEntries
       .map((entry) => {
         const fDef = FACTION_DEFINITIONS[entry.faction];
         const heraldry = FACTION_HERALDRY[entry.faction];
-        const pct = Math.max(4, Math.min(100, Math.round((entry.score / maxScore) * 100)));
-        const rankClass = `rank-${Math.min(4, Math.max(1, entry.rank))}`;
-        const citiesLabel = entry.citiesCount === 1 ? '1 City' : `${entry.citiesCount} Cities`;
+        const heldShards = shardsForEntry(entry);
+        const shardCount = Math.min(total, new Set(heldShards).size);
+        const pct = Math.max(0, Math.min(100, Math.round((shardCount / total) * 100)));
+        const citiesLabel = entry.isEliminated
+          ? 'Fallen'
+          : entry.citiesCount === 1
+            ? '1 City'
+            : `${entry.citiesCount} Cities`;
 
         const tagHtml = entry.isEliminated
           ? `<span class="lb-tag lb-tag-fallen">Fallen</span>`
@@ -110,17 +150,37 @@ export class LeaderboardModal {
             ? `<span class="lb-tag lb-tag-you">You</span>`
             : '';
 
+        const shardPipsHtml =
+          shardCount > 0
+            ? `<span class="lb-crown-pips" aria-hidden="true">${Array.from(new Set(heldShards))
+                .map((f) => {
+                  const p = getShardPalette(f);
+                  return `<span class="lb-crown-pip" style="background:${p.pip};" title="${esc(p.realmLabel)} Piece"></span>`;
+                })
+                .join('')}</span>`
+            : '';
+
+        const rightStatHtml = entry.isEliminated
+          ? `<span class="lb-crown-claimed">Claimed</span>`
+          : `
+            <div class="lb-crown-col">
+              ${shardPipsHtml}
+              <span class="lb-crown-count">${shardCount}/${total}</span>
+            </div>
+          `;
+
+        const ariaPieces = entry.isEliminated ? 'Claimed' : `${shardCount} of ${total} Crown pieces`;
+
         return `
           <button
             type="button"
             class="leaderboard-row is-clickable ${entry.isHuman ? 'is-human' : ''} ${entry.isEliminated ? 'is-eliminated' : ''}"
             data-lb-faction="${entry.faction}"
             style="--lb-heraldry: ${heraldry};"
-            aria-label="Inspect ${esc(fDef.name)} — Rank ${entry.rank}, ${esc(citiesLabel)}, ${entry.score} Glory"
+            aria-label="Inspect ${esc(fDef.name)} — ${esc(ariaPieces)}, ${esc(citiesLabel)}"
           >
             <div class="leaderboard-row-top">
               <div class="leaderboard-identity">
-                <span class="lb-rank-badge ${rankClass}" aria-label="Rank ${entry.rank}">#${entry.rank}</span>
                 <span class="faction-crest-badge lb-crest-badge" style="background: ${heraldry};">
                   ${renderFactionCrest(entry.faction, 'icon icon-crest-sm')}
                 </span>
@@ -137,9 +197,7 @@ export class LeaderboardModal {
               </div>
 
               <div class="leaderboard-right-group">
-                <div class="leaderboard-score-col">
-                  <span class="lb-score-val">${entry.score.toLocaleString()}</span>
-                </div>
+                ${rightStatHtml}
                 <span class="lb-row-chevron" aria-hidden="true">${renderIcon('chevronRight', 'icon icon-sm')}</span>
               </div>
             </div>
@@ -152,8 +210,14 @@ export class LeaderboardModal {
       })
       .join('');
 
-    const ageSubtitle = `Age ${AGE_ROMAN[vm.age ?? 1]}`;
-    const footerHint = 'Capture all capitals to win';
+    const turn = Math.max(1, vm.turn ?? 1);
+    const ageSubtitle = `Turn ${turn} · Age ${AGE_ROMAN[vm.age ?? 1]}`;
+    const footerHint = 'Capture all capitals to reforge the Crown';
+    const heroCrownSvg = renderStarCrownStandaloneSvg(humanShards, {
+      variant: 'standings',
+      showHalo: humanCount >= total,
+      showFloatingStars: humanCount >= total,
+    });
 
     this.root.innerHTML = `
       <div class="modal-panel leaderboard-modal-panel">
@@ -161,19 +225,27 @@ export class LeaderboardModal {
         <div class="modal-header">
           <div class="modal-title-wrap">
             <h2 class="modal-title">
-              <span class="lb-header-trophy">${renderIcon('trophy', 'icon')}</span>
-              <span>Realm Standings</span>
+              <span class="lb-header-crown">${renderIcon('crown', 'icon')}</span>
+              <span>Star-Crown Progress</span>
             </h2>
             <span class="modal-subtitle">
               <strong class="lb-turn-pill">${ageSubtitle}</strong>
             </span>
           </div>
-          <button type="button" class="btn btn-icon modal-close-btn" data-action="close" aria-label="Close Leaderboard">
+          <button type="button" class="btn btn-icon modal-close-btn" data-action="close" aria-label="Close Star-Crown Progress">
             ${renderIcon('close', 'icon')}
           </button>
         </div>
 
-        <div class="leaderboard-list" role="list" aria-label="Civilization Rankings">
+        <div class="standings-crown-hero" data-standings-crown="${humanCount}">
+          <div class="standings-crown-wrap">${heroCrownSvg}</div>
+          <div class="standings-crown-meta">
+            ${renderShardPips(humanSlots)}
+            <span class="standings-crown-caption">${humanCount} of ${total} Crown ${humanCount === 1 ? 'Piece' : 'Pieces'} Reforged</span>
+          </div>
+        </div>
+
+        <div class="leaderboard-list" role="list" aria-label="Realm Crown Progress">
           ${rowsHtml}
         </div>
 

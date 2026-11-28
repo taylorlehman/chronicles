@@ -201,16 +201,23 @@ export class FactionDossierModal {
       `;
     }
 
+    const shardCount = matchedPlayer
+      ? Array.isArray(matchedPlayer.crownShards) && matchedPlayer.crownShards.length > 0
+        ? matchedPlayer.crownShards.length
+        : matchedPlayer.alive
+          ? 1
+          : 0
+      : 0;
     const statusLine = matchedPlayer
       ? matchedPlayer.alive
-        ? `${matchedPlayer.score.toLocaleString()} Glory`
+        ? `${shardCount}/4 Crown ${shardCount === 1 ? 'Piece' : 'Pieces'}`
         : `Fallen (T${matchedPlayer.eliminatedOnTurn ?? '?'})`
       : '';
 
     const backBtnHtml = this.callbacks.onBack
       ? `
-        <button type="button" class="btn btn-secondary dossier-back-btn" data-action="back" aria-label="Back to Standings">
-          <span>&larr; Scores</span>
+        <button type="button" class="btn btn-secondary dossier-back-btn" data-action="back" aria-label="Back to Star-Crown Progress">
+          <span>&larr; Crown</span>
         </button>
       `
       : '';

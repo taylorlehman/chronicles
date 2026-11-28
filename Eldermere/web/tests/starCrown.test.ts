@@ -13,9 +13,13 @@ import {
 } from '../src/game';
 import { ActionBar } from '../src/ui/ActionBar';
 import { DefeatNoticeModal } from '../src/ui/DefeatNoticeModal';
-import { GameOverOverlay } from '../src/ui/Screens';
+import { FactionDossierModal } from '../src/ui/FactionDossierModal';
+import { LeaderboardModal } from '../src/ui/LeaderboardModal';
+import { GameOverOverlay, ResignationOverlay, TitleScreen } from '../src/ui/Screens';
 import {
   STAR_CROWN_TOTAL_SHARDS,
+  renderConstellationRingSvg,
+  renderCrownShardPiece,
   renderStarCrownForge,
   renderStarCrownHud,
   renderStarCrownVictory,
@@ -95,6 +99,19 @@ class MockElement {
       const host = new MockElement();
       this.children.push(host);
       return host;
+    }
+    if (
+      selector === '[data-resume-slot]' &&
+      (this.innerHTML.includes('data-resume-slot') ||
+        this.children.some((c) => c.innerHTML.includes('data-resume-slot')))
+    ) {
+      let existing = this.children.find((c) => c.dataset.mockSelector === selector);
+      if (!existing) {
+        existing = new MockElement();
+        existing.dataset.mockSelector = selector;
+        this.children.push(existing);
+      }
+      return existing;
     }
     return null;
   }
@@ -448,12 +465,21 @@ describe('Star-Crown Progression, HUD Integration, Tutorial & Celebrations', () 
       });
       const topRoot = topContainer.children[0];
       expect(topRoot.innerHTML).toContain('top-pill-crown');
+      expect(topRoot.innerHTML).toContain('top-pill-realm');
+      expect(topRoot.innerHTML).toContain('Turn 1');
+      expect(topRoot.innerHTML).toContain('is-bare');
       expect(topRoot.innerHTML).toContain('data-crown-count="2"');
       expect(topRoot.innerHTML).toContain('data-crown-total="4"');
+      expect(topRoot.innerHTML).not.toContain('sc-hud-velvet');
+      expect(topRoot.innerHTML).not.toContain('sc-hud-counter');
+      expect(topRoot.innerHTML).not.toContain('top-pill-leaderboard');
+      expect(topRoot.innerHTML).not.toContain('data-action="leaderboard"');
       expect(topRoot.innerHTML).not.toContain('bottom-age-medallion');
 
       topBar.pulseCrown();
       expect(topRoot.classList.contains('is-pulse')).toBe(true);
+      topBar.setCrownDetached(true);
+      topBar.setCrownDetached(false);
       topBar.destroy();
 
       const actionContainer = new MockElement();
@@ -611,6 +637,174 @@ describe('Star-Crown Progression, HUD Integration, Tutorial & Celebrations', () 
         addedShards: ['orcs'],
       });
       expect(victory).toContain('data-crown-victory="true"');
+      expect(victory).not.toContain('feGaussianBlur');
+
+      const shardSvg = renderCrownShardPiece('orcs');
+      expect(shardSvg).toContain('data-floating-slot="3"');
+      expect(shardSvg).not.toContain('feGaussianBlur');
+      expect(renderConstellationRingSvg()).toContain('sc-constellation-svg');
+    });
+
+    it('retires all player-facing Glory scores across Crown Progress, Dossier, Resume, Resign, and Chronicle Summary', () => {
+      const state = createGame({
+        humanFaction: 'humans',
+        difficulty: 'normal',
+        mapSize: 16,
+        maxTurns: 0,
+        seed: 91,
+      });
+      const human = state.players.find((p) => p.isHuman)!;
+      const orcs = state.players.find((p) => p.faction === 'orcs')!;
+      const elves = state.players.find((p) => p.faction === 'elves')!;
+      human.crownShards = ['humans', 'elves'];
+      orcs.crownShards = ['orcs'];
+      elves.alive = false;
+      elves.crownShards = [];
+      elves.score = 9999;
+
+      // 1. Crown Progress Modal (former LeaderboardModal): shows Star-Crown Progress & Crown Pieces, zero Glory
+      const lbContainer = new MockElement();
+      const lbModal = new LeaderboardModal(lbContainer as unknown as HTMLElement, {
+        onClose: vi.fn(),
+      });
+      lbModal.open({
+        entries: [
+          {
+            playerId: elves.id,
+            faction: 'elves',
+            name: 'Elves',
+            score: 9999,
+            citiesCount: 0,
+            unitsCount: 0,
+            techsCount: 2,
+            isHuman: false,
+            isEliminated: true,
+            rank: 1,
+          },
+          {
+            playerId: human.id,
+            faction: 'humans',
+            name: 'Humans',
+            score: 450,
+            citiesCount: 2,
+            unitsCount: 3,
+            techsCount: 2,
+            isHuman: true,
+            isEliminated: false,
+            rank: 2,
+          },
+          {
+            playerId: orcs.id,
+            faction: 'orcs',
+            name: 'Orcs',
+            score: 300,
+            citiesCount: 1,
+            unitsCount: 2,
+            techsCount: 1,
+            isHuman: false,
+            isEliminated: false,
+            rank: 3,
+          },
+        ],
+        humanPlayerId: human.id,
+        humanCrownShards: human.crownShards,
+        crownShardsByPlayer: {
+          [human.id]: ['humans', 'elves'],
+          [orcs.id]: ['orcs'],
+          [elves.id]: [],
+        },
+        turn: 7,
+        age: 2,
+      });
+      const lbHtml = lbContainer.children[0].innerHTML;
+      expect(lbHtml).toContain('Star-Crown Progress');
+      expect(lbHtml).toContain('2 of 4 Crown Pieces Reforged');
+      expect(lbHtml).toContain('2/4');
+      expect(lbHtml).not.toContain('9,999');
+      expect(lbHtml).not.toContain('Realm Standings');
+      expect(lbHtml).not.toContain('Glory');
+      lbModal.destroy();
+
+      // 2. Faction Dossier Modal: Crown pieces instead of Glory, "← Crown" back label
+      const dossierContainer = new MockElement();
+      const dossier = new FactionDossierModal(dossierContainer as unknown as HTMLElement, {
+        onBack: vi.fn(),
+        onClose: vi.fn(),
+      });
+      dossier.open({ humanPlayer: human, allPlayers: state.players }, 'humans');
+      const dossierHtml = dossierContainer.children[0].innerHTML;
+      expect(dossierHtml).toContain('2/4 Crown Pieces');
+      expect(dossierHtml).toContain('&larr; Crown');
+      expect(dossierHtml).not.toContain('Glory');
+      expect(dossierHtml).not.toContain('&larr; Scores');
+      dossier.destroy();
+
+      // 3. TitleScreen Resume Banner: shows Crown Pieces instead of Glory
+      const titleContainer = new MockElement();
+      const titleScreen = new TitleScreen(titleContainer as unknown as HTMLElement, {
+        onStartGame: vi.fn(),
+        onResumeGame: vi.fn(),
+      });
+      titleScreen.show();
+      titleScreen.setSavedCampaign({
+        faction: 'humans',
+        turn: 7,
+        crownShardsCount: 2,
+        score: 9999,
+        citiesCount: 2,
+        mapSize: 16,
+        difficulty: 'normal',
+        savedAt: Date.now(),
+      });
+      const titleRoot = titleContainer.children[0];
+      const resumeSlot = titleRoot.querySelector('[data-resume-slot]');
+      const titleHtml = resumeSlot?.innerHTML ?? '';
+      expect(titleHtml).toContain('2/4 Crown Pieces');
+      expect(titleHtml).not.toContain('Glory');
+      titleScreen.destroy();
+
+      // 4. ResignationOverlay: shows Crown Pieces instead of Glory Score
+      const resignContainer = new MockElement();
+      const resign = new ResignationOverlay(resignContainer as unknown as HTMLElement, {
+        onReturnToTitle: vi.fn(),
+      });
+      resign.show({
+        faction: 'humans',
+        turn: 7,
+        age: 2,
+        citiesCount: 2,
+        crownShardsCount: 2,
+        score: 9999,
+      });
+      const resignHtml = resignContainer.children[0].innerHTML;
+      expect(resignHtml).toContain('Crown Pieces');
+      expect(resignHtml).toContain('2 / 4');
+      expect(resignHtml).not.toContain('Glory Score');
+      expect(resignHtml).not.toContain('9,999');
+      resign.destroy();
+
+      // 5. GameOverOverlay Celebration + Chronicle Summary table: Crown column, zero Glory/Scores
+      const goContainer = new MockElement();
+      const go = new GameOverOverlay(goContainer as unknown as HTMLElement, {
+        onPlayAgain: vi.fn(),
+      });
+      state.phase = 'game_over';
+      state.winnerId = human.id;
+      state.winReason = 'domination';
+      human.crownShards = [...ALL_FACTIONS];
+      go.show({ state, humanPlayerId: human.id });
+      const goRoot = goContainer.children[0];
+      const alderwickHost = goRoot.children[0];
+      expect(alderwickHost?.innerHTML ?? '').toContain('View Chronicle Summary');
+      expect(alderwickHost?.innerHTML ?? '').not.toContain('View Final Scores');
+      // Advance directly into Chronicle Summary stage
+      (go as unknown as { stage: string; render: () => void }).stage = 'scores';
+      (go as unknown as { stage: string; render: () => void }).render();
+      expect(goRoot.innerHTML).toContain('>Crown<');
+      expect(goRoot.innerHTML).toContain('4/4');
+      expect(goRoot.innerHTML).not.toContain('>Glory<');
+      expect(goRoot.innerHTML).not.toContain('Eternal Glory');
+      go.destroy();
     });
   });
 });

@@ -480,6 +480,18 @@ export class SceneManager {
     return this.renderer.domElement;
   }
 
+  public projectWorldToViewport(worldPos: THREE.Vector3): { x: number; y: number } | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    this.camera.updateMatrixWorld();
+    const projected = worldPos.clone().project(this.camera);
+    const x = rect.left + ((projected.x + 1) * 0.5) * rect.width;
+    const y = rect.top + ((-projected.y + 1) * 0.5) * rect.height;
+    return { x, y };
+  }
+
   private clampDesiredTarget(): void {
     this.desiredTarget.x = THREE.MathUtils.clamp(
       this.desiredTarget.x,

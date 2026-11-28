@@ -62,6 +62,7 @@ export interface SavedCampaignRecord {
 export interface SavedCampaignSummary {
   faction: FactionId;
   turn: number;
+  crownShardsCount: number;
   score: number;
   citiesCount: number;
   mapSize: MapSize;
@@ -200,9 +201,15 @@ export function getSavedCampaignSummary(): SavedCampaignSummary | null {
   const human = getPlayer(record.state, record.humanPlayerId);
   if (!human) return null;
   const citiesCount = getPlayerCities(record.state, record.humanPlayerId).length;
+  const crownShardsCount = Array.isArray(human.crownShards) && human.crownShards.length > 0
+    ? new Set(human.crownShards).size
+    : human.alive
+      ? 1
+      : 0;
   return {
     faction: human.faction,
     turn: record.state.turn,
+    crownShardsCount,
     score: human.score,
     citiesCount,
     mapSize: record.state.mapSize,

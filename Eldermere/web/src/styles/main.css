@@ -850,24 +850,21 @@ body {
   transition: transform var(--btn-transition), border-color var(--btn-transition);
 }
 
-.top-pill-crest:hover,
-.top-pill-leaderboard:hover {
+.top-pill-crest:hover {
   border-color: var(--ui-accent-bright);
 }
 
-.top-pill-crest:active,
-.top-pill-leaderboard:active {
+.top-pill-crest:active {
   transform: scale(0.96);
 }
 
-.top-pill-leaderboard {
+.top-pill-realm {
   height: 40px;
   min-height: 40px;
-  padding: 0 11px;
-  gap: 5px;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: transform var(--btn-transition), border-color var(--btn-transition);
+  padding: 0 12px 0 6px;
+  gap: 7px;
+  pointer-events: none;
+  cursor: default;
 }
 
 .top-crest-badge {
@@ -875,7 +872,7 @@ body {
   height: 28px;
 }
 
-.top-glory-val {
+.top-turn-val {
   font-size: 13.5px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -2811,6 +2808,7 @@ body {
   width: min(480px, 100%);
 }
 
+.lb-header-crown,
 .lb-header-trophy {
   display: inline-flex;
   align-items: center;
@@ -2883,11 +2881,6 @@ body {
 .leaderboard-row.is-clickable:hover .lb-row-chevron {
   opacity: 1;
   transform: translateX(2px);
-}
-
-.top-pill-merged {
-  padding-left: 5px;
-  gap: 6px;
 }
 
 .leaderboard-row.is-human {
@@ -4013,9 +4006,9 @@ body {
     padding: 0;
   }
 
-  .top-pill-leaderboard {
-    padding: 0 9px;
-    gap: 4px;
+  .top-pill-realm {
+    padding: 0 9px 0 5px;
+    gap: 5px;
   }
 
   .top-pill-stars {
@@ -4058,11 +4051,11 @@ body {
     height: 24px;
   }
 
-  .top-pill-leaderboard {
+  .top-pill-realm {
     height: 36px;
     min-height: 36px;
-    padding: 0 7px;
-    gap: 3px;
+    padding: 0 8px 0 5px;
+    gap: 5px;
   }
 
   .top-pill-stars {
